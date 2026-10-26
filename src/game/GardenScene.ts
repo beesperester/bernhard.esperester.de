@@ -1,16 +1,12 @@
 import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
-import { Raster } from '../art/raster.ts';
-import { buildCatSheet, buildEyeSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
-import { buildGrounds, buildProps, buildUprightMask, buildWaterMask, TREE_W, type Prop } from '../art/tiles.ts';
-import { buildTerrain } from '../art/terrain.ts';
-import { FLORA, buildFloraSheet } from '../art/flora.ts';
-import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildHeldBat, buildMouse, buildHeldMouse, MOUSE_W, MOUSE_H, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildDashPuff, PUFF_W, PUFF_H, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ, buildBat, buildHangingBat, buildBeetle, buildDragonfly, BEETLE_COLOURS, BEETLE_W, BEETLE_H, DRAGONFLY_W, DRAGONFLY_H, buildOwl, buildOwlEyes, BAT_W, BAT_H, OWL_W, OWL_H } from '../art/critters.ts';
-import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, FEET, heightUnder, waterUnder, wetAt, iceAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
+import { COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
+import { buildProps, buildUprightMask, TREE_W, type Prop } from '../art/tiles.ts';
+import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, wetAt, iceAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
-import { Meadow, addFloraTextures } from './Meadow.ts';
+import { Meadow } from './Meadow.ts';
 import { Sunlight } from './Sunlight.ts';
 import { Clouds } from './Clouds.ts';
 import { PondReflection } from './PondReflection.ts';
@@ -23,10 +19,11 @@ import { RimLight } from './RimLight.ts';
 import { Lanterns } from './Lanterns.ts';
 import { NightWater } from './NightWater.ts';
 import { berlinClock } from '../world/sky.ts';
-import { snowCap } from '../art/furniture.ts';
 import { SEASON, rainfall } from '../world/season.ts';
-import { Weather, addWeatherTextures } from './Weather.ts';
+import { Weather } from './Weather.ts';
 import { Ambient } from './Ambient.ts';
+import { DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, step } from './movement.ts';
+import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { Net } from '../net/net.ts';
 import { sound } from '../audio/sound.ts';
@@ -38,42 +35,16 @@ import { askName, renderBoard } from '../ui/board.ts';
 import { cullerFor } from './Culler.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
 
-const SPEED = 64; // px per second
-const DASH_SPEED = 168;
-/** Creeping up on a bird, low to the ground. */
-const SNEAK_SPEED = 26;
-/** On ice: how quickly the cat's speed follows the keys while pushing (and while dashing), and how slowly a slide dies away (per second). */
-const ICE_GRIP = 1.6, ICE_DASH_GRIP = 7, ICE_GLIDE = 0.45;
-/** Dash lasts while held, up to this long. */
-const DASH_MS = 2500;
-/** Recovery after a full-length dash; shorter dashes recover proportionally faster. */
-const DASH_COOLDOWN_MS = 30000;
-const DASH_COOLDOWN_MIN_MS = 2000;
 // a cat that lands in the pond hops straight back out to dry land
 const HOP_MS = 480;
 const HOP_HEIGHT = 16;
-/** Walking (not jumping) climbs small rises like stairs, but not a rock or a cliff. */
-const STEP_UP = 3;
 /** How often the pond reflections are redrawn, ms. */
 const REFLECTION_MS = 33;
-/**
- * Corner slip: walking straight into an edge with an opening at most this many px
- * to the side slides the cat over into it, so one-tile gaps (the maze) are easy to enter.
- */
-const SLIP = 8;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
 const TICK_MS = 50;
 const SEND_MS = 100;
 const HEARTBEAT_MS = 1000;
 const STALE_MS = 15000;
-
-function toCanvas(r: Raster): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = r.w;
-  c.height = r.h;
-  c.getContext('2d')!.putImageData(new ImageData(r.data, r.w, r.h), 0, 0);
-  return c;
-}
 
 function loadCoat(): number {
   try {
@@ -126,9 +97,7 @@ export class GardenScene extends Phaser.Scene {
   private vz = 0;
   private ambient!: Ambient;
   private weather!: Weather;
-  private dashStart = 0;
-  private dashing = false;
-  private dashReadyAt = 0;
+  private readonly dash = new Dash();
   private lastDry = { x: 0, y: 0 };
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
   private vel = { x: 0, y: 0 };
@@ -142,7 +111,7 @@ export class GardenScene extends Phaser.Scene {
   }
 
   create(): void {
-    const canvases = this.makeTextures();
+    const canvases = makeTextures(this);
 
     const grounds = [0, 1].map((p) => this.add.image(0, 0, `ground-${p}`).setOrigin(0).setDepth(-100000));
     grounds[1].setVisible(false);
@@ -270,71 +239,8 @@ export class GardenScene extends Phaser.Scene {
     window.setInterval(() => this.sendState(), TICK_MS);
   }
 
-  private makeTextures() {
-    const tex = this.textures;
-    const cats = COATS.map((_, c) => {
-      const canvas = toCanvas(buildCatSheet(c));
-      const t = tex.addCanvas(`cat-${c}`, canvas)!;
-      for (let f = 0; f < FRAME_NAMES.length * 2; f++) t.add(f, 0, f * CAT, 0, CAT, CAT);
-      return canvas;
-    });
-    const grounds = buildGrounds();
-    grounds.forEach((g, i) => tex.addCanvas(`ground-${i}`, toCanvas(g)));
-    const terrain = buildTerrain(grounds[0]).map((t, i) => {
-      tex.addCanvas(`terrain-${i}`, toCanvas(t.raster));
-      return t;
-    });
-    const props = buildProps().map((p) => toCanvas(p.raster));
-    const flora = addFloraTextures(this, (i) => toCanvas(buildFloraSheet(FLORA[i])));
-    for (const [k, make] of Object.entries(ICONS)) tex.addCanvas(k, toCanvas(make()));
-    const sheet = (key: string, r: Raster, fw: number, fh: number) => {
-      const t = tex.addCanvas(key, toCanvas(r))!;
-      for (let f = 0; f * fw < r.w; f++) t.add(f, 0, f * fw, 0, fw, fh);
-    };
-    BUTTERFLY_COLOURS.forEach((_, i) => sheet(`butterfly-${i}`, buildButterfly(i), 7, 5));
-    sheet('bee', buildBee(), 4, 3);
-    tex.addCanvas('alert', toCanvas(buildAlert()));
-    COATS.forEach((_, c) => sheet(`cat-eyes-${c}`, buildEyeSheet(c), CAT, CAT));
-    tex.addCanvas('firefly', toCanvas(buildFirefly()));
-    tex.addCanvas('glow-firefly', toCanvas(buildGlow(9, 9, [200, 255, 120])));
-    tex.addCanvas('glow-puff', toCanvas(buildGlow(15, 15, [220, 255, 150])));
-    tex.addCanvas('glow-lamp', toCanvas(buildGlow(11, 11, [255, 220, 130])));
-    tex.addCanvas('glow-lantern', toCanvas(buildGlow(76, 40, [255, 190, 100], 6)));
-    sheet('frog', buildFrog(), FROG_W, FROG_H);
-    sheet('bat', buildBat(), BAT_W, BAT_H);
-    BEETLE_COLOURS.forEach((_, i) => sheet(`beetle-${i}`, buildBeetle(i), BEETLE_W, BEETLE_H));
-    sheet('dragonfly', buildDragonfly(), DRAGONFLY_W, DRAGONFLY_H);
-    sheet('bat-hang', buildHangingBat(), BAT_W, 7);
-    sheet('owl', buildOwl(), OWL_W, OWL_H);
-    sheet('owl-eyes', buildOwlEyes(), OWL_W, OWL_H);
-    sheet('held-frog', buildHeldFrog(), HELD_W, 5);
-    sheet('held-bat', buildHeldBat(), HELD_W, 5);
-    sheet('mouse', buildMouse(), MOUSE_W, MOUSE_H);
-    sheet('held-mouse', buildHeldMouse(), HELD_W, 5);
-    const lantern = buildLantern();
-    snowCap(lantern, SEASON.snow);
-    sheet('lantern', lantern, LANTERN_W, LANTERN_H);
-    BIRD_COLOURS.forEach((_, i) => {
-      sheet(`bird-${i}`, buildBird(i), BIRD_W, BIRD_H);
-      sheet(`held-bird-${i}`, buildHeldBird(i), HELD_W, 5);
-      tex.addCanvas(`feather-${i}`, toCanvas(buildFeather(i)));
-    });
-    sheet('ripple', buildRipples(), RIPPLE_W, RIPPLE_H);
-    addWeatherTextures(this, toCanvas);
-    sheet('dust', buildDust(), 6, 5);
-    sheet('dash-puff', buildDashPuff(), PUFF_W, PUFF_H);
-    tex.addCanvas('fish', toCanvas(buildFish()));
-    tex.addCanvas('fish-shadow', toCanvas(buildFishShadow()));
-    sheet('held-fish', buildHeldFish(), HELD_W, 5);
-    Z_SIZES.forEach((n, i) => tex.addCanvas(`z-${i}`, toCanvas(buildZ(n))));
-    const drop = new Raster(1, 1);
-    drop.set(0, 0, [232, 244, 255]);
-    tex.addCanvas('drop', toCanvas(drop));
-    return { cats, props, flora, terrain, water: buildWaterMask(grounds[0], grounds[1]) };
-  }
-
   /** Who casts what shadow: trees, lanterns and furniture by their outlines, and soft blobs under everything for the night. */
-  private makeShadows(props: Prop[], canvases: ReturnType<GardenScene['makeTextures']>, furniture: Furniture): Shadows {
+  private makeShadows(props: Prop[], canvases: ReturnType<typeof makeTextures>, furniture: Furniture): Shadows {
     const casters: Caster[] = [];
     const blobs: { x: number; y: number; w: number; h: number; depth: number }[] = [];
     props.forEach((p, i) => {
@@ -518,16 +424,8 @@ export class GardenScene extends Phaser.Scene {
     }
 
     // dash runs while the key is held (up to DASH_MS), then needs a long rest
-    if (dash && !this.dashing && now >= this.dashReadyAt) {
-      this.dashing = true;
-      this.dashStart = now;
-    }
-    if (this.dashing && (!dashHeld || now - this.dashStart >= DASH_MS)) {
-      this.dashing = false;
-      const used = Math.min(1, (now - this.dashStart) / DASH_MS);
-      this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, used * DASH_COOLDOWN_MS);
-    }
-    this.ui.setDashCooldown(Math.ceil(Math.max(0, this.dashReadyAt - now) / 1000));
+    this.dash.update(dash, dashHeld, now);
+    this.ui.setDashCooldown(Math.ceil(this.dash.cooldown(now) / 1000));
     if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || mew || grab)) me.setAct(Act.Idle, now);
 
@@ -554,7 +452,7 @@ export class GardenScene extends Phaser.Scene {
       return;
     }
     // pounce: dashing into prey grabs it, no swipe needed (fish have to be fished for)
-    if (this.dashing && !busy) {
+    if (this.dash.active && !busy) {
       const prey = this.ambient.preyNear(me);
       if (prey && !PREY[prey.kind].swipeOnly) {
         me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
@@ -562,8 +460,7 @@ export class GardenScene extends Phaser.Scene {
         this.net.catchPrey(prey.kind, prey.id);
         this.ate(prey.kind, prey.colour);
         this.catching = { swiped: true, got: prey.kind };
-        this.dashing = false;
-        this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, ((now - this.dashStart) / DASH_MS) * DASH_COOLDOWN_MS);
+        this.dash.stop(now);
         begin(Act.Catch);
         return;
       }
@@ -599,7 +496,7 @@ export class GardenScene extends Phaser.Scene {
     }
 
     // holding sneak: belly to the ground, creeping slowly (and quietly); dashing from it is a pounce
-    const low = sneakHeld && me.act !== Act.Jump && !this.dashing;
+    const low = sneakHeld && me.act !== Act.Jump && !this.dash.active;
     const to = (act: Act) => { if (me.act !== act) me.setAct(act, now); };
     const afoot = (act: Act) => act === Act.Idle || act === Act.Walk || act === Act.Crouch || act === Act.Sneak;
     // out on the ice the cat keeps its momentum: speed builds slowly, turns are wide, and it slides on
@@ -611,7 +508,7 @@ export class GardenScene extends Phaser.Scene {
       if (dx !== 0) me.facing = dx < 0 ? Facing.Left : Facing.Right;
       else me.facing = dy < 0 ? Facing.Up : Facing.Down;
       if (dx !== 0 && dy !== 0) { dx *= Math.SQRT1_2; dy *= Math.SQRT1_2; }
-      const speed = low ? SNEAK_SPEED : this.dashing ? DASH_SPEED : SPEED;
+      const speed = low ? SNEAK_SPEED : this.dash.active ? DASH_SPEED : WALK_SPEED;
       wx = dx * speed;
       wy = dy * speed;
       if (afoot(me.act)) to(low ? Act.Sneak : Act.Walk);
@@ -619,7 +516,7 @@ export class GardenScene extends Phaser.Scene {
       to(low ? Act.Crouch : Act.Idle);
     }
     if (icy) {
-      const k = Math.min(1, (this.dashing ? ICE_DASH_GRIP : moving ? ICE_GRIP : ICE_GLIDE) * dt);
+      const k = Math.min(1, (this.dash.active ? ICE_DASH_GRIP : moving ? ICE_GRIP : ICE_GLIDE) * dt);
       this.vel.x += (wx - this.vel.x) * k;
       this.vel.y += (wy - this.vel.y) * k;
     } else {
@@ -628,7 +525,9 @@ export class GardenScene extends Phaser.Scene {
     }
     if (Math.abs(this.vel.x) + Math.abs(this.vel.y) > (icy ? 1.5 : 0)) {
       const [bx, by] = [me.x, me.y];
-      this.move(this.vel.x * dt, this.vel.y * dt);
+      const body = { x: me.x, y: me.y, z: me.z, airborne: me.act === Act.Jump };
+      step(body, this.vel.x * dt, this.vel.y * dt);
+      me.x = body.x; me.y = body.y; me.z = body.z;
       // sliding into something stops the slide that way
       if (icy) {
         if (Math.abs(me.x - bx) < Math.abs(this.vel.x * dt) * 0.5) this.vel.x = 0;
@@ -715,52 +614,6 @@ export class GardenScene extends Phaser.Scene {
       resolution: Math.max(1, window.devicePixelRatio || 1),
     }).setOrigin(0.5, 1).setDepth(100001).setScale(1 / zoom);
     this.tweens.add({ targets: t, y: t.y - 14, alpha: 0, delay: 500, duration: 900, ease: 'Sine.easeIn', onComplete: () => t.destroy() });
-  }
-
-  /**
-   * Move horizontally, but only onto surfaces no higher than the cat currently is.
-   * Cats won't walk into the pond, but they can jump in.
-   */
-  private move(mx: number, my: number): void {
-    const me = this.me;
-    const airborne = me.act === Act.Jump;
-    const climb = airborne ? 0.5 : STEP_UP;
-    const hits = (x: number, y: number) => {
-      const [x0, y0, x1, y1] = [x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1];
-      return heightUnder(x0, y0, x1, y1) > me.z + climb || (!airborne && waterUnder(x0, y0, x1, y1));
-    };
-    // small steps, so walking up stairs can't skip past the step-up limit at low frame rates
-    const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my))));
-    let moved = false;
-    for (let i = 0; i < n; i++) {
-      if (mx && !hits(me.x + mx / n, me.y)) { me.x += mx / n; moved = true; }
-      if (my && !hits(me.x, me.y + my / n)) { me.y += my / n; moved = true; }
-      if (!airborne) me.z = Math.max(me.z, groundAt(me.x, me.y));
-    }
-    if (moved || (mx !== 0) === (my !== 0)) return;
-
-    // blocked going straight: look for an opening just to either side, the nearest one wins
-    const fx = Math.sign(mx), fy = Math.sign(my);
-    const at = (d: number): [number, number] => (fx ? [me.x, me.y + d] : [me.x + d, me.y]);
-    const opens = (side: number, d: number) => {
-      for (let k = 1; k <= d; k++) {
-        const [x, y] = at(side * k);
-        if (hits(x, y)) return false;
-      }
-      const [x, y] = at(side * d);
-      return !hits(x + fx, y + fy);
-    };
-    let slip = 0;
-    for (let d = 1; d <= SLIP; d++) {
-      const l = opens(-1, d), r = opens(1, d);
-      // equally close openings on both sides (dead centre on a post): don't guess
-      if (l && r) return;
-      if (l || r) { slip = l ? -d : d; break; }
-    }
-    if (!slip) return;
-    const step = Math.sign(slip) * Math.min(Math.abs(mx || my), Math.abs(slip));
-    const [x, y] = at(step);
-    if (!hits(x, y)) { me.x = x; me.y = y; }
   }
 }
 
