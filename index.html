@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#2e6e24" />
+    <meta name="description" content="A tiny garden full of cats. Every visitor is one." />
+    <title>bernhard.esperester.de</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="status" class="hud">loading…</div>
+    <div id="help" class="hud">← ↑ ↓ → move · SPACE jump · H hiss · R roll</div>
+    <div id="touch" hidden>
+      <div id="dpad"><span class="u"></span><span class="d"></span><span class="l"></span><span class="r"></span></div>
+      <div id="buttons">
+        <button data-btn="hiss" class="small">HISS</button>
+        <button data-btn="roll" class="small">ROLL</button>
+        <button data-btn="jump" class="a">A</button>
+      </div>
+    </div>
+    <noscript>This garden needs JavaScript to let the cats in.</noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

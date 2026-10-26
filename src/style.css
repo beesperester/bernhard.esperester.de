@@ -1,0 +1,124 @@
+:root {
+  --ink: #183018;
+  --paper: #e8f8d0;
+  --shell: #c8c4d8;
+  --shell-dark: #8c88a0;
+  --btn: #a02860;
+  --btn-dark: #601838;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #2e6e24;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#game, #game canvas {
+  position: fixed;
+  inset: 0;
+  image-rendering: pixelated;
+}
+
+.hud {
+  position: fixed;
+  left: 12px;
+  padding: 6px 10px;
+  font: 12px/1.2 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  pointer-events: none;
+}
+
+#status { top: max(12px, env(safe-area-inset-top)); }
+
+#help {
+  bottom: max(12px, env(safe-area-inset-bottom));
+  transition: opacity 1s;
+}
+#help.hidden { opacity: 0; }
+
+#touch {
+  position: fixed;
+  inset: auto 0 0 0;
+  height: 190px;
+  padding: 0 20px max(24px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  pointer-events: none;
+}
+#touch[hidden] { display: none; }
+#touch:not([hidden]) ~ #help { bottom: 210px; }
+
+#dpad {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  pointer-events: auto;
+  opacity: 0.85;
+}
+#dpad span {
+  position: absolute;
+  background: #303038;
+  border: 2px solid #181820;
+}
+#dpad .u, #dpad .d { left: 44px; width: 44px; height: 46px; }
+#dpad .l, #dpad .r { top: 44px; width: 46px; height: 44px; }
+#dpad .u { top: 0; border-bottom: 0; border-radius: 4px 4px 0 0; }
+#dpad .d { bottom: 0; border-top: 0; border-radius: 0 0 4px 4px; }
+#dpad .l { left: 0; border-right: 0; border-radius: 4px 0 0 4px; }
+#dpad .r { right: 0; border-left: 0; border-radius: 0 4px 4px 0; }
+#dpad::after {
+  content: '';
+  position: absolute;
+  left: 44px; top: 44px; width: 44px; height: 44px;
+  background: #303038;
+}
+#dpad[data-dir*='u'] .u, #dpad[data-dir*='d'] .d,
+#dpad[data-dir*='l'] .l, #dpad[data-dir*='r'] .r { background: #505060; }
+
+#buttons {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  gap: 14px 12px;
+  align-items: end;
+  pointer-events: auto;
+}
+#buttons button {
+  font: bold 12px ui-monospace, Menlo, monospace;
+  color: #fff;
+  background: var(--btn);
+  border: 3px solid var(--btn-dark);
+  box-shadow: 0 3px 0 var(--btn-dark);
+  touch-action: none;
+  opacity: 0.9;
+}
+#buttons button.down { transform: translateY(3px); box-shadow: none; }
+#buttons .small {
+  width: 62px; height: 30px;
+  border-radius: 15px;
+  background: #707080;
+  border-color: #404050;
+  box-shadow: 0 3px 0 #404050;
+  font-size: 11px;
+}
+#buttons .a {
+  grid-column: 2;
+  grid-row: 1;
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  font-size: 20px;
+}
+#buttons [data-btn='hiss'] { grid-column: 1; grid-row: 2; }
+#buttons [data-btn='roll'] { grid-column: 2; grid-row: 2; }
