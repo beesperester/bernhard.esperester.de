@@ -17,6 +17,8 @@ export class Sunlight {
   private w = 0;
   private h = 0;
   private gen = 0;
+  /** Smoothed sunshine, dimmed while a cloud passes over the view. */
+  private sun = 1;
 
   constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement) {
     this.scene = scene;
@@ -55,13 +57,19 @@ export class Sunlight {
     }
   }
 
-  update(time: number, dt: number): void {
+  /** `shade` is the cloud cover over the view, 0 (clear) to 1 (overcast). */
+  update(time: number, dt: number, shade = 0): void {
     const cam = this.scene.cameras.main;
     const t = time / 1000;
-    // slow shimmer: cross-fade between two ray layouts
+    this.sun += (1 - 0.85 * shade - this.sun) * Math.min(1, dt * 1.2);
+    // the rays breathe in and out on two slow, unrelated waves...
+    const breathe = 0.6 + 0.25 * Math.sin(t * 0.31) + 0.15 * Math.sin(t * 0.83 + 1.7);
+    // ...while cross-fading between two layouts and swaying a pixel or two
     const f = 0.5 + 0.5 * Math.sin(t * 0.45);
-    this.layers[0]?.setAlpha(0.55 + 0.45 * f);
-    this.layers[1]?.setAlpha(0.55 + 0.45 * (1 - f));
+    const sway = Math.sin(t * 0.21) * 2;
+    const glow = this.sun * breathe;
+    this.layers[0]?.setAlpha(glow * (0.35 + 0.65 * f)).setX(cam.width / 2 + Math.round(sway) * cam.zoom);
+    this.layers[1]?.setAlpha(glow * (0.35 + 0.65 * (1 - f))).setX(cam.width / 2 - Math.round(sway) * cam.zoom);
 
     const { w, h } = this;
     for (const m of this.motes) {
@@ -75,7 +83,7 @@ export class Sunlight {
       m.img
         // scroll-factor-0 objects are still zoomed around the camera centre
         .setPosition(cam.width / 2 + px - w / 2, cam.height / 2 + py - h / 2)
-        .setAlpha(Math.min(1, light * 1.4) * twinkle);
+        .setAlpha(Math.min(1, light * 1.4) * twinkle * this.sun);
     }
   }
 }

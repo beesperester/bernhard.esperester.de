@@ -94,3 +94,21 @@ export function buildDust(): Raster {
   r.paint(['.a..a.', 'a....a', '......', 'a....a', '.a.a..'], 12, 0, pal);
   return r;
 }
+
+/** Dark shape of a fish just below the surface, facing right. */
+export function buildFishShadow(): Raster {
+  const r = new Raster(10, 4);
+  r.paint(['.....sss..', 's.sssssss.', 'sssssssss.', 's.ssss....'], 0, 0, { s: hex('#1a3a78') });
+  return r;
+}
+
+/** A fish held in the mouth, facing left (head at the mouth): whole, half eaten, bones. */
+export const HELD_W = 8;
+export function buildHeldFish(): Raster {
+  const r = new Raster(HELD_W * 3, 5);
+  const pal = { o: hex('#803010'), x: hex('#f88830'), w: hex('#fff4e8'), e: hex('#201008'), b: hex('#f0ece0'), k: hex('#9a948a') };
+  r.paint(['..ooo..o', '.oxwxooo', 'oexxxxxo', '.oxxxooo', '..ooo..o'], 0, 0, pal);
+  r.paint(['..ooo...', '.oxwxo..', 'oexxxbkb', '.oxxo.k.', '..oo....'], HELD_W, 0, pal);
+  r.paint(['..k.k..k', '.kbkbkkb', 'kbbbbbbb', '.kbkbkkb', '..k.k..k'], HELD_W * 2, 0, pal);
+  return r;
+}

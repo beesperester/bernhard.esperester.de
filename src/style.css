@@ -125,6 +125,7 @@ html, body {
   opacity: 0.9;
 }
 #buttons button.down { transform: translateY(3px); box-shadow: none; }
+#buttons button.cooling { opacity: 0.45; font-size: 15px; }
 #buttons .small {
   width: 62px; height: 30px;
   border-radius: 15px;
@@ -144,3 +145,4 @@ html, body {
 #buttons .a.down { transform: translateY(-15px); }
 #buttons [data-btn='hiss'] { grid-column: 1; grid-row: 2; justify-self: center; }
 #buttons [data-btn='roll'] { grid-column: 2; grid-row: 2; justify-self: center; }
+#buttons [data-btn='catch'] { grid-column: 1 / span 2; grid-row: 3; justify-self: center; }

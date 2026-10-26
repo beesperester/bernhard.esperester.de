@@ -1,11 +1,11 @@
 // Peer-to-peer networking. Visitors find each other through public Nostr relays
 // (Trystero's default strategy); after that all traffic flows browser-to-browser
 // over WebRTC. The web server is never involved.
-import { joinRoom, type Room } from 'trystero';
+import { joinRoom, selfId, type Room } from 'trystero';
 import type { CatMsg } from '../game/state.ts';
 
 // bump the version whenever CatMsg changes so old and new clients don't mix
-const APP_ID = 'bernhard.esperester.de/garden-of-cats/v2';
+const APP_ID = 'bernhard.esperester.de/garden-of-cats/v3';
 /** A garden is "full" at this many cats; later visitors open the next one. */
 const ROOM_CAP = 20;
 const MAX_ROOMS = 50;
@@ -14,6 +14,8 @@ const SETTLE_MS = 4000;
 
 export interface NetEvents {
   onState: (peerId: string, msg: CatMsg) => void;
+  /** Another cat caught the surfacing fish with this id. */
+  onCatch: (peerId: string, fishId: number) => void;
   onLeave: (peerId: string) => void;
   onStatus: (garden: number, peers: number, settled: boolean) => void;
 }
@@ -21,6 +23,10 @@ export interface NetEvents {
 export class Net {
   private room: Room | null = null;
   private send: ((msg: CatMsg, target?: string) => void) | null = null;
+  private sendCatch: ((fishId: number) => void) | null = null;
+  /** Peer clock minus our clock, in ms, measured once when a peer joins. */
+  private offsets = new Map<string, number>();
+  readonly id = selfId;
   private garden = 0;
   private settled = false;
   private readonly getState: () => CatMsg;
@@ -38,6 +44,20 @@ export class Net {
 
   broadcast(msg: CatMsg): void {
     this.send?.(msg);
+  }
+
+  catchFish(fishId: number): void {
+    this.sendCatch?.(fishId);
+  }
+
+  /**
+   * Shared garden clock (ms). Everyone follows the clock of the peer with the
+   * lowest id, so seeded fauna plays out identically for all visitors.
+   */
+  now(): number {
+    let leader = selfId, offset = 0;
+    for (const [id, o] of this.offsets) if (id < leader) { leader = id; offset = o; }
+    return Date.now() + offset;
   }
 
   peerCount(): number {
@@ -60,13 +80,33 @@ export class Net {
       const msg = sanitize(data);
       if (msg) this.ev.onState(peerId, msg);
     };
+    const fish = room.makeAction<number>('fish');
+    this.sendCatch = (id) => void fish.send(id).catch(() => {});
+    fish.onMessage = (id, { peerId }) => {
+      if (this.room === room && typeof id === 'number' && Number.isInteger(id)) this.ev.onCatch(peerId, id);
+    };
+    // clock sync: ask a new peer for its time, take the best of a few round trips
+    const clock = room.makeAction<number, number>('clock', { kind: 'request', onRequest: () => Date.now() });
+    const syncClock = async (peerId: string) => {
+      let best = Infinity;
+      for (let i = 0; i < 3; i++) {
+        const t0 = Date.now();
+        const theirs = await clock.request(0, { target: peerId, timeoutMs: 3000 }).catch(() => null);
+        const t1 = Date.now();
+        if (typeof theirs !== 'number' || t1 - t0 >= best) continue;
+        best = t1 - t0;
+        this.offsets.set(peerId, theirs - (t0 + t1) / 2);
+      }
+    };
     room.onPeerJoin = (peerId) => {
       if (this.room !== room) return;
       this.send?.(this.getState(), peerId);
+      void syncClock(peerId);
       this.status();
     };
     room.onPeerLeave = (peerId) => {
       if (this.room !== room) return;
+      this.offsets.delete(peerId);
       this.ev.onLeave(peerId);
       this.status();
     };
@@ -79,6 +119,8 @@ export class Net {
         for (const id of Object.keys(room.getPeers())) this.ev.onLeave(id);
         this.room = null;
         this.send = null;
+        this.sendCatch = null;
+        this.offsets.clear();
         void room.leave();
         this.enter(garden + 1);
         return;

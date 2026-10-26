@@ -241,6 +241,24 @@ const sleep2 = patch(sleep1, [
   [0, 8, '.opoobobbbdbboo.'],
 ]);
 
+// ---- catching: paw raised, then swiped down-forward ----
+const catch1 = patch(sitSide, [
+  [0, 9, 'owwobbbbbbo.....'],
+  [0, 10, 'owwowwbbdbbo....'],
+  [0, 11, '.oo.owbbbdbbo...'],
+]);
+const catch2 = patch(sitSide, [
+  [0, 11, '..owwwbbbdbbo...'],
+  [0, 12, '.owwobbbbbdbo...'],
+  [0, 13, 'owwo.owbbbbbo...'],
+  [0, 14, 'oooo.obbbbbbboo.'],
+]);
+// ---- eating: chewing with the mouth open ----
+const chew = patch(sitSide, [
+  [0, 8, '.prbbbbbbo......'],
+  [0, 9, '.orwbbbbbbo.....'],
+]);
+
 export const FRAMES = {
   downStand, downWalk1, downWalk2,
   upStand, upWalk1, upWalk2,
@@ -250,6 +268,7 @@ export const FRAMES = {
   hiss1, hiss2,
   roll1, roll2, roll3,
   sleep1, sleep2,
+  catch1, catch2, chew,
 } as const;
 
 export type FrameName = keyof typeof FRAMES;

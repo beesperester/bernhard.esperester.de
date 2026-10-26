@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Act, Facing, frameFor, type CatMsg } from './state.ts';
+import { Act, ACT_MAX, EAT_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { COATS } from '../art/cat.ts';
 import { WORLD_W, WORLD_H, groundAt } from '../world/map.ts';
 
@@ -12,6 +12,8 @@ export class CatView {
   seq = 0;
   actStart = 0;
   coat: number;
+  /** Peer id (or our own id), used to seed effects identically for everyone. */
+  id = '';
   /** Height above the ground plane (standing on a hedge, mid-jump, …). */
   z = 0;
   /** Last rendered sheet frame, for reflections. */
@@ -23,6 +25,7 @@ export class CatView {
   readonly shadow: Phaser.GameObjects.Image;
   private readonly sprite: Phaser.GameObjects.Sprite;
   private readonly bubble: Phaser.GameObjects.Image;
+  private readonly held: Phaser.GameObjects.Image;
 
   constructor(scene: Phaser.Scene, x: number, y: number, coat: number) {
     this.x = x;
@@ -31,6 +34,7 @@ export class CatView {
     this.shadow = scene.add.image(x, y, 'shadow').setOrigin(0.5, 0.5).setAlpha(0.22);
     this.sprite = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1);
     this.bubble = scene.add.image(x, y, 'bubble-hiss').setOrigin(0.5, 1).setVisible(false);
+    this.held = scene.add.image(x, y, 'held-fish', 0).setVisible(false);
   }
 
   setAct(act: Act, now: number): void {
@@ -54,7 +58,22 @@ export class CatView {
     this.frame = frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
 
-    const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Roll ? 'bubble-roll' : null;
+    // a fish in the mouth while eating: whole, half, bones
+    const eating = this.act === Act.Eat && ms < EAT_MS - 400;
+    this.held.setVisible(eating);
+    if (eating) {
+      const right = this.facing === Facing.Right;
+      // the art faces left with the head at x=0; the head goes in the mouth, tail sticking out
+      this.held
+        .setFrame(ms < 900 ? 0 : ms < 1700 ? 1 : 2)
+        .setFlipX(!right)
+        .setOrigin(right ? 0 : 1, 0.5)
+        .setPosition(x + (right ? 5 : -5), y - 6 - Math.round(z))
+        .setDepth(y + 0.5);
+    }
+
+    const content = this.act === Act.Eat && ms > EAT_MS - 700;
+    const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Roll || content ? 'bubble-roll' : null;
     this.bubble.setVisible(!!emote);
     if (emote) {
       const bob = Math.floor(ms / 250) % 2;
@@ -67,6 +86,7 @@ export class CatView {
     this.shadow.destroy();
     this.sprite.destroy();
     this.bubble.destroy();
+    this.held.destroy();
   }
 }
 
@@ -91,7 +111,7 @@ export class RemoteCat extends CatView {
     this.ty = Phaser.Math.Clamp(y, 0, WORLD_H);
     this.tz = Phaser.Math.Clamp(z, 0, 40);
     this.facing = Phaser.Math.Clamp(facing, 0, 3) as Facing;
-    const a = Phaser.Math.Clamp(act, 0, 7) as Act;
+    const a = Phaser.Math.Clamp(act, 0, ACT_MAX) as Act;
     if (a !== this.act || seq !== this.seq) this.setAct(a, now);
     this.seq = seq;
     this.lastSeen = now;

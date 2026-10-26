@@ -1,18 +1,27 @@
 // DOM overlay: status line, key help, and Game Boy style touch controls.
 
-export type Button = 'jump' | 'hiss' | 'roll' | 'dash';
+export type Button = 'jump' | 'hiss' | 'roll' | 'dash' | 'catch';
 
 export interface Controls {
   up: boolean; down: boolean; left: boolean; right: boolean;
   /** Buttons pressed since the last frame. */
   pressed: Set<Button>;
+  /** Buttons currently held down. */
+  held: Set<Button>;
 }
 
-export const touch: Controls = { up: false, down: false, left: false, right: false, pressed: new Set() };
+export const touch: Controls = { up: false, down: false, left: false, right: false, pressed: new Set(), held: new Set() };
 
 const isTouch = () => matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 
-export function setupUI(): { setStatus: (s: string) => void; hideHelp: () => void } {
+export interface UI {
+  setStatus: (s: string) => void;
+  hideHelp: () => void;
+  /** Seconds until dash can be used again (0 = ready). */
+  setDashCooldown: (s: number) => void;
+}
+
+export function setupUI(): UI {
   const status = document.getElementById('status')!;
   const help = document.getElementById('help')!;
   const pad = document.getElementById('touch')!;
@@ -26,22 +35,38 @@ export function setupUI(): { setStatus: (s: string) => void; hideHelp: () => voi
 
   if (isTouch()) {
     pad.hidden = false;
-    help.textContent = 'D-pad to move · A jump · B dash · hiss & roll to talk';
+    help.textContent = 'D-pad to move · A jump · B dash · CATCH fish · hiss & roll to talk';
     setupDpad(document.getElementById('dpad')!);
     for (const btn of pad.querySelectorAll<HTMLElement>('[data-btn]')) {
       btn.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         touch.pressed.add(btn.dataset.btn as Button);
+        touch.held.add(btn.dataset.btn as Button);
         btn.classList.add('down');
       });
-      const up = () => btn.classList.remove('down');
+      const up = () => {
+        touch.held.delete(btn.dataset.btn as Button);
+        btn.classList.remove('down');
+      };
       btn.addEventListener('pointerup', up);
       btn.addEventListener('pointercancel', up);
       btn.addEventListener('pointerleave', up);
     }
   }
 
-  return { setStatus: (s) => (status.textContent = s), hideHelp };
+  let base = '';
+  let cooldown = 0;
+  const render = () => (status.textContent = cooldown ? `${base} · dash ${cooldown}s` : base);
+  const dashBtn = pad.querySelector<HTMLElement>('[data-btn="dash"]')!;
+  const setDashCooldown = (s: number) => {
+    if (s === cooldown) return;
+    cooldown = s;
+    render();
+    dashBtn.textContent = s ? String(s) : 'B';
+    dashBtn.classList.toggle('cooling', s > 0);
+  };
+
+  return { setStatus: (s) => { base = s; render(); }, hideHelp, setDashCooldown };
 }
 
 function setupDpad(el: HTMLElement): void {

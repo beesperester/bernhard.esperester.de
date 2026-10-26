@@ -2,7 +2,8 @@ import { frameIndex, type FrameName } from '../art/cat.ts';
 
 export const Facing = { Down: 0, Up: 1, Left: 2, Right: 3 } as const;
 export type Facing = (typeof Facing)[keyof typeof Facing];
-export const Act = { Idle: 0, Walk: 1, Sit: 2, Lick: 3, Jump: 4, Hiss: 5, Roll: 6, Sleep: 7 } as const;
+export const Act = { Idle: 0, Walk: 1, Sit: 2, Lick: 3, Jump: 4, Hiss: 5, Roll: 6, Sleep: 7, Catch: 8, Eat: 9 } as const;
+export const ACT_MAX = 9;
 export type Act = (typeof Act)[keyof typeof Act];
 
 /** Jump velocity and gravity in px/s: a jump peaks at ~14px, enough to clear a hedge. */
@@ -13,6 +14,10 @@ export const ROLL_MS = 2400;
 export const LICK_MS = 1600;
 export const SIT_AFTER_MS = 5000;
 export const SLEEP_AFTER_MS = 30000;
+export const CATCH_MS = 450;
+/** When during the catch the paw hits the water. */
+export const SWIPE_AT_MS = 180;
+export const EAT_MS = 2600;
 
 /** Everything other visitors need to draw a cat: [x, y, z, facing, act, seq, coat]. */
 export type CatMsg = [number, number, number, number, number, number, number];
@@ -23,8 +28,10 @@ const DIR: Record<number, 'down' | 'up' | 'side'> = { 0: 'down', 1: 'up', 2: 'si
 
 /** Pick the sprite-sheet frame for a cat's state. `ms` is time since the act started. */
 export function frameFor(act: Act, facing: Facing, ms: number, now: number, fast = false): number {
-  const d = DIR[facing];
+  let d = DIR[facing];
   const flip = facing === Facing.Right;
+  // catching and eating only exist side-on
+  if (act === Act.Catch || act === Act.Eat) d = 'side';
   let name: FrameName;
   switch (act) {
     case Act.Walk:
@@ -47,6 +54,12 @@ export function frameFor(act: Act, facing: Facing, ms: number, now: number, fast
       break;
     case Act.Sleep:
       name = cycle(['sleep1', 'sleep2'], 0.8, ms);
+      break;
+    case Act.Catch:
+      name = ms < SWIPE_AT_MS ? 'catch1' : 'catch2';
+      break;
+    case Act.Eat:
+      name = ms < EAT_MS - 600 ? cycle(['sitSide', 'chew'], 4, ms) : 'sitSide';
       break;
     default:
       name = `${d}Stand` as FrameName;
