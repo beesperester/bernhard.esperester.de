@@ -64,12 +64,12 @@ export class Sunlight {
     this.sun += (1 - 0.85 * shade - this.sun) * Math.min(1, dt * 1.2);
     // the rays breathe in and out on two slow, unrelated waves...
     const breathe = 0.6 + 0.25 * Math.sin(t * 0.31) + 0.15 * Math.sin(t * 0.83 + 1.7);
-    // ...while cross-fading between two layouts and swaying a pixel or two
+    // ...while cross-fading between two layouts. (They must not move: shifting a
+    // dithered layer by a pixel visibly pops the whole screen.)
     const f = 0.5 + 0.5 * Math.sin(t * 0.45);
-    const sway = Math.sin(t * 0.21) * 2;
     const glow = this.sun * breathe;
-    this.layers[0]?.setAlpha(glow * (0.35 + 0.65 * f)).setX(cam.width / 2 + Math.round(sway) * cam.zoom);
-    this.layers[1]?.setAlpha(glow * (0.35 + 0.65 * (1 - f))).setX(cam.width / 2 - Math.round(sway) * cam.zoom);
+    this.layers[0]?.setAlpha(glow * (0.35 + 0.65 * f));
+    this.layers[1]?.setAlpha(glow * (0.35 + 0.65 * (1 - f)));
 
     const { w, h } = this;
     for (const m of this.motes) {

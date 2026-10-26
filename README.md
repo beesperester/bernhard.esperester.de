@@ -3,7 +3,7 @@
 A tiny Game Boy Color–style garden. Every visitor is a cat.
 
 - **Arrow keys** move · **Space** jump · **Shift** (hold) dash · **C** catch · **H** hiss · **R** roll on your back
-- Dash lasts while Shift is held (max 2.5 s), then needs 30 s to recover
+- Dash lasts while Shift is held (max 2.5 s); recovery takes as long as it was used, ×12 (a full dash needs 30 s, at least 2 s)
 - Koi sometimes drift up near the surface, even close to the shore: stand next to one and press **C** to catch and eat it
 - Dashing through grass startles a burst of butterflies
 - Idle cats sit down after a few seconds and lick their paws now and then; after 30 s they curl up and sleep (zzZZzz)

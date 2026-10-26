@@ -20,9 +20,10 @@ export class Vignette {
     ctx.setTransform(w / 2, 0, 0, h / 2, w / 2, h / 2);
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.SQRT2);
     g.addColorStop(0, 'rgba(8, 20, 10, 0)');
-    g.addColorStop(0.45, 'rgba(8, 20, 10, 0)');
-    g.addColorStop(0.75, 'rgba(8, 20, 10, 0.22)');
-    g.addColorStop(1, 'rgba(8, 20, 10, 0.6)');
+    g.addColorStop(0.35, 'rgba(8, 20, 10, 0)');
+    g.addColorStop(0.62, 'rgba(8, 20, 10, 0.2)');
+    g.addColorStop(0.85, 'rgba(8, 20, 10, 0.5)');
+    g.addColorStop(1, 'rgba(8, 20, 10, 0.78)');
     ctx.fillStyle = g;
     ctx.fillRect(-1, -1, 2, 2);
     tex.refresh();

@@ -22,7 +22,9 @@ const SPEED = 64; // px per second
 const DASH_SPEED = 168;
 /** Dash lasts while held, up to this long. */
 const DASH_MS = 2500;
+/** Recovery after a full-length dash; shorter dashes recover proportionally faster. */
 const DASH_COOLDOWN_MS = 30000;
+const DASH_COOLDOWN_MIN_MS = 2000;
 // a cat that lands in the pond hops straight back out to dry land
 const HOP_MS = 480;
 const HOP_HEIGHT = 16;
@@ -106,6 +108,8 @@ export class GardenScene extends Phaser.Scene {
     });
     this.clouds = new Clouds(this, toCanvas);
     this.sun = new Sunlight(this, toCanvas);
+    // soft glow: bright areas (path, blossom, sunlight, white fur) bleed light into their surroundings
+    Phaser.Actions.AddEffectBloom(this.cameras.main, { threshold: 0.55, blurRadius: 3, blurSteps: 4, blurQuality: 0, blendAmount: 0.35 });
     this.vignette = new Vignette(this);
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)
@@ -321,7 +325,8 @@ export class GardenScene extends Phaser.Scene {
     }
     if (this.dashing && (!dashHeld || now - this.dashStart >= DASH_MS)) {
       this.dashing = false;
-      this.dashReadyAt = now + DASH_COOLDOWN_MS;
+      const used = Math.min(1, (now - this.dashStart) / DASH_MS);
+      this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, used * DASH_COOLDOWN_MS);
     }
     this.ui.setDashCooldown(Math.ceil(Math.max(0, this.dashReadyAt - now) / 1000));
     if (me.act === Act.Eat && elapsed >= EAT_MS) me.setAct(Act.Idle, now);
