@@ -17,6 +17,10 @@ export const catLight = {
   rimColour: 0xffffff,
   /** 0 by day, 1 at night: how much eyes glow. */
   night: 0,
+  /** How strong soft round shadows are (the night's, and faint by day under the cast ones). */
+  soft: 0.22,
+  /** How shaded the ground at (x, y) is, 0..1. */
+  shade: (_x: number, _y: number): number => 0,
   /** True if something stands in front of world point (x, y) for a cat whose feet are at feetY. */
   occluded: (_x: number, _y: number, _feetY: number): boolean => false,
 };
@@ -98,13 +102,18 @@ export class CatView {
     }
     this.last = { x: this.x, y: this.y, t: now };
     // the shadow lies on whatever surface is below the cat
-    this.shadow.setPosition(x, y - 1 - groundAt(this.x, this.y)).setDepth(y - 0.5);
+    this.shadow.setPosition(x, y - 1 - groundAt(this.x, this.y)).setDepth(y - 0.5).setAlpha(catLight.soft);
+    // standing in the shade of something
+    const shade = catLight.shade(this.x, this.y);
     this.sprite.setPosition(x, y - Math.round(z)).setDepth(y);
     this.frame = frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
+    if (shade > 0) this.sprite.setTint(Phaser.Display.Color.GetColor(255 - 90 * shade, 255 - 80 * shade, 255 - 50 * shade));
+    else this.sprite.clearTint();
     const top = y - Math.round(z);
-    this.rim.setVisible(catLight.rim > 0);
-    if (catLight.rim > 0) this.rim.setPosition(x, top).setDepth(y + 0.002).setFrame(this.frame).setAlpha(catLight.rim).setTint(catLight.rimColour);
+    const rim = catLight.rim * (1 - shade);
+    this.rim.setVisible(rim > 0);
+    if (rim > 0) this.rim.setPosition(x, top).setDepth(y + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour);
     // eyes shine in the dark, unless something stands in front of this cat
     const glow = catLight.night > 0.05 && (this.local || !catLight.occluded(x, top - 9, y));
     this.eyes.setVisible(glow);

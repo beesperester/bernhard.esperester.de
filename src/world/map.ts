@@ -350,6 +350,32 @@ export const COVERS: { x0: number; y0: number; x1: number; y1: number; front: nu
   .filter((f) => f.kind === 'shed')
   .map((f) => ({ x0: f.tx * TILE - 1, y0: f.ty * TILE - 25, x1: f.tx * TILE + 49, y1: f.ty * TILE + 31, front: f.ty * TILE + 30 }));
 
+/** Height of the shed's roof ridge, for its shadow. */
+const SHED_TALL = 30;
+
+/**
+ * How tall whatever stands on the ground at world pixel (x, y) is, above the
+ * terrain, for shadows: hedges, bushes, rocks, the fountain, fences and the
+ * shed (trees, lanterns, the low furniture and cats cast theirs from their sprites).
+ */
+export function casterHeight(x: number, y: number): number {
+  const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+  const ch = tileAt(tx, ty);
+  let h = 0;
+  const th = ch === 'F' || ch === 'g' ? 14 : HEIGHT[ch];
+  if (th) {
+    const [l, t, r, b] = INSET[ch] ?? [0, 0, 0, 0];
+    const lx = x - tx * TILE, ly = y - ty * TILE;
+    if (lx >= l && lx < TILE - r && ly >= t && ly < TILE - b) h = th;
+  }
+  for (const f of FURNITURE)
+    if (f.kind === 'shed') {
+      const [x0, y0, x1, y1] = FURNITURE_SOLIDS.shed[0];
+      if (x >= f.tx * TILE + x0 && x < f.tx * TILE + x1 && y >= f.ty * TILE + y0 && y < f.ty * TILE + y1) h = SHED_TALL;
+    }
+  return h;
+}
+
 // ---- lanterns ----
 // Small lanterns on the grass beside the paths, a good few tiles apart.
 const LANTERN_SPACING = 7;

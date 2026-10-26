@@ -1,12 +1,12 @@
 import Phaser from 'phaser';
 import { Raster } from '../art/raster.ts';
 import { buildCatSheet, buildEyeSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
-import { buildGround, buildProps, buildUprightMask, buildWaterMask, TREE_W } from '../art/tiles.ts';
+import { buildGround, buildProps, buildUprightMask, buildWaterMask, TREE_W, type Prop } from '../art/tiles.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, preyPoints, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
@@ -15,6 +15,7 @@ import { Clouds } from './Clouds.ts';
 import { PondReflection } from './PondReflection.ts';
 import { Trees } from './Trees.ts';
 import { Furniture } from './Furniture.ts';
+import { Shadows, type Caster } from './Shadows.ts';
 import { Vignette } from './Vignette.ts';
 import { Daylight } from './Daylight.ts';
 import { RimLight } from './RimLight.ts';
@@ -101,6 +102,7 @@ export class GardenScene extends Phaser.Scene {
   private daylight!: Daylight;
   private rims!: RimLight;
   private lanterns!: Lanterns;
+  private shadows!: Shadows;
   private nightWater!: NightWater;
   private nextClock = 0;
   private board!: Board;
@@ -167,7 +169,9 @@ export class GardenScene extends Phaser.Scene {
       catSheet: canvases.cats[0], catFrames: FRAME_NAMES.length * 2, catSize: CAT,
     });
     this.lanterns = new Lanterns(this);
+    this.shadows = this.makeShadows(props, canvases, furniture);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask);
+    catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
     catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)
@@ -291,6 +295,38 @@ export class GardenScene extends Phaser.Scene {
     return { cats, props, flora, terrain, water: buildWaterMask(grounds[0], grounds[1]) };
   }
 
+  /** Who casts what shadow: trees, lanterns and furniture by their outlines, and soft blobs under everything for the night. */
+  private makeShadows(props: Prop[], canvases: ReturnType<GardenScene['makeTextures']>, furniture: Furniture): Shadows {
+    const casters: Caster[] = [];
+    const blobs: { x: number; y: number; w: number; h: number; depth: number }[] = [];
+    props.forEach((p, i) => {
+      const c = canvases.props[i];
+      const lift = levelAt(Math.floor((p.x + TREE_W / 2) / TILE), Math.floor(p.depthY / TILE)) * LEVEL;
+      casters.push({ src: c, sx: 0, sy: 0, w: c.width, h: c.height, x: p.x, y: p.y, ground: p.depthY, lift, cap: Infinity });
+      blobs.push({ x: p.x + TREE_W / 2, y: p.depthY - lift - 1, w: 46, h: 14, depth: p.depthY - 0.01 });
+    });
+    const lantern = this.textures.get('lantern').getSourceImage() as HTMLCanvasElement;
+    for (const [x, y] of LANTERNS) {
+      const top = y - elevAt(x, y);
+      casters.push({ src: lantern, sx: 0, sy: 0, w: LANTERN_W, h: LANTERN_H, x: x - LANTERN_W / 2, y: top - LANTERN_H, ground: y, lift: elevAt(x, y), cap: LANTERN_H });
+      blobs.push({ x, y: top - 1, w: 12, h: 5, depth: y - 0.01 });
+    }
+    for (const { p, canvas } of furniture.pieces) {
+      const w = canvas.width, h = canvas.height;
+      // the shed is in the height map; the low things cast their outlines (their tops are deep, not tall)
+      if (h < 40) casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.y + h - 1, lift: 0, cap: 14 });
+      blobs.push({ x: p.x + w / 2, y: p.y + h - 2, w: w + 8, h: h < 40 ? 10 : 18, depth: p.depthY - 0.01 });
+    }
+    // bushes and rocks in the ground art
+    for (let ty = 0; ty < MAP_H; ty++)
+      for (let tx = 0; tx < MAP_W; tx++)
+        if ('br'.includes(tileAt(tx, ty))) {
+          const l = levelAt(tx, ty);
+          blobs.push({ x: tx * TILE + 8, y: ty * TILE + 13 - l * LEVEL, w: 20, h: 8, depth: l ? ty * TILE + 0.0012 : -99992 });
+        }
+    return new Shadows(this, { terrain: canvases.terrain, casters, blobs, catSheet: canvases.cats[0] });
+  }
+
   private fitZoom(): void {
     const { width, height } = this.scale.gameSize;
     const zoom = Math.max(2, Math.round(Math.min(width / 260, height / 220)));
@@ -364,6 +400,8 @@ export class GardenScene extends Phaser.Scene {
     this.daylight.update(gt);
     const light = this.daylight.light;
     this.rims.update(light);
+    this.shadows.update(light, cats);
+    catLight.soft = 0.06 + 0.2 * (1 - this.shadows.strength);
     catLight.rim = this.rims.strength;
     catLight.rimColour = this.rims.colour;
     catLight.night = light.night;

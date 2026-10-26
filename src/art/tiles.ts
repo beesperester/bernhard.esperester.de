@@ -334,7 +334,6 @@ export function buildGround(phase: number): Raster {
         default: grass(r, ox, oy, tx, ty);
       }
     }
-  castTreeShadows(r);
   shadeUnderCliffs(r);
   return r;
 }
@@ -389,29 +388,6 @@ function shadeUnderCliffs(r: Raster): void {
           const k = (py * r.w + px) * 4;
           r.data[k] *= 0.75; r.data[k + 1] *= 0.8; r.data[k + 2] *= 0.85;
         }
-    }
-}
-
-/** Canopy shadows fall to the lower right, away from the sun in the top-left. */
-function castTreeShadows(r: Raster): void {
-  const shade = new Uint8Array(r.w * r.h);
-  for (const [tx, ty] of treeTiles()) {
-    const [bx, by] = trunkBase(tx, ty);
-    const cx = bx + 9, cy = by - 3, rx = 30, ry = 11;
-    for (let y = Math.floor(cy - ry); y <= cy + ry; y++)
-      for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
-        if (x < 0 || y < 0 || x >= r.w || y >= r.h) continue;
-        const d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
-        // dithered soft edge
-        if (d < 1 && (d < 0.7 || bayer(x, y) > (d - 0.7) / 0.3)) shade[y * r.w + x] = 1;
-      }
-  }
-  for (let i = 0; i < shade.length; i++)
-    if (shade[i]) {
-      const k = i * 4;
-      r.data[k] = r.data[k] * 0.72;
-      r.data[k + 1] = r.data[k + 1] * 0.78;
-      r.data[k + 2] = r.data[k + 2] * 0.8 + 6;
     }
 }
 
