@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { Act, Prey } from './state.ts';
+import { Prey } from './state.ts';
+import { Wary, type Senses } from './Wary.ts';
 import type { CatView } from './CatView.ts';
 import type { PreyRef } from './Ambient.ts';
 import { DEPTH } from './Daylight.ts';
@@ -18,8 +19,8 @@ const FROG_SLOT = 6000, FROG_P = 0.55, FROG_MAX = 90000;
 /** Dark enough for night creatures (0..1). */
 const DARK = 0.5;
 const HOP_MS = 420;
-/** How close cats may get before a frog jumps back into the water. */
-const FROG_SCARE = { sneaking: 10, walking: 30, dashing: 56, loud: 48 };
+/** How close cats may get before a frog jumps back into the water: sneak up, then pounce. */
+const FROG_SENSES: Senses = { walking: 34, jumping: 48, hissing: 48, dashing: 56, notice: 28, react: 700, swipe: 30 };
 
 type Pt = [number, number];
 interface Swarm { id: number; at: Pt; n: number; t0: number; life: number }
@@ -45,10 +46,12 @@ export class NightLife {
   private readonly dived = new Map<number, number>();
   private readonly isCaught: (kind: Prey, id: number) => boolean;
   private readonly fx: Fx;
+  private readonly wary: Wary;
 
   constructor(scene: Phaser.Scene, isCaught: (kind: Prey, id: number) => boolean, fx: Fx) {
     this.isCaught = isCaught;
     this.fx = fx;
+    this.wary = new Wary(scene);
     this.bodies = new Pool(scene, 'firefly');
     this.glows = new Pool(scene, 'glow-firefly');
     this.frogs = new Pool(scene, 'frog');
@@ -75,6 +78,7 @@ export class NightLife {
     this.bodies.begin();
     this.glows.begin();
     this.frogs.begin();
+    this.wary.begin();
     const night = lightAt(gt).night;
     if (night > 0.02 || this.frogVisits.size) {
       this.updateFireflies(gt, night, prey, view);
@@ -83,6 +87,7 @@ export class NightLife {
     this.bodies.end();
     this.glows.end();
     this.frogs.end();
+    this.wary.end();
   }
 
   // ---------------------------------------------------------------- fireflies
@@ -174,27 +179,19 @@ export class NightLife {
         continue;
       }
 
-      for (const c of cats) {
-        const d = Math.hypot(c.x - x, c.y - y);
-        const low = c.act === Act.Crouch || c.act === Act.Sneak;
-        const r = c.act === Act.Catch ? 0
-          : c.act === Act.Hiss || c.act === Act.Jump ? FROG_SCARE.loud
-          : low ? (c.speed > 5 ? FROG_SCARE.sneaking : 0)
-          : c.speed > 110 ? FROG_SCARE.dashing
-          : c.speed > 5 ? FROG_SCARE.walking : 0;
-        const missed = c.act === Act.Catch && now - c.actStart > 260 && d < 30;
-        if (d < r || missed) {
-          this.dived.set(f.id, gt);
-          setTimeout(() => {
-            this.fx.splash(wx, wy, 0);
-            this.fx.ripple(wx, wy, 0);
-            this.fx.splashSound(wx, wy, 0.35, 1.5);
-          }, HOP_MS);
-          break;
-        }
+      const v = this.wary.watch(f.id, x, y, elevAt(x, y), cats, gt, now, FROG_SENSES);
+      if (!v.calm && !v.alert) {
+        this.dived.set(f.id, gt);
+        this.wary.forget(f.id);
+        setTimeout(() => {
+          this.fx.splash(wx, wy, 0);
+          this.fx.ripple(wx, wy, 0);
+          this.fx.splashSound(wx, wy, 0.35, 1.5);
+        }, HOP_MS);
       }
-      // sits, now and then puffing up its throat to croak
-      const croak = hash2(f.id, Math.floor(gt / 700), 931) < 0.18;
+      if (!v.calm && v.alert) this.wary.mark(x, y - elevAt(x, y) - 8);
+      // sits, now and then puffing up its throat to croak (not while it eyes a cat)
+      const croak = v.calm && hash2(f.id, Math.floor(gt / 700), 931) < 0.18;
       this.frogs.get('frog', croak ? 1 : 0).setOrigin(0.5, 1).setFlipX(right)
         .setPosition(Math.round(x), Math.round(y - elevAt(x, y))).setDepth(f.lily ? -99980 : y);
       prey.push({ kind: Prey.Frog, id: f.id, x, y, h: elevAt(x, y), colour: 0 });

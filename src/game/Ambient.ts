@@ -7,7 +7,8 @@ import { Birds } from './Birds.ts';
 import { NightLife } from './NightLife.ts';
 import { DEPTH } from './Daylight.ts';
 import { lightAt } from '../world/sky.ts';
-import { Act, Facing, Prey } from './state.ts';
+import { Act, Facing, Prey, SWIPE_AT_MS } from './state.ts';
+import { Wary, type Senses } from './Wary.ts';
 import type { CatView } from './CatView.ts';
 import { tileAt, wetAt, elevAt, TILE } from '../world/map.ts';
 import { sound } from '../audio/sound.ts';
@@ -35,12 +36,23 @@ const DUST_SPEED = 110;
 const BEE_FLEE_MS = 1600;
 /** Butterflies and bees below this height are within paw reach. */
 const REACH_H = 14;
+/** Resting butterflies and buzzing bees: sneak up, then pounce. */
+const FLY_SENSES: Senses = { walking: 36, jumping: 40, hissing: 48, dashing: 64, notice: 30, react: 650, swipe: 28 };
+const BEE_SENSES: Senses = { walking: 30, jumping: 36, hissing: 48, dashing: 56, notice: 26, react: 750, swipe: 26 };
+/**
+ * Fish lured by a paw splashing the water: one may come over from deeper water
+ * (decided by the splash, so everyone sees the same fish), stays a while, and
+ * swims off again.
+ */
+const LURE_P = 0.75, LURE_COME_MS = 1600, LURE_STAY_MS = 6500, LURE_GO_MS = 1800, LURE_EVERY_MS = 2500;
+const LURE_FROM: [number, number] = [36, 90];
 
 interface Jump { t0: number; x: number; y: number; dir: number }
 interface Shallow { id: number; t0: number; life: number; a: Pt; b: Pt; period: number }
 interface Butterfly { id: number; flower: Pt; colour: number; land: number; restMax: number }
 interface Takeoff { t: number; dir: number }
 interface Burst { t0: number; x: number; y: number; seed: number; n: number }
+interface Lure { id: number; t0: number; at: Pt; from: Pt }
 
 interface Particle {
   img: Img; kind: 'ripple' | 'drop' | 'z' | 'dust' | 'leap' | 'feather' | 'puff';
@@ -72,7 +84,11 @@ export class Ambient {
   private bursts: Burst[] = [];
   private readonly burstKeys = new Set<string>();
   private particles: Particle[] = [];
-  private readonly perCat = new WeakMap<CatView, { nextZ: number; nextDust: number; wet: boolean }>();
+  private readonly perCat = new WeakMap<CatView, { nextZ: number; nextDust: number; wet: boolean; swipe: number; nextLure: number }>();
+  private lures: Lure[] = [];
+  /** Bees that took fright (not caught, just gone). */
+  private readonly shooed = new Set<number>();
+  private readonly wary: Wary;
   private lastGt = -1;
   private prey: PreyRef[] = [];
   private readonly birds: Birds;
@@ -91,6 +107,7 @@ export class Ambient {
       splash: (x, y, dir) => this.splash(x, y, dir),
       splashSound: (x, y, v, r) => this.splashSound(x, y, v, r),
     });
+    this.wary = new Wary(scene);
     this.flowers = opts.flowers;
     this.water = opts.water;
     this.neighbours = this.flowers.map(([x, y], i) =>
@@ -122,15 +139,18 @@ export class Ambient {
     if (this.lastGt < 0 || Math.abs(gt - this.lastGt) > 5000) this.lastGt = gt; // first frame or clock jump
     for (const p of Object.values(this.pools)) p.begin();
     this.prey = [];
+    this.wary.begin();
     this.updateJumps(gt);
     this.updateShallows(gt);
-    this.updateBees(gt);
+    this.updateLures(gt);
+    this.updateBees(gt, cats);
     this.updateButterflies(gt, cats);
     this.birds.update(gt, this.scene.time.now, cats, this.prey);
     this.night.update(gt, this.scene.time.now, cats, this.prey, view);
     this.updateCats(gt, cats);
     this.updateParticles(dt);
     for (const p of Object.values(this.pools)) p.end();
+    this.wary.end();
     this.lastGt = gt;
   }
 
@@ -239,7 +259,9 @@ export class Ambient {
       let s: Shallow | null = null;
       if (hash2(k, 2, 902) < SHALLOW_P) {
         const r = seedRng(k, 2);
-        const spots = r() < 0.5 && this.shore.length ? this.shore : this.open;
+        // out in the open water: to get one near the shore, lure it with a splash
+        r();
+        const spots = this.open;
         if (spots.length) {
           const a = spots[Math.floor(r() * spots.length)];
           let b: Pt = a;
@@ -293,7 +315,7 @@ export class Ambient {
     return route;
   }
 
-  private updateBees(gt: number): void {
+  private updateBees(gt: number, cats: CatView[]): void {
     if (!this.flowers.length) return;
     for (let b = 0; b < BEES; b++)
       for (let e = Math.floor(gt / BEE_EPOCH) - 1; e <= Math.floor(gt / BEE_EPOCH); e++) {
@@ -301,7 +323,7 @@ export class Ambient {
         const dur = 22000 + hash2(b, e, 905) * 10000;
         const tau = gt - start;
         const id = e * BEES + b;
-        if (tau < 0 || tau > dur || this.caught.has(preyKey(Prey.Bee, id)) || lightAt(start).day < 0.5) continue;
+        if (tau < 0 || tau > dur || this.caught.has(preyKey(Prey.Bee, id)) || this.shooed.has(id) || lightAt(start).day < 0.5) continue;
         const i = Math.floor(tau / BEE_HOP), frac = (tau - i * BEE_HOP) / 1000;
         const route = this.beeRoute(b, e, i + 1);
         const [ax, ay] = this.flowers[route[i]], [bx, by] = this.flowers[route[i + 1]];
@@ -312,6 +334,17 @@ export class Ambient {
         const y = lerp(ay, by, m) + Math.sin(ang) * 3;
         const h = 7 + Math.sin(gt / 250 + b) * 2 + lerp(elevAt(ax, ay), elevAt(bx, by), m);
         const alpha = Math.min(1, tau / 1000, (dur - tau) / 1000);
+        if (alpha > 0.5) {
+          const v = this.wary.watch(preyKey(Prey.Bee, id), x, y, h, cats, gt, this.scene.time.now, BEE_SENSES);
+          if (!v.calm && !v.alert) {
+            // buzzes off in a huff
+            this.shooed.add(id);
+            if (this.shooed.size > 64) this.shooed.delete(this.shooed.values().next().value!);
+            this.fleeing.set(id, { t: gt, x, y, h, dir: Math.sign(x - v.cat.x) || 1 });
+            continue;
+          }
+          if (!v.calm) this.wary.mark(x, y - h - 5);
+        }
         this.pools.bee.get('bee', Math.floor(gt / 40) % 2)
           .setPosition(Math.round(x), Math.round(y - h)).setDepth(y)
           .setAlpha(alpha);
@@ -386,9 +419,10 @@ export class Ambient {
       const lift = elevAt(fx, fy);
       let off = this.takeoffs.get(b.id);
       if (!off && gt >= b.land) {
-        // a walking cat startles it only up close, so you can sneak up and pounce; a dashing one from afar
-        const near = cats.find((c) => Math.hypot(c.x - fx, c.y - fy) < (c.speed > DUST_SPEED ? 40 : c.speed > 5 ? 12 : 0));
-        if (near) off = { t: gt, dir: Math.sign(fx - near.x) || 1 };
+        // it keeps an eye on the cats: sneak up, then pounce
+        const v = this.wary.watch(preyKey(Prey.Fly, b.id), fx, fy, lift, cats, gt, this.scene.time.now, FLY_SENSES);
+        if (!v.calm && !v.alert) off = { t: gt, dir: Math.sign(fx - v.cat.x) || 1 };
+        else if (!v.calm) this.wary.mark(fx, fy - lift - 10);
         else if (gt >= b.land + b.restMax) off = { t: b.land + b.restMax, dir: hash2(b.id, 6, 909) < 0.5 ? -1 : 1 };
         if (off) this.takeoffs.set(b.id, off);
       }
@@ -427,7 +461,22 @@ export class Ambient {
     const now = this.scene.time.now;
     for (const c of cats) {
       let s = this.perCat.get(c);
-      if (!s) this.perCat.set(c, (s = { nextZ: 0, nextDust: 0, wet: false }));
+      if (!s) this.perCat.set(c, (s = { nextZ: 0, nextDust: 0, wet: false, swipe: -1, nextLure: 0 }));
+
+      // a paw slapping the water splashes, and may lure a fish over
+      if (c.act === Act.Catch && now - c.actStart >= SWIPE_AT_MS && s.swipe !== c.actStart) {
+        s.swipe = c.actStart;
+        const px = c.x + (c.facing === Facing.Right ? 11 : -11), py = c.y - 3;
+        if (c.z < 4 && this.water.isSet(Math.round(px), Math.round(py))) {
+          this.splash(px, py, Math.sign(px - c.x));
+          this.ripple(px, py, 0);
+          this.splashSound(px, py, 0.3, 1.4);
+          if (now >= s.nextLure) {
+            s.nextLure = now + LURE_EVERY_MS;
+            this.lure(strHash(`${c.id}:${c.seq}`), gt, [px, py]);
+          }
+        }
+      }
 
       // splash whenever a cat touches down in the pond
       const wet = c.z < 4 && wetAt(c.x, c.y);
@@ -463,6 +512,46 @@ export class Ambient {
           if (lightAt(gt).day > 0.5) this.bursts.push({ t0: gt, x: c.x, y: c.y, seed, n: 4 + (seed % 4) });
         }
       }
+    }
+  }
+
+  // ---------------------------------------------------------------- lured fish
+
+  /** Maybe bring a fish over from deeper water to a splash at `at`. */
+  private lure(seed: number, gt: number, at: Pt): void {
+    const r = seedRng(seed, 40);
+    if (r() >= LURE_P || this.lures.length >= 4) return;
+    const wet = ([x, y]: Pt) => this.water.isSet(Math.round(x), Math.round(y));
+    // where it comes from: open water within reach, with water all the way
+    const from = [...this.open, ...this.shore].filter(([x, y]) => {
+      const d = Math.hypot(x - at[0], y - at[1]);
+      if (d < LURE_FROM[0] || d > LURE_FROM[1]) return false;
+      for (let i = 1; i < 8; i++) if (!wet([lerp(x, at[0], i / 8), lerp(y, at[1], i / 8)])) return false;
+      return true;
+    });
+    if (!from.length) return;
+    const id = 1e9 + (seed % 1e8);
+    if (this.lures.some((l) => l.id === id)) return;
+    this.lures.push({ id, t0: gt, at, from: from[Math.floor(r() * from.length)] });
+  }
+
+  private updateLures(gt: number): void {
+    this.lures = this.lures.filter((l) => gt - l.t0 < LURE_COME_MS + LURE_STAY_MS + LURE_GO_MS && !this.caught.has(preyKey(Prey.Fish, l.id)));
+    for (const l of this.lures) {
+      const tau = gt - l.t0;
+      const [fx, fy] = l.from, [ax, ay] = l.at;
+      // nosing about a little in front of the paw
+      const wig = Math.sin(gt / 420 + l.id) * 3;
+      const sx = ax + wig, sy = ay + Math.sin(gt / 610 + l.id) * 1.2 + 1;
+      const k = tau < LURE_COME_MS ? smooth(tau / LURE_COME_MS)
+        : tau < LURE_COME_MS + LURE_STAY_MS ? 1
+        : 1 - smooth((tau - LURE_COME_MS - LURE_STAY_MS) / LURE_GO_MS);
+      const x = lerp(fx, sx, k), y = lerp(fy, sy, k);
+      const leaving = tau >= LURE_COME_MS + LURE_STAY_MS;
+      const heading = tau < LURE_COME_MS ? ax - fx : leaving ? fx - ax : Math.cos(gt / 420 + l.id);
+      const alpha = 0.45 * Math.min(1, tau / 600, leaving ? 1 - (tau - LURE_COME_MS - LURE_STAY_MS) / LURE_GO_MS : 1);
+      this.pools.shadow.get().setFlipX(heading < 0).setPosition(Math.round(x), Math.round(y)).setAlpha(alpha).setDepth(-99995);
+      if (alpha > 0.15) this.prey.push({ kind: Prey.Fish, id: l.id, x, y, h: 0, colour: 0 });
     }
   }
 

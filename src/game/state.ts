@@ -2,8 +2,8 @@ import { frameIndex, type FrameName } from '../art/cat.ts';
 
 export const Facing = { Down: 0, Up: 1, Left: 2, Right: 3 } as const;
 export type Facing = (typeof Facing)[keyof typeof Facing];
-export const Act = { Idle: 0, Walk: 1, Sit: 2, Lick: 3, Jump: 4, Hiss: 5, Roll: 6, Sleep: 7, Catch: 8, Eat: 9, Munch: 10, Crouch: 11, Sneak: 12, Feast: 13 } as const;
-export const ACT_MAX = 13;
+export const Act = { Idle: 0, Walk: 1, Sit: 2, Lick: 3, Jump: 4, Hiss: 5, Roll: 6, Sleep: 7, Catch: 8, Eat: 9, Munch: 10, Crouch: 11, Sneak: 12, Feast: 13, Mew: 14 } as const;
+export const ACT_MAX = 14;
 export type Act = (typeof Act)[keyof typeof Act];
 
 /** Jump velocity and gravity in px/s: a jump peaks at ~14px, enough to clear a hedge. */
@@ -12,6 +12,7 @@ export const GRAVITY = 600;
 export const HISS_MS = 1400;
 export const ROLL_MS = 2400;
 export const LICK_MS = 1600;
+export const MEW_MS = 900;
 export const SIT_AFTER_MS = 5000;
 export const SLEEP_AFTER_MS = 30000;
 export const CATCH_MS = 450;
@@ -24,6 +25,19 @@ export const MUNCH_MS = 1500;
 /** Things a cat can swipe at. */
 export const Prey = { Fish: 0, Fly: 1, Bee: 2, Bird: 3, Firefly: 4, Frog: 5 } as const;
 export type Prey = (typeof Prey)[keyof typeof Prey];
+
+/**
+ * What a catch is worth on the scoreboard: the bigger the prey, the more.
+ * Bees count against you (they sting); a blackbird (colour 3) beats the little birds.
+ */
+export function preyPoints(kind: Prey, colour = 0): number {
+  switch (kind) {
+    case Prey.Bee: return -1;
+    case Prey.Fly: case Prey.Firefly: return 1;
+    case Prey.Fish: case Prey.Frog: return 3;
+    case Prey.Bird: return colour === 3 ? 5 : 4;
+  }
+}
 
 /** Everything other visitors need to draw a cat: [x, y, z, facing, act, seq, coat]. */
 export type CatMsg = [number, number, number, number, number, number, number];
@@ -54,6 +68,10 @@ export function frameFor(act: Act, facing: Facing, ms: number, now: number, fast
       break;
     case Act.Hiss:
       name = cycle(['hiss1', 'hiss2'], 6, ms);
+      break;
+    case Act.Mew:
+      // sits up and calls out
+      name = d === 'side' ? 'sitSide' : 'sitDown';
       break;
     case Act.Roll:
       name = cycle(['roll1', 'roll2', 'roll1', 'roll3'], 6, ms);

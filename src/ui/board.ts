@@ -1,8 +1,26 @@
 // The scoreboard in the corner, and the dialog for naming your cat.
 import { NAME_AT, NAME_MAX, type Entry } from '../game/Board.ts';
 import { WOODS, buildPlank, rasterURL } from '../art/plank.ts';
+import { CAT, buildCatSheet, frameIndex } from '../art/cat.ts';
+import { Raster } from '../art/raster.ts';
 
 const SHOWN = 8;
+
+/** Each cat's face (head of its front-facing frame), by coat. */
+const faces = new Map<number, string>();
+function face(coat: number): string {
+  let url = faces.get(coat);
+  if (!url) {
+    const sheet = buildCatSheet(coat), head = new Raster(CAT, 11), f = frameIndex('downStand');
+    for (let y = 0; y < head.h; y++)
+      for (let x = 0; x < CAT; x++) {
+        const i = ((y + 1) * sheet.w + f * CAT + x) * 4;
+        if (sheet.data[i + 3]) head.set(x, y, [sheet.data[i], sheet.data[i + 1], sheet.data[i + 2]]);
+      }
+    faces.set(coat, (url = rasterURL(head)));
+  }
+  return url;
+}
 
 /** Every name is painted on a wooden plank: a few oak ones to vary, golden pine for you. */
 let planks: { oak: string[]; pine: string; walnut: string } | null = null;
@@ -33,13 +51,17 @@ export function renderBoard(rows: (Entry & { here: boolean })[], myId: string): 
     const place = document.createElement('span');
     place.className = 'rank';
     place.textContent = String(rank + 1);
+    const pic = document.createElement('img');
+    pic.className = 'face';
+    pic.alt = '';
+    pic.src = face(r.coat);
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = r.name;
     const n = document.createElement('span');
     n.className = 'n';
     n.textContent = String(r.score);
-    li.append(place, name, n);
+    li.append(place, pic, name, n);
     if (!r.here) li.title = 'left the garden';
     return li;
   }));

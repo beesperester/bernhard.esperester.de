@@ -30,6 +30,20 @@ const HEART = [
   '.......o.....',
 ];
 
+const NOTE = [
+  '..ooooooooo..',
+  '.owwwwwwwwwo.',
+  'owwwwwkkwwwwo',
+  'owwwwwkwkwwwo',
+  'owwwwwkwwkwwo',
+  'owwwwwkwwwwwo',
+  'owwwkkkwwwwwo',
+  '.owkkkkwwwwo.',
+  '..oookkooooo.',
+  '......owo....',
+  '.......o.....',
+];
+
 const YOU = [
   'ooooooo',
   'owwwwwo',
@@ -55,6 +69,7 @@ function make(rows: string[]): Raster {
 export const ICONS = {
   'bubble-hiss': () => make(HISS),
   'bubble-roll': () => make(HEART),
+  'bubble-mew': () => make(NOTE),
   you: () => make(YOU),
   shadow: () => make(SHADOW),
   mote: () => make(['m']),

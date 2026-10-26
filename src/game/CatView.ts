@@ -138,7 +138,7 @@ export class CatView {
     this.label.setVisible(!!this.name).setScale(1 / zoom).setPosition(x, y + 1 - Math.round(groundAt(this.x, this.y)));
 
     const content = ((this.act === Act.Eat || this.act === Act.Feast) && ms > EAT_MS - 700) || (this.act === Act.Munch && ms > MUNCH_MS - 500);
-    const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Roll || content ? 'bubble-roll' : null;
+    const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Mew ? 'bubble-mew' : this.act === Act.Roll || content ? 'bubble-roll' : null;
     this.bubble.setVisible(!!emote);
     if (emote) {
       const bob = Math.floor(ms / 250) % 2;

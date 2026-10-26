@@ -7,7 +7,7 @@ import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
-import { Act, CATCH_MS, EAT_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
+import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, preyPoints, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
 import { Sunlight } from './Sunlight.ts';
@@ -81,6 +81,7 @@ export class GardenScene extends Phaser.Scene {
     left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key;
     jump: Phaser.Input.Keyboard.Key; hiss: Phaser.Input.Keyboard.Key; roll: Phaser.Input.Keyboard.Key;
     dash: Phaser.Input.Keyboard.Key; catch: Phaser.Input.Keyboard.Key; sneak: Phaser.Input.Keyboard.Key;
+    mew: Phaser.Input.Keyboard.Key;
   };
   private lastInput = 0;
   private nextLick = 0;
@@ -194,13 +195,13 @@ export class GardenScene extends Phaser.Scene {
     const K = Phaser.Input.Keyboard.KeyCodes;
     this.keys = {
       up: kb.addKey(K.UP), down: kb.addKey(K.DOWN), left: kb.addKey(K.LEFT), right: kb.addKey(K.RIGHT),
-      jump: kb.addKey(K.SPACE), hiss: kb.addKey(K.H), roll: kb.addKey(K.R), dash: kb.addKey(K.SHIFT), catch: kb.addKey(K.C), sneak: kb.addKey(K.X),
+      jump: kb.addKey(K.SPACE), hiss: kb.addKey(K.H), roll: kb.addKey(K.R), dash: kb.addKey(K.SHIFT), catch: kb.addKey(K.C), sneak: kb.addKey(K.X), mew: kb.addKey(K.E),
     };
 
     this.ui = setupUI();
     this.ui.setStatus('looking for other cats…');
     setCatCount(1);
-    this.board = new Board((msg, target) => this.net.board(msg, target), () => renderBoard(this.board.ranking(), this.board.id));
+    this.board = new Board(this.me.coat, (msg, target) => this.net.board(msg, target), () => renderBoard(this.board.ranking(), this.board.id));
     renderBoard(this.board.ranking(), this.board.id);
     this.net = new Net(() => this.state(), {
       onState: (id, msg) => {
@@ -390,13 +391,14 @@ export class GardenScene extends Phaser.Scene {
     const jump = JD(k.jump) || touch.pressed.has('jump');
     const hiss = JD(k.hiss) || touch.pressed.has('hiss');
     const roll = JD(k.roll) || touch.pressed.has('roll');
+    const mew = JD(k.mew) || touch.pressed.has('mew');
     const dash = JD(k.dash) || touch.pressed.has('dash');
     const dashHeld = k.dash.isDown || touch.held.has('dash');
     const grab = JD(k.catch) || touch.pressed.has('catch');
     const sneakHeld = k.sneak.isDown || touch.held.has('sneak');
     touch.pressed.clear();
     const moving = dx !== 0 || dy !== 0;
-    if (moving || jump || hiss || roll || dash || grab || sneakHeld) {
+    if (moving || jump || hiss || roll || mew || dash || grab || sneakHeld) {
       this.lastInput = now;
       this.ui.hideHelp();
     }
@@ -423,7 +425,7 @@ export class GardenScene extends Phaser.Scene {
     };
 
     // finish timed acts
-    if ((me.act === Act.Hiss && elapsed >= HISS_MS) || (me.act === Act.Roll && elapsed >= ROLL_MS)) me.setAct(Act.Idle, now);
+    if ((me.act === Act.Hiss && elapsed >= HISS_MS) || (me.act === Act.Roll && elapsed >= ROLL_MS) || (me.act === Act.Mew && elapsed >= MEW_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Lick && elapsed >= LICK_MS) {
       me.setAct(Act.Sit, now);
       this.nextLick = now + 4000 + Math.random() * 7000;
@@ -441,7 +443,7 @@ export class GardenScene extends Phaser.Scene {
     }
     this.ui.setDashCooldown(Math.ceil(Math.max(0, this.dashReadyAt - now) / 1000));
     if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
-    if (me.act === Act.Sleep && (jump || hiss || roll || grab)) me.setAct(Act.Idle, now);
+    if (me.act === Act.Sleep && (jump || hiss || roll || mew || grab)) me.setAct(Act.Idle, now);
 
     // catching: swipe at a fish, butterfly, bee or bird within a tile of the cat
     const busy = me.act === Act.Jump || me.act === Act.Catch || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast;
@@ -453,15 +455,15 @@ export class GardenScene extends Phaser.Scene {
       begin(Act.Catch);
       return;
     }
-    // pounce: dashing into a bird on the ground grabs it, no swipe needed
+    // pounce: dashing into prey grabs it, no swipe needed (fish have to be fished for)
     if (this.dashing && !busy) {
       const prey = this.ambient.preyNear(me);
-      if (prey?.kind === Prey.Bird) {
+      if (prey && prey.kind !== Prey.Fish) {
         me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
-        this.ate(prey.kind);
-        this.catching = { swiped: true, got: Prey.Bird };
+        this.ate(prey.kind, prey.colour);
+        this.catching = { swiped: true, got: prey.kind };
         this.dashing = false;
         this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, ((now - this.dashStart) / DASH_MS) * DASH_COOLDOWN_MS);
         begin(Act.Catch);
@@ -477,7 +479,7 @@ export class GardenScene extends Phaser.Scene {
         if (prey) {
           this.ambient.catchPrey(prey.kind, prey.id, me);
           this.net.catchPrey(prey.kind, prey.id);
-          this.ate(prey.kind);
+          this.ate(prey.kind, prey.colour);
           c.got = prey.kind;
         }
       }
@@ -494,6 +496,7 @@ export class GardenScene extends Phaser.Scene {
     }
     const grounded = me.act !== Act.Jump;
     if (hiss && grounded) begin(Act.Hiss);
+    else if (mew && grounded) begin(Act.Mew);
     else if (roll && grounded) begin(Act.Roll);
     else if (jump && grounded) {
       begin(Act.Jump);
@@ -505,7 +508,7 @@ export class GardenScene extends Phaser.Scene {
     const to = (act: Act) => { if (me.act !== act) me.setAct(act, now); };
     const afoot = (act: Act) => act === Act.Idle || act === Act.Walk || act === Act.Crouch || act === Act.Sneak;
     if (moving) {
-      if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast)
+      if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Mew || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast)
         me.setAct(Act.Idle, now);
       if (dx !== 0) me.facing = dx < 0 ? Facing.Left : Facing.Right;
       else me.facing = dy < 0 ? Facing.Up : Facing.Down;
@@ -553,9 +556,11 @@ export class GardenScene extends Phaser.Scene {
     if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS) me.setAct(Act.Sleep, now);
   }
 
-  /** Count a catch, and at NAME_AT snacks offer a name of our own. */
-  private ate(kind: Prey): void {
-    this.board.ate(kind);
+  /** Count a catch (bigger prey, more points), and at NAME_AT snacks offer a name of our own. */
+  private ate(kind: Prey, colour: number): void {
+    const points = preyPoints(kind, colour);
+    this.board.ate(points);
+    this.scorePop(points);
     const me = this.board.me;
     if (me.score < NAME_AT || me.custom || this.naming || asked(this.board.id)) return;
     this.naming = true;
@@ -570,6 +575,22 @@ export class GardenScene extends Phaser.Scene {
       kb.enableGlobalCapture();
       kb.resetKeys();
     });
+  }
+
+  /** "+3" floating up from our cat after a catch (or "-1" after a bee). */
+  private scorePop(points: number): void {
+    const me = this.me;
+    const zoom = this.cameras.main.zoom;
+    const t = this.add.text(Math.round(me.x), Math.round(me.y - me.z) - 20, points > 0 ? `+${points}` : String(points), {
+      fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+      fontSize: '12px',
+      fontStyle: 'bold',
+      color: points > 0 ? '#ffe890' : '#ff8080',
+      stroke: '#183018',
+      strokeThickness: 3,
+      resolution: Math.max(1, window.devicePixelRatio || 1),
+    }).setOrigin(0.5, 1).setDepth(100001).setScale(1 / zoom);
+    this.tweens.add({ targets: t, y: t.y - 14, alpha: 0, delay: 500, duration: 900, ease: 'Sine.easeIn', onComplete: () => t.destroy() });
   }
 
   /**

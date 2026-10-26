@@ -40,6 +40,7 @@ export class CatSounds {
 
       if (started) {
         if (c.act === Act.Hiss) void sound.play('hiss', { at, volume: 0.7, rate: vary(0.93, 1.07) });
+        if (c.act === Act.Mew) void sound.play('mew', { at, volume: 0.6, rate: vary(0.92, 1.1) });
         // a real jump bumps seq; just walking off a ledge doesn't
         if (c.act === Act.Jump && c.seq !== s.seq) void sound.play('jump', { at, volume: 0.35, rate: vary(0.95, 1.1) });
         if (c.act === Act.Munch) void sound.play('eat', { at, volume: 0.55, rate: vary(1.1, 1.25) });

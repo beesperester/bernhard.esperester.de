@@ -1,4 +1,3 @@
-import { Prey } from './state.ts';
 
 // The garden's scoreboard: how much every cat has eaten. There is no server,
 // so the board lives in the visitors' browsers: every cat owns its own entry
@@ -10,6 +9,8 @@ export type Entry = {
   /** A cat's id, kept in its browser so a reload doesn't lose its score. */
   id: string;
   name: string;
+  /** Its coat, for the face on the board. */
+  coat: number;
   score: number;
   /** Chosen by its owner (rather than given at random). */
   custom: boolean;
@@ -20,6 +21,8 @@ export type Entry = {
 /** Snacks needed to earn a name of your own choosing. */
 export const NAME_AT = 100;
 export const NAME_MAX = 16;
+
+import { COATS } from '../art/cat.ts';
 
 const ADJ = [
   'Sleepy', 'Fluffy', 'Sneaky', 'Tiny', 'Grumpy', 'Velvet', 'Dusty', 'Misty', 'Lucky', 'Fuzzy', 'Ginger', 'Pepper',
@@ -56,12 +59,12 @@ export class Board {
   private readonly send: (msg: BoardMsg, target?: string) => void;
   private readonly changed: () => void;
 
-  constructor(send: (msg: BoardMsg, target?: string) => void, changed: () => void) {
+  constructor(coat: number, send: (msg: BoardMsg, target?: string) => void, changed: () => void) {
     this.send = send;
     this.changed = changed;
     // the name given on the first visit (or chosen since) comes back on later ones
     const saved = loadName();
-    this.entries.set(this.id, { id: this.id, name: saved?.name ?? randomName(), score: 0, custom: saved?.custom ?? false, v: 0 });
+    this.entries.set(this.id, { id: this.id, name: saved?.name ?? randomName(), coat, score: 0, custom: saved?.custom ?? false, v: 0 });
     saveName(this.me);
   }
 
@@ -101,10 +104,9 @@ export class Board {
     this.changed();
   }
 
-  /** Our cat caught something: a snack is a point, a bee sting costs one. */
-  ate(kind: Prey): void {
-    const me = this.me;
-    this.update({ score: Math.max(0, me.score + (kind === Prey.Bee ? -1 : 1)) });
+  /** Our cat caught something worth `points` (bigger prey more, a bee sting costs one). */
+  ate(points: number): void {
+    this.update({ score: Math.max(0, this.me.score + points) });
   }
 
   /** Is this name free for us to take? */
@@ -169,11 +171,12 @@ export function sanitizeBoard(d: unknown): BoardMsg | null {
   const { me, all } = d as Record<string, unknown>;
   const entry = (e: unknown): Entry | null => {
     if (!e || typeof e !== 'object') return null;
-    const { id, name, score, custom, v } = e as Record<string, unknown>;
+    const { id, name, coat, score, custom, v } = e as Record<string, unknown>;
     if (typeof id !== 'string' || !/^[a-z0-9]{8,24}$/.test(id)) return null;
     if (typeof name !== 'string' || !name.trim() || name.length > NAME_MAX) return null;
+    if (!Number.isInteger(coat) || (coat as number) < 0 || (coat as number) >= COATS.length) return null;
     if (!Number.isInteger(score) || (score as number) < 0 || !Number.isInteger(v) || typeof custom !== 'boolean') return null;
-    return { id, name: name.trim(), score: score as number, custom, v: v as number };
+    return { id, name: name.trim(), coat: coat as number, score: score as number, custom, v: v as number };
   };
   const mine = entry(me);
   if (!mine) return null;
