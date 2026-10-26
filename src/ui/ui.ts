@@ -16,6 +16,7 @@ export function setupUI(): { setStatus: (s: string) => void; hideHelp: () => voi
   const status = document.getElementById('status')!;
   const help = document.getElementById('help')!;
   const pad = document.getElementById('touch')!;
+  document.getElementById('credit')!.textContent = `© ${__BUILD_YEAR__} Bernhard Esperester · build ${__BUILD__}`;
 
   let helpTimer = 0;
   const hideHelp = () => {

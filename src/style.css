@@ -47,6 +47,26 @@ html, body {
 }
 #help.hidden { opacity: 0; }
 
+#credit {
+  left: auto;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  padding: 3px 7px;
+  font-size: 10px;
+  opacity: 0.85;
+}
+/* narrow windows: stack above the key help */
+@media (max-width: 760px) {
+  #credit { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 36px); }
+}
+/* on touch devices the buttons own the bottom: tuck it under the status line */
+#touch:not([hidden]) ~ #credit {
+  left: 12px;
+  right: auto;
+  bottom: auto;
+  top: calc(max(12px, env(safe-area-inset-top)) + 34px);
+}
+
 #touch {
   position: fixed;
   inset: auto 0 0 0;
