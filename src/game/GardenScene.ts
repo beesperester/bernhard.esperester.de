@@ -168,7 +168,13 @@ export class GardenScene extends Phaser.Scene {
       trees: [...reflect.props, ...furniture.pieces], upright: buildUprightMask(), terrain: canvases.terrain,
       catSheet: canvases.cats[0], catFrames: FRAME_NAMES.length * 2, catSize: CAT,
     });
-    this.lanterns = new Lanterns(this);
+    // what can stand in front of a lantern's light
+    const source = (key: string) => this.textures.get(key).getSourceImage() as HTMLCanvasElement;
+    this.lanterns = new Lanterns(this, [
+      ...props.map((p, i) => ({ canvas: canvases.props[i], x: p.x, y: p.y, w: canvases.props[i].width, h: canvases.props[i].height, depth: p.depthY })),
+      ...furniture.pieces.map(({ p, canvas }) => ({ canvas, x: p.x, y: p.y, w: canvas.width, h: canvas.height, depth: p.depthY })),
+      ...canvases.terrain.map((t, i) => ({ canvas: source(`terrain-${i}`), x: t.x, y: t.y, w: t.raster.w, h: t.raster.h, depth: t.depth })),
+    ]);
     this.shadows = this.makeShadows(props, canvases, furniture);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
