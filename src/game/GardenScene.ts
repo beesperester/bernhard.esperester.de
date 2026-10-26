@@ -5,7 +5,7 @@ import { buildCatSheet, buildEyeSheet, COATS, CAT, FRAME_NAMES } from '../art/ca
 import { buildGround, buildProps, buildUprightMask, buildWaterMask, TREE_W, type Prop } from '../art/tiles.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
-import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ, buildBat, buildHangingBat, buildOwl, buildOwlEyes, BAT_W, BAT_H, OWL_W, OWL_H } from '../art/critters.ts';
+import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ, buildBat, buildHangingBat, buildBeetle, buildDragonfly, BEETLE_COLOURS, BEETLE_W, BEETLE_H, DRAGONFLY_W, DRAGONFLY_H, buildOwl, buildOwlEyes, BAT_W, BAT_H, OWL_W, OWL_H } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, preyPoints, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
@@ -284,6 +284,8 @@ export class GardenScene extends Phaser.Scene {
     tex.addCanvas('glow-lantern', toCanvas(buildGlow(76, 40, [255, 190, 100], 6)));
     sheet('frog', buildFrog(), FROG_W, FROG_H);
     sheet('bat', buildBat(), BAT_W, BAT_H);
+    BEETLE_COLOURS.forEach((_, i) => sheet(`beetle-${i}`, buildBeetle(i), BEETLE_W, BEETLE_H));
+    sheet('dragonfly', buildDragonfly(), DRAGONFLY_W, DRAGONFLY_H);
     sheet('bat-hang', buildHangingBat(), BAT_W, 7);
     sheet('owl', buildOwl(), OWL_W, OWL_H);
     sheet('owl-eyes', buildOwlEyes(), OWL_W, OWL_H);
@@ -538,7 +540,7 @@ export class GardenScene extends Phaser.Scene {
         if (c.got === Prey.Fish) begin(Act.Eat);
         else if (c.got === Prey.Bird || c.got === Prey.Frog) begin(Act.Feast);
         else if (c.got === Prey.Firefly) begin(Act.Munch);
-        else if (c.got === Prey.Fly) begin(Act.Munch);
+        else if (c.got === Prey.Fly || c.got === Prey.Beetle || c.got === Prey.Dragonfly) begin(Act.Munch);
         else if (c.got === Prey.Bee) begin(Act.Hiss); // ouch, it stung
         else me.setAct(Act.Idle, now);
         this.catching = null;

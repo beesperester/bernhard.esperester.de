@@ -271,3 +271,36 @@ export function buildOwlEyes(): Raster {
   OWL.forEach((rows, f) => r.paint(rows.map((row) => row.replace(/[^e]/g, '.')), f * OWL_W, 0, { e: hex('#ffd848') }));
   return r;
 }
+
+// beetle, 7x4, side on, facing left: two walking frames (legs swapped)
+//   s shell  d spot or shine  h head  l legs
+export const BEETLE_W = 7;
+export const BEETLE_H = 4;
+/** [shell, spot, head] for a ladybird, a black ground beetle and a green rose chafer. */
+export const BEETLE_COLOURS: [string, string, string][] = [
+  ['#d82820', '#181010', '#181010'],
+  ['#2c2a34', '#6a6880', '#141218'],
+  ['#3a9a48', '#a8e070', '#1c4a24'],
+];
+export function buildBeetle(i: number): Raster {
+  const [s, d, h] = BEETLE_COLOURS[i].map(hex);
+  const pal = { s, d, h, o: OUTLINE, l: hex('#181010') };
+  const r = new Raster(BEETLE_W * 2, BEETLE_H);
+  r.paint(['..ooo..', '.osdso.', 'hossdso', '.l.l.l.'], 0, 0, pal);
+  r.paint(['..ooo..', '.osdso.', 'hossdso', 'l.l.l..'], BEETLE_W, 0, pal);
+  return r;
+}
+
+// dragonfly, 10x5, seen from above, facing left: frame 0 wings out, 1 swept back
+export const DRAGONFLY_W = 10;
+export const DRAGONFLY_H = 5;
+export function buildDragonfly(): Raster {
+  const pal = { e: hex('#40c0a8'), t: hex('#2a5aa0'), b: hex('#3c88e0'), k: hex('#1c3870'), w: hex('#e8f4ff') };
+  const r = new Raster(DRAGONFLY_W * 2, DRAGONFLY_H);
+  r.paint(['..ww.ww...', '..ww.ww...', 'eetbkbkbkb', '..ww.ww...', '..ww.ww...'], 0, 0, pal);
+  r.paint(['....w.w...', '..www.w...', 'eetbkbkbkb', '..www.w...', '....w.w...'], DRAGONFLY_W, 0, pal);
+  // see-through wings
+  for (let y = 0; y < DRAGONFLY_H; y++)
+    for (let x = 0; x < r.w; x++) if (y !== 2 && r.isSet(x, y)) r.set(x, y, pal.w, 150);
+  return r;
+}
