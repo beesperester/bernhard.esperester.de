@@ -6,6 +6,8 @@ import type { CatView } from './CatView.ts';
 /** Content cats purr. */
 const PURRING: ReadonlySet<Act> = new Set([Act.Sit, Act.Lick, Act.Sleep, Act.Roll]);
 const DASH_ON = 120, DASH_OFF = 90;
+/** Pitch of a footstep by surface: hollow wooden bridges lower, stone stairs brighter. */
+const STEP_RATE: Record<string, number> = { p: 1, g: 1, B: 0.78, S: 1.18 };
 
 interface State {
   act: Act;
@@ -13,6 +15,7 @@ interface State {
   actStart: number;
   dashing: boolean;
   nextRustle: number;
+  nextStep: number;
   chews: number;
   purr: Promise<Playing | null> | null;
 }
@@ -30,7 +33,7 @@ export class CatSounds {
   update(cats: CatView[], now: number): void {
     for (const c of cats) {
       let s = this.cats.get(c);
-      if (!s) this.cats.set(c, (s = { act: c.act, seq: c.seq, actStart: c.actStart, dashing: false, nextRustle: 0, chews: 0, purr: null }));
+      if (!s) this.cats.set(c, (s = { act: c.act, seq: c.seq, actStart: c.actStart, dashing: false, nextRustle: 0, nextStep: 0, chews: 0, purr: null }));
       const at = { x: c.x, y: c.y };
       const started = c.act !== s.act || c.seq !== s.seq || c.actStart !== s.actStart;
       const ms = now - c.actStart;
@@ -63,8 +66,17 @@ export class CatSounds {
         void sound.play('dash', { at, volume: 0.4, rate: vary(0.95, 1.1) });
       } else if (s.dashing && c.speed < DASH_OFF) s.dashing = false;
 
-      // rustling through tall grass and flowers
       const tile = tileAt(Math.floor(c.x / TILE), Math.floor((c.y - 2) / TILE));
+
+      // pitter-patter on paths, bridges and stairs, and a pat when landing on them
+      const stepRate = STEP_RATE[tile];
+      const landed = s.act === Act.Jump && c.act !== Act.Jump;
+      if (stepRate && ((c.speed > 20 && c.act !== Act.Jump && now >= s.nextStep) || landed)) {
+        s.nextStep = now + (s.dashing ? 115 : 245) + Math.random() * 30;
+        void sound.play('steps', { at, volume: vary(0.18, 0.28) * (landed ? 1.4 : 1), rate: stepRate * vary(0.93, 1.07) });
+      }
+
+      // rustling through tall grass and flowers
       if (c.speed > 20 && c.act !== Act.Jump && (tile === ',' || tile === 'f') && now >= s.nextRustle) {
         s.nextRustle = now + (s.dashing ? 220 : 420) + Math.random() * 80;
         void sound.play('rustle', { at, volume: vary(0.25, 0.4) * (tile === 'f' ? 0.7 : 1), rate: vary(0.88, 1.15) });
