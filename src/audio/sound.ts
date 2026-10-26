@@ -137,6 +137,11 @@ export class Sound {
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = !!opts.loop;
+    // MP3 pads both ends with a little silence; loop inside it so there is no click
+    if (src.loop) {
+      src.loopStart = Math.min(0.06, buffer.duration / 4);
+      src.loopEnd = buffer.duration - Math.min(0.06, buffer.duration / 4);
+    }
     src.playbackRate.value = opts.rate ?? 1;
     const env = ctx.createGain(); // fades
     const vol = ctx.createGain(); // volume × distance
@@ -159,7 +164,7 @@ export class Sound {
       env.gain.setValueAtTime(1, Math.max(t + fade, end - fade));
       env.gain.linearRampToValueAtTime(0, end);
     }
-    src.start(t);
+    src.start(t, src.loop ? src.loopStart : 0);
     src.onended = () => { if (place) this.positioned.delete(place); };
 
     return {

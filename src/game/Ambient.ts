@@ -4,6 +4,7 @@ import { BUTTERFLY_COLOURS, RIPPLE_FRAMES, Z_SIZES } from '../art/critters.ts';
 import { Act, Facing, Prey } from './state.ts';
 import type { CatView } from './CatView.ts';
 import { tileAt, wetAt, elevAt, TILE } from '../world/map.ts';
+import { sound } from '../audio/sound.ts';
 
 // All fauna is a deterministic function of a shared garden clock and fixed
 // seeds, so every visitor sees the same fish, bees and butterflies without
@@ -167,6 +168,7 @@ export class Ambient {
       return;
     }
     if (kind === Prey.Fish) {
+      this.splashSound(p.x, p.y, 0.45, 1.2);
       this.splash(p.x, p.y, 0);
       this.ripple(p.x, p.y, 0);
       this.ripple(p.x, p.y, 0.25);
@@ -201,8 +203,8 @@ export class Ambient {
       const leap = j.t0 + LEAP_DELAY, land = leap + LEAP_MS;
       const lx = j.x + j.dir * 20;
       if (crossed(j.t0)) this.ripple(j.x, j.y, 0);
-      if (crossed(leap)) this.splash(j.x, j.y, j.dir);
-      if (crossed(land)) { this.ripple(lx, j.y, 0); this.ripple(lx, j.y, 0.3); this.splash(lx, j.y, j.dir); }
+      if (crossed(leap)) { this.splash(j.x, j.y, j.dir); this.splashSound(j.x, j.y, 0.2, 1.3); }
+      if (crossed(land)) { this.ripple(lx, j.y, 0); this.ripple(lx, j.y, 0.3); this.splash(lx, j.y, j.dir); this.splashSound(lx, j.y, 0.3, 1.15); }
       if (gt < leap || gt >= land) continue;
       const u = (gt - leap) / LEAP_MS;
       const h = 14 * 4 * u * (1 - u);
@@ -410,7 +412,7 @@ export class Ambient {
 
       // splash whenever a cat touches down in the pond
       const wet = c.z < 4 && wetAt(c.x, c.y);
-      if (wet && !s.wet) { this.splash(c.x, c.y, 0); this.splash(c.x, c.y, 0); this.ripple(c.x, c.y, 0); this.ripple(c.x, c.y, 0.25); }
+      if (wet && !s.wet) { this.splashSound(c.x, c.y, 0.75, 1); this.splash(c.x, c.y, 0); this.splash(c.x, c.y, 0); this.ripple(c.x, c.y, 0); this.ripple(c.x, c.y, 0.25); }
       s.wet = wet;
 
       if (c.act === Act.Sleep && now >= s.nextZ) {
@@ -450,6 +452,10 @@ export class Ambient {
   private ripple(x: number, y: number, delay: number): void {
     const img = this.scene.add.image(Math.round(x), Math.round(y), 'ripple', 0).setDepth(-99980).setVisible(false);
     this.particles.push({ img, kind: 'ripple', x, y, z: 0, vx: 0, vy: 0, vz: 0, t: 0, life: 1.2, delay });
+  }
+
+  private splashSound(x: number, y: number, volume: number, rate: number): void {
+    void sound.play('splash', { at: { x, y }, volume, rate: rate * (0.92 + Math.random() * 0.16) });
   }
 
   private splash(x: number, y: number, dir: number): void {

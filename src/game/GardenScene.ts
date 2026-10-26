@@ -18,6 +18,7 @@ import { Vignette } from './Vignette.ts';
 import { Ambient } from './Ambient.ts';
 import { Net } from '../net/net.ts';
 import { sound } from '../audio/sound.ts';
+import { CatSounds } from './CatSounds.ts';
 import { touch, setupUI } from '../ui/ui.ts';
 
 const SPEED = 64; // px per second
@@ -77,6 +78,7 @@ export class GardenScene extends Phaser.Scene {
   private sun!: Sunlight;
   private clouds!: Clouds;
   private ponds: PondReflection[] = [];
+  private readonly catSounds = new CatSounds();
   private trees!: Trees;
   private vignette!: Vignette;
   private camAnchor!: Phaser.GameObjects.Zone;
@@ -281,6 +283,7 @@ export class GardenScene extends Phaser.Scene {
 
     const cats: CatView[] = [this.me, ...this.remotes.values()];
     this.trees.update(cats);
+    this.catSounds.update(cats, time);
     // the garden clock is shared by all visitors, so wind and fauna line up
     const gt = this.net.now();
     // only animate plants and redraw reflections that are on screen
