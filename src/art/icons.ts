@@ -1,6 +1,6 @@
 import { Raster, hex } from './raster.ts';
 
-const PAL = { o: hex('#202020'), w: hex('#f8f8f8'), r: hex('#e83040'), k: hex('#383038'), s: hex('#000000') };
+const PAL = { o: hex('#202020'), w: hex('#f8f8f8'), r: hex('#e83040'), k: hex('#383038'), s: hex('#000000'), m: hex('#fff4c8') };
 
 const HISS = [
   '..ooooooooo..',
@@ -57,4 +57,5 @@ export const ICONS = {
   'bubble-roll': () => make(HEART),
   you: () => make(YOU),
   shadow: () => make(SHADOW),
+  mote: () => make(['m']),
 };

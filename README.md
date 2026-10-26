@@ -10,6 +10,7 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 
 - **Phaser 4 + TypeScript + Vite**, built to static files.
 - **All art is drawn in code** (`src/art/`): sprites are character maps, recoloured per coat; the garden ground is generated from `src/world/map.ts`.
+- **Atmosphere** (`src/game/`): `Meadow` sways ~600 grass/flower/reed sprites in a rolling wind and bends them away from cats; `Sunlight` overlays dithered god rays and dust motes; `PondReflection` mirrors nearby cats, trees and reeds onto the pond with a ripple.
 - **Networking is peer-to-peer** (`src/net/net.ts`) via [Trystero](https://github.com/dmotz/trystero): visitors find each other through public Nostr relays, then exchange cat states directly over WebRTC. The web server only serves files.
 - Each cat broadcasts `[x, y, facing, act, seq, coat]` ~10×/s while something changes, otherwise once per second.
 - A garden holds 20 cats; later visitors are moved into `garden-2`, `garden-3`, …

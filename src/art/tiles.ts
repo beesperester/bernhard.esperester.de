@@ -2,7 +2,8 @@ import { Raster, hex, hash2, type RGB } from './raster.ts';
 import { TILE, MAP_W, MAP_H, tileAt, treeTiles } from '../world/map.ts';
 
 const C = {
-  g0: hex('#68b848'), g1: hex('#90d468'), g2: hex('#4c9a34'), g3: hex('#2e6e24'),
+  g0: hex('#68b848'), g1: hex('#90d468'), g2: hex('#4c9a34'), g3: hex('#2e6e24'), g4: hex('#5aaa3e'), g5: hex('#78c454'),
+  daisy: hex('#f8f8f0'), clover: hex('#b8e070'),
   p0: hex('#ecd8a0'), p1: hex('#d4b878'), p2: hex('#a88a52'),
   w0: hex('#4a8ce0'), w1: hex('#8cc4f8'), w2: hex('#2a5cb0'), w3: hex('#d8ecff'),
   h0: hex('#3c8c3a'), h1: hex('#5cac48'), h2: hex('#256a2a'), h3: hex('#163c1a'),
@@ -17,51 +18,56 @@ const FLOWERS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f8f8f8'), hex('#f8
 
 const isWaterCh = (ch: string) => ch === 'w' || ch === 'l';
 
-function grass(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
-  r.rect(ox, oy, TILE, TILE, C.g0);
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
+export const bayer = (x: number, y: number) => BAYER[(y & 3) * 4 + (x & 3)];
+
+/** Smooth value noise in [0,1), deterministic. */
+export function noise(x: number, y: number, s: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const fx = x - xi, fy = y - yi;
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = hash2(xi, yi, s), b = hash2(xi + 1, yi, s), c = hash2(xi, yi + 1, s), d = hash2(xi + 1, yi + 1, s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+function grass(r: Raster, ox: number, oy: number, tx: number, ty: number, dark = 0): void {
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
-      const h = hash2(tx * TILE + x, ty * TILE + y, 1);
-      if (h < 0.05) r.set(ox + x, oy + y, C.g1);
-      else if (h > 0.965) r.set(ox + x, oy + y, C.g2);
+      const px = tx * TILE + x, py = ty * TILE + y;
+      // large soft patches of darker and lighter green, dithered
+      const n = noise(px / 56, py / 56, 2) * 0.7 + noise(px / 17, py / 17, 3) * 0.3 + dark;
+      const d = bayer(px, py) * 0.16 - 0.08;
+      let c = n + d > 0.62 ? C.g4 : n + d < 0.34 ? C.g5 : C.g0;
+      if (n + d > 0.8) c = C.g2;
+      const h = hash2(px, py, 1);
+      if (h < 0.05) c = c === C.g5 ? C.g1 : C.g5;
+      else if (h > 0.965) c = C.g2;
+      r.set(ox + x, oy + y, c);
     }
-  // two little tufts per tile
-  for (let k = 0; k < 2; k++) {
-    if (hash2(tx, ty, 10 + k) < 0.35) continue;
+  // little tufts and the odd daisy / clover
+  for (let k = 0; k < 3; k++) {
+    if (hash2(tx, ty, 10 + k) < 0.3) continue;
     const x = ox + 1 + Math.floor(hash2(tx, ty, 20 + k) * 12);
     const y = oy + 2 + Math.floor(hash2(tx, ty, 30 + k) * 11);
     r.set(x, y + 1, C.g2); r.set(x + 1, y + 2, C.g2); r.set(x + 2, y + 1, C.g2); r.set(x + 3, y, C.g2);
   }
+  if (!dark && hash2(tx, ty, 90) < 0.18) {
+    const x = ox + 2 + Math.floor(hash2(tx, ty, 91) * 12), y = oy + 2 + Math.floor(hash2(tx, ty, 92) * 12);
+    const white = hash2(tx, ty, 93) < 0.6;
+    r.set(x, y, white ? C.daisy : C.clover); r.set(x + 1, y + 1, white ? C.daisy : C.clover);
+    r.set(x + 1, y, white ? C.yellow : C.clover); r.set(x, y + 1, C.g3);
+  }
 }
 
-const TALL = [
-  '................',
-  '..l.....l.......',
-  '.ld.l..ld.l.....',
-  '.dd.ld.dd.ld....',
-  'odddddoodddddo..',
-  '.oooooo..ooooo..',
-  '......l.....l...',
-  '.....ld.l..ld.l.',
-  '.....dd.ld.dd.ld',
-  '....odddddoodddd',
-  '.....oooooo..ooo',
-  '..l.............',
-  '.ld.l.....l.....',
-  '.dd.ld...ld.l...',
-  'odddddo..dd.ld..',
-  '.oooooo.odddddo.',
-];
 
 function tallGrass(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
-  grass(r, ox, oy, tx, ty);
-  r.paint(TALL, ox, oy, { l: C.g1, d: C.g2, o: C.g3 }, hash2(tx, ty, 3) < 0.5);
+  grass(r, ox, oy, tx, ty, 0.25);
 }
 
 function flowers(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
-  r.rect(ox, oy, TILE, TILE, C.g2);
+  grass(r, ox, oy, tx, ty);
   for (let y = 0; y < TILE; y++)
-    for (let x = 0; x < TILE; x++) if (hash2(tx * TILE + x, ty * TILE + y, 4) < 0.25) r.set(ox + x, oy + y, C.g0);
+    for (let x = 0; x < TILE; x++) if (hash2(tx * TILE + x, ty * TILE + y, 4) < 0.12) r.set(ox + x, oy + y, C.g2);
   const spots: [number, number][] = [[3, 3], [11, 2], [7, 8], [2, 12], [12, 11]];
   for (const [i, [sx, sy]] of spots.entries()) {
     const col = FLOWERS[Math.floor(hash2(tx, ty, 40 + i) * FLOWERS.length)];
@@ -310,9 +316,17 @@ export interface Prop {
   depthY: number;
 }
 
-function tree(seed: number): Raster {
+const CANOPIES: { c: RGB[]; dots?: RGB[] }[] = [
+  { c: [C.c0, C.c1, C.c2, C.c3] },
+  { c: [hex('#5cb048'), hex('#3c8c38'), hex('#286a2c'), hex('#143c1c')] },
+  { c: [hex('#fcd0e0'), hex('#f0a0c0'), hex('#d07098'), hex('#6a2c48')], dots: [hex('#ffffff'), hex('#fce8f0')] },
+  { c: [C.c0, C.c1, C.c2, C.c3], dots: [hex('#e83838'), hex('#f86048')] },
+];
+
+function tree(seed: number, kind: number): Raster {
   const W = 32, H = 44;
   const r = new Raster(W, H);
+  const pal = CANOPIES[kind];
   // trunk
   for (let y = 26; y < H - 2; y++)
     for (let x = 12; x < 20; x++) {
@@ -320,29 +334,60 @@ function tree(seed: number): Raster {
       r.set(x, y, edge ? C.t2 : x < 15 ? C.t0 : x === 17 && y % 5 === 0 ? C.t2 : C.t1);
     }
   r.set(11, H - 3, C.t2); r.set(20, H - 3, C.t2); r.rect(12, H - 2, 8, 1, C.t2);
-  // canopy: union of blobs
-  const blobs: [number, number, number][] = [[16, 14, 13], [7, 19, 8], [25, 19, 8], [11, 9, 8], [21, 9, 8], [16, 22, 9]];
+  // canopy: union of blobs, jittered per tree
+  const j = (k: number) => Math.round((hash2(seed, k, 77) - 0.5) * 3);
+  const blobs: [number, number, number][] = [
+    [16, 14, 13], [7 + j(1), 19 + j(2), 8], [25 + j(3), 19 + j(4), 8],
+    [11 + j(5), 9 + j(6), 8], [21 + j(7), 9 + j(8), 8], [16, 22, 9],
+  ];
   const inside = (x: number, y: number) => blobs.some(([bx, by, br]) => (x - bx) ** 2 + (y - by) ** 2 < br * br);
   for (let y = 0; y < 32; y++)
     for (let x = 0; x < W; x++) {
       if (!inside(x + 0.5, y + 0.5)) continue;
       const edge = !inside(x - 0.5, y + 0.5) || !inside(x + 1.5, y + 0.5) || !inside(x + 0.5, y - 0.5) || !inside(x + 0.5, y + 1.5);
-      if (edge) { r.set(x, y, C.c3); continue; }
+      if (edge) { r.set(x, y, pal.c[3]); continue; }
       // light from the top-left, leafy dither
       const l = (x - 16) * 0.5 + (y - 12) + (hash2(x, y, seed) - 0.5) * 9;
       const leaf = ((x >> 2) + (y >> 2)) % 2 === 0 && (x + y) % 4 === 0;
-      let c = l < -6 ? C.c0 : l < 3 ? C.c1 : l < 11 ? C.c2 : C.c3;
-      if (leaf && c !== C.c0) c = c === C.c1 ? C.c0 : C.c1;
-      r.set(x, y, c);
+      let i = l < -6 ? 0 : l < 3 ? 1 : l < 11 ? 2 : 3;
+      if (leaf && i > 0 && i < 3) i = i === 1 ? 0 : 1;
+      r.set(x, y, pal.c[i]);
+    }
+  if (pal.dots)
+    for (let k = 0; k < 14; k++) {
+      const x = 4 + Math.floor(hash2(seed, k, 81) * 24), y = 3 + Math.floor(hash2(seed, k, 82) * 24);
+      if (!inside(x - 0.5, y - 0.5) || !inside(x + 1.5, y + 1.5)) continue;
+      const c = pal.dots[k % pal.dots.length];
+      r.set(x, y, c); r.set(x + 1, y, c); r.set(x, y + 1, c); r.set(x + 1, y + 1, pal.c[3]);
     }
   return r;
 }
 
 export function buildProps(): Prop[] {
-  return treeTiles().map(([tx, ty], i) => ({
-    raster: tree(i + 1),
-    x: tx * TILE - 8,
-    y: ty * TILE + TILE - 44 + 2,
-    depthY: ty * TILE + TILE - 1,
-  }));
+  return treeTiles().map(([tx, ty], i) => {
+    const h = hash2(tx, ty, 55);
+    const kind = h < 0.22 ? 2 : h < 0.36 ? 3 : h < 0.6 ? 1 : 0;
+    return {
+      raster: tree(i + 1, kind),
+      x: tx * TILE - 8,
+      y: ty * TILE + TILE - 44 + 2,
+      depthY: ty * TILE + TILE - 1,
+    };
+  });
+}
+
+/** Opaque where the pond shows open water (not shore, not lily pads). */
+export function buildWaterMask(): Raster {
+  const g0 = buildGround(0), g1 = buildGround(1);
+  const m = new Raster(g0.w, g0.h);
+  const isWater = (r: Raster, i: number) => {
+    const c = [r.data[i], r.data[i + 1], r.data[i + 2]].join();
+    return c === C.w0.join() || c === C.w1.join();
+  };
+  for (let y = 0; y < m.h; y++)
+    for (let x = 0; x < m.w; x++) {
+      const i = (y * m.w + x) * 4;
+      if (isWater(g0, i) || isWater(g1, i)) m.set(x, y, [255, 255, 255]);
+    }
+  return m;
 }

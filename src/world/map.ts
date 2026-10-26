@@ -8,34 +8,34 @@ const L = (a: string, m: string, r: string) => 'F' + a + m + r + 'F';
 
 const ROWS = [
   'F'.repeat(40),
-  L('..,,,.......', '..............', '.,,.......,,'),
-  L('.T....T.....', '##############', '....T....T..'),
+  L('..,,,..b..,,', ',,,,,....,,,,,', ',,..b...,,,.'),
+  L('.T...T....T.', '##############', '.T...T...T..'),
   L('............', '#ffffffffffff#', '............'),
-  L(',,..........', '#ffffffffffff#', '..........,,'),
-  L(',,,...b.....', '#ffff....ffff#', '.....b....,,'),
-  L('.,,.........', '#ffff.oo.ffff#', '............'),
-  L('....r.......', '#ffff....ffff#', '......r.....'),
-  L('.T..........', '######..######', '..........T.'),
-  L('............', '......pp......', '............'),
-  L('...b....T...', '......pp......', '..T.....b...'),
-  L('............', '...pppppppp...', '............'),
-  L('.r..........', '...pppppppp...', '..........r.'),
+  L(',,,.ff...,,.', '#ffffffffffff#', '.,,...ff.,,,'),
+  L(',,,..bb..,,.', '#ffff....ffff#', '.,,..bb..,,,'),
+  L('.,,.......,.', '#ffff.oo.ffff#', '.,..........'),
+  L('..T..r....T.', '#ffff....ffff#', '.T....r..T..'),
+  L('.......ff...', '######..######', '...ff.......'),
+  L(',,...b......', '..ff..pp..ff..', '......b..,,.'),
+  L('...b....T...', '..ff..pp..ff..', '..T.....b...'),
+  L('.,,.........', '.f.pppppppp.f.', '.........,,.'),
+  L('.r..ff......', '...pppppppp...', '......ff..r.'),
   L('.ppppppppppp', 'pppppppppppppp', 'ppppppppppp.'),
   L('.ppppppppppp', 'pppppppppppppp', 'ppppppppppp.'),
-  L('..,,........', '...pppppppp...', '............'),
-  L('.,,,..T.....', '...pppppppp...', '......T.....'),
-  L('............', '......pp......', '............'),
+  L('..,,.bff....', '...pppppppp...', '....ffb.....'),
+  L('.,,,..T....T', '.f.pppppppp.f.', '..T...T...,.'),
+  L('.,,.........', '..ff..pp..ff..', '...........,'),
   L('..#########.', '......pp......', '...wwwwww...'),
-  L('..#fffffff#.', '......pp......', '.wwwwwwwwww.'),
-  L('..#fffffff#.', '......pp..wwww', 'wwwwwwwwwww.'),
-  L('..#fffffff#.', '......pp.wwwww', 'wwwlwwwwwww.'),
-  L('..#fffffff#.', '......pp.wwwww', 'wwwwwwwlww..'),
-  L('..#ff...ff#.', '......pp..wwww', 'wlwwwwwwww..'),
-  L('..###...###.', '......pp...www', 'wwwwwwwww...'),
-  L('............', '......pp....ww', 'wwwwwww.....'),
-  L('.T....b...T.', '......pp......', '.r.......T..'),
-  L('..,,,,......', '......pp......', '........,,,.'),
-  L('.,,,,,,.....', '......pp......', '.......,,,,.'),
+  L('..#fffffff#.', '..,...pp......', '.wwwwwwwwww.'),
+  L('..#fffffff#.', '.,,...pp..wwww', 'wwwwwwwwwww.'),
+  L('..#fffffff#.', ',,,...pp.wwwww', 'wwwlwwwwwww.'),
+  L('..#fffffff#.', '.,....pp.wwwww', 'wwwwwwwlww..'),
+  L('..#ff...ff#.', '......pp..wwww', 'wlwwwwwwww,.'),
+  L('..###...###.', '..b...pp...www', 'wwwwwwwww.,.'),
+  L('.,..ff..,...', '.f....pp....ww', 'wwwwwww..,,.'),
+  L('.T....b...T.', '..T...pp..T...', '.r..bb...T..'),
+  L('..,,,,..ff..', '..f...pp...f..', '..ff....,,,.'),
+  L('.,,,,,,..b..', '......pp......', '.......,,,,.'),
   'F'.repeat(19) + 'gg' + 'F'.repeat(19),
 ];
 
@@ -75,4 +75,15 @@ export function spawnPoints(): [number, number][] {
   for (let y = 11; y <= 16; y++)
     for (let x = 16; x <= 23; x++) if (tileAt(x, y) === 'p') out.push([x * TILE + TILE / 2, y * TILE + TILE - 2]);
   return out;
+}
+
+/** Bounding box of the pond in world pixels. */
+export function pondBounds(): { x: number; y: number; w: number; h: number } {
+  let x0 = MAP_W, y0 = MAP_H, x1 = 0, y1 = 0;
+  for (let y = 0; y < MAP_H; y++)
+    for (let x = 0; x < MAP_W; x++)
+      if (ROWS[y][x] === 'w' || ROWS[y][x] === 'l') {
+        x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+      }
+  return { x: x0 * TILE, y: y0 * TILE, w: (x1 - x0 + 1) * TILE, h: (y1 - y0 + 1) * TILE };
 }

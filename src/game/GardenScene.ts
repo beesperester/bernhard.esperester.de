@@ -1,11 +1,15 @@
 import Phaser from 'phaser';
 import { Raster } from '../art/raster.ts';
 import { buildCatSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
-import { buildGround, buildProps } from '../art/tiles.ts';
+import { buildGround, buildProps, buildWaterMask } from '../art/tiles.ts';
+import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { ICONS } from '../art/icons.ts';
 import { WORLD_W, WORLD_H, boxHitsSolid, spawnPoints } from '../world/map.ts';
 import { Act, Facing, HISS_MS, JUMP_MS, LICK_MS, ROLL_MS, SIT_AFTER_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat } from './CatView.ts';
+import { Meadow, addFloraTextures } from './Meadow.ts';
+import { Sunlight } from './Sunlight.ts';
+import { PondReflection } from './PondReflection.ts';
 import { Net } from '../net/net.ts';
 import { touch, setupUI } from '../ui/ui.ts';
 
@@ -50,19 +54,32 @@ export class GardenScene extends Phaser.Scene {
   private lastSent: CatMsg | null = null;
   private lastSentAt = 0;
   private garden = 1;
+  private meadow!: Meadow;
+  private sun!: Sunlight;
+  private pond!: PondReflection;
 
   constructor() {
     super('garden');
   }
 
   create(): void {
-    this.makeTextures();
+    const canvases = this.makeTextures();
 
     const grounds = [0, 1].map((p) => this.add.image(0, 0, `ground-${p}`).setOrigin(0).setDepth(-100000));
     grounds[1].setVisible(false);
     this.time.addEvent({ delay: 700, loop: true, callback: () => grounds.forEach((g) => g.setVisible(!g.visible)) });
 
-    buildProps().forEach((p, i) => this.add.image(p.x, p.y, `prop-${i}`).setOrigin(0).setDepth(p.depthY));
+    const props = buildProps();
+    props.forEach((p, i) => this.add.image(p.x, p.y, `prop-${i}`).setOrigin(0).setDepth(p.depthY));
+    this.meadow = new Meadow(this);
+    this.pond = new PondReflection(this, {
+      waterMask: toCanvas(buildWaterMask()),
+      catSheets: canvases.cats,
+      floraSheets: canvases.flora,
+      props: props.map((p, i) => ({ p, canvas: canvases.props[i] })),
+      plants: this.meadow.plants,
+    });
+    this.sun = new Sunlight(this, toCanvas);
 
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
@@ -111,22 +128,31 @@ export class GardenScene extends Phaser.Scene {
     window.setInterval(() => this.sendState(), SEND_MS);
   }
 
-  private makeTextures(): void {
+  private makeTextures() {
     const tex = this.textures;
-    for (let c = 0; c < COATS.length; c++) {
-      const t = tex.addCanvas(`cat-${c}`, toCanvas(buildCatSheet(c)))!;
+    const cats = COATS.map((_, c) => {
+      const canvas = toCanvas(buildCatSheet(c));
+      const t = tex.addCanvas(`cat-${c}`, canvas)!;
       for (let f = 0; f < FRAME_NAMES.length * 2; f++) t.add(f, 0, f * CAT, 0, CAT, CAT);
-    }
+      return canvas;
+    });
     tex.addCanvas('ground-0', toCanvas(buildGround(0)));
     tex.addCanvas('ground-1', toCanvas(buildGround(1)));
-    buildProps().forEach((p, i) => tex.addCanvas(`prop-${i}`, toCanvas(p.raster)));
+    const props = buildProps().map((p, i) => {
+      const canvas = toCanvas(p.raster);
+      tex.addCanvas(`prop-${i}`, canvas);
+      return canvas;
+    });
+    const flora = addFloraTextures(this, (i) => toCanvas(buildFloraSheet(FLORA[i])));
     for (const [k, make] of Object.entries(ICONS)) tex.addCanvas(k, toCanvas(make()));
+    return { cats, props, flora };
   }
 
   private fitZoom(): void {
     const { width, height } = this.scale.gameSize;
     const zoom = Math.max(2, Math.round(Math.min(width / 260, height / 220)));
     this.cameras.main.setZoom(zoom);
+    this.sun?.resize();
   }
 
   private state(): CatMsg {
@@ -165,6 +191,11 @@ export class GardenScene extends Phaser.Scene {
       cat.render(time);
     }
     this.me.render(time);
+
+    const cats: CatView[] = [this.me, ...this.remotes.values()];
+    this.meadow.update(time, cats);
+    this.pond.update(time, cats);
+    this.sun.update(time, dt);
     if (this.youMarker.active) {
       const bob = Math.floor(time / 300) % 2;
       this.youMarker.setPosition(Math.round(this.me.x), Math.round(this.me.y) - 18 - bob).setVisible(Math.floor(time / 300) % 4 !== 3);

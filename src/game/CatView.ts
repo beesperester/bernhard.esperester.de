@@ -12,6 +12,9 @@ export class CatView {
   seq = 0;
   actStart = 0;
   coat: number;
+  /** Last rendered sheet frame and jump height, for reflections. */
+  frame = 0;
+  z = 0;
 
   readonly shadow: Phaser.GameObjects.Image;
   private readonly sprite: Phaser.GameObjects.Sprite;
@@ -33,11 +36,12 @@ export class CatView {
 
   render(now: number): void {
     const ms = now - this.actStart;
-    const z = this.act === Act.Jump ? jumpHeight(ms) : 0;
+    const z = (this.z = this.act === Act.Jump ? jumpHeight(ms) : 0);
     const x = Math.round(this.x), y = Math.round(this.y);
     this.shadow.setPosition(x, y - 1).setDepth(y - 0.5);
     this.sprite.setPosition(x, y - Math.round(z)).setDepth(y);
-    this.sprite.setFrame(frameFor(this.act, this.facing, ms, now));
+    this.frame = frameFor(this.act, this.facing, ms, now);
+    this.sprite.setFrame(this.frame);
 
     const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Roll ? 'bubble-roll' : null;
     this.bubble.setVisible(!!emote);
