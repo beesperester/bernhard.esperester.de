@@ -278,7 +278,8 @@ export class GardenScene extends Phaser.Scene {
 
     // follow the cat's feet on the terrain (not mid-jump), so the view climbs the hills smoothly
     this.camZ += (elevAt(this.me.x, this.me.y) - this.camZ) * Math.min(1, dt * 6);
-    this.camAnchor.setPosition(this.me.x, this.me.y - this.camZ);
+    // in whole pixels like the cat sprite, or the cat wobbles against the view by a sub-pixel each frame
+    this.camAnchor.setPosition(Math.round(this.me.x), Math.round(this.me.y) - Math.round(this.camZ));
     sound.setListener({ x: this.me.x, y: this.me.y });
 
     const cats: CatView[] = [this.me, ...this.remotes.values()];
