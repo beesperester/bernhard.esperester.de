@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GardenScene } from './game/GardenScene.ts';
 import { Music } from './audio/music.ts';
+import { sound } from './audio/sound.ts';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -13,20 +14,39 @@ const game = new Phaser.Game({
   scene: [GardenScene],
 });
 
-// background music: starts on the first key press or tap, M (or the note button) mutes
+// music and sounds start on the first key press or tap (browsers require a gesture);
+// M / the note button mutes the music, S / the speaker button the sounds
 const music = new Music();
-const button = document.getElementById('music')!;
+const musicBtn = document.getElementById('music')!;
+const soundBtn = document.getElementById('sound')!;
 music.onChange((muted, track) => {
-  button.classList.toggle('muted', muted);
-  button.title = muted ? 'Music off (M)' : `♪ ${track?.title ?? 'Music'} (M to mute)`;
+  musicBtn.classList.toggle('muted', muted);
+  musicBtn.title = muted ? 'Music off (M)' : `♪ ${track?.title ?? 'Music'} (M to mute)`;
 });
+sound.onChange((muted) => {
+  soundBtn.classList.toggle('muted', muted);
+  soundBtn.title = muted ? 'Sounds off (S)' : 'Sounds on (S to mute)';
+});
+const unlock = () => {
+  music.unlock();
+  sound.unlock();
+};
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'm' || e.key === 'M') { if (!e.repeat) music.toggle(); }
-  else music.unlock();
+  const k = e.key.toLowerCase();
+  if (k === 'm' || k === 's') {
+    if (!e.repeat) (k === 'm' ? music : sound).toggle();
+    if (k === 'm') sound.unlock();
+    else music.unlock();
+  } else unlock();
 });
-window.addEventListener('pointerdown', () => music.unlock());
-button.addEventListener('pointerdown', (e) => e.stopPropagation());
-button.addEventListener('click', () => music.toggle());
+window.addEventListener('pointerdown', unlock);
+for (const [btn, target] of [[musicBtn, music], [soundBtn, sound]] as const) {
+  btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+  btn.addEventListener('click', () => {
+    target.toggle();
+    (target === music ? sound : music).unlock();
+  });
+}
 
 // handy for poking at the game from the console during development
-if (import.meta.env.DEV) Object.assign(window, { game, music });
+if (import.meta.env.DEV) Object.assign(window, { game, music, sound });

@@ -10,7 +10,7 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 - Idle cats sit down after a few seconds and lick their paws now and then; after 30 s they curl up and sleep (zzZZzz)
 - Jump onto low obstacles — hedges, bushes, rocks, the fountain rim — and walk along them. Jump into the pond and you splash and scramble straight back out
 - The park (80×60 tiles): narrow winding paths, a two-level highland and a little mesa ringed by stone walls — drop off any edge, but you have to find the stairs to get up — a spring feeding a stream that runs under footbridges into the lake, small lily ponds, a walled rose garden, and a hedge labyrinth (too tall to jump) with a fountain at its heart
-- Background music starts with your first key press or tap; **M** or the ♪ button (top right) mutes it, and it pauses while the tab is hidden
+- Background music and sounds start with your first key press or tap; **M** / the ♪ button mutes the music, **S** / the speaker button the sounds; both pause while the tab is hidden. Birds sing now and then from a tree near you
 - On touch devices an on-screen D-pad and buttons appear
 
 ## How it works
@@ -32,6 +32,19 @@ Every `.mp3`/`.ogg`/`.m4a` in `src/music/` is part of the playlist (the file nam
 
 ```sh
 ffmpeg -i "Song.wav" -c:a libmp3lame -q:a 2 "src/music/Song.mp3"
+```
+
+## Sounds
+
+Every folder in `src/sounds/` is a sound group (`birds/` today; `steps/`, `purr/`, `hiss/`, `splash/`, `wind/` …), and each play picks one of its files at random (never the same twice in a row). Groups play on Web Audio, so any number overlap.
+
+- **Ambient layers** (`LAYERS` in `src/audio/sound.ts`) fire on their own at random intervals with random volume and pitch, e.g. `birds: { every: [12, 40], volume: [0.35, 0.6], rate: [0.94, 1.08] }`. The scene can say where they come from (`sound.setSource('birds', …)` picks a tree near you).
+- **Game sounds**: `sound.play('hiss', { at: { x, y } })` — sounds placed in the park fade with distance from your cat and pan left/right. `loop: true` returns a handle to `stop()` or `setVolume()` later (for wind or purring).
+
+Short effects are best as mono MP3:
+
+```sh
+ffmpeg -i "birds.wav" -ac 1 -c:a libmp3lame -q:a 3 src/sounds/birds/birds-2.mp3
 ```
 
 ## Development

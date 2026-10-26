@@ -67,7 +67,7 @@ html, body {
   top: calc(max(12px, env(safe-area-inset-top)) + 34px);
 }
 
-#music {
+#music, #sound {
   left: auto;
   right: 12px;
   top: max(12px, env(safe-area-inset-top));
@@ -79,7 +79,9 @@ html, body {
   cursor: pointer;
   pointer-events: auto;
 }
-#music.muted { opacity: 0.5; text-decoration: line-through; }
+#sound { right: 52px; display: grid; place-items: center; }
+#music.muted, #sound.muted { opacity: 0.5; text-decoration: line-through; }
+#sound.muted svg { opacity: 0.6; }
 
 #touch {
   position: fixed;

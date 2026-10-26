@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Raster } from '../art/raster.ts';
 import { buildCatSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
-import { buildGround, buildProps, buildWaterMask } from '../art/tiles.ts';
+import { buildGround, buildProps, buildWaterMask, TREE_W } from '../art/tiles.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildBee, buildButterfly, buildDust, buildFish, buildFishShadow, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
@@ -17,6 +17,7 @@ import { Trees } from './Trees.ts';
 import { Vignette } from './Vignette.ts';
 import { Ambient } from './Ambient.ts';
 import { Net } from '../net/net.ts';
+import { sound } from '../audio/sound.ts';
 import { touch, setupUI } from '../ui/ui.ts';
 
 const SPEED = 64; // px per second
@@ -105,6 +106,13 @@ export class GardenScene extends Phaser.Scene {
 
     const props = buildProps();
     this.trees = new Trees(this, props, canvases.props);
+    // birds sing from a tree somewhere near you
+    sound.setSource('birds', () => {
+      const { x, y } = sound.listener;
+      const near = props.filter((p) => Math.hypot(p.x + TREE_W / 2 - x, p.depthY - 40 - y) < 220);
+      const p = near[Math.floor(Math.random() * near.length)];
+      return p ? { x: p.x + TREE_W / 2, y: p.depthY - 40 } : null;
+    });
     this.meadow = new Meadow(this);
     const water = canvases.water;
     const reflect = {
@@ -269,6 +277,7 @@ export class GardenScene extends Phaser.Scene {
     // follow the cat's feet on the terrain (not mid-jump), so the view climbs the hills smoothly
     this.camZ += (elevAt(this.me.x, this.me.y) - this.camZ) * Math.min(1, dt * 6);
     this.camAnchor.setPosition(this.me.x, this.me.y - this.camZ);
+    sound.setListener({ x: this.me.x, y: this.me.y });
 
     const cats: CatView[] = [this.me, ...this.remotes.values()];
     this.trees.update(cats);
