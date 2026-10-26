@@ -201,6 +201,7 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number): num
       if (x1 > fx0 && x0 < fx1 && y1 > fy0 && y0 < fy1) h = base + th;
     }
   for (const [ax, ay, bx, by] of TRUNKS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
+  for (const [ax, ay, bx, by, sh] of SOLIDS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by && sh > h) h = sh;
   return h;
 }
 
@@ -257,6 +258,12 @@ export function terrainCover(x: number, y: number, z: number, w = 16, h = 16): {
       const r = { x0: Math.max(left, tx * TILE), y0: Math.max(head, top), x1: Math.min(right, (tx + 1) * TILE), y1: Math.min(feet, bottom) };
       c = c ? { x0: Math.min(c.x0, r.x0), y0: Math.min(c.y0, r.y0), x1: Math.max(c.x1, r.x1), y1: Math.max(c.y1, r.y1) } : r;
     }
+  // the shed hides cats behind it the same way
+  for (const k of COVERS) {
+    if (y >= k.front || k.x0 >= right || k.x1 <= left || k.y0 >= feet || k.y1 <= head) continue;
+    const r = { x0: Math.max(left, k.x0), y0: Math.max(head, k.y0), x1: Math.min(right, k.x1), y1: Math.min(feet, k.y1) };
+    c = c ? { x0: Math.min(c.x0, r.x0), y0: Math.min(c.y0, r.y0), x1: Math.max(c.x1, r.x1), y1: Math.max(c.y1, r.y1) } : r;
+  }
   return c;
 }
 
@@ -293,6 +300,56 @@ for (const [tx, ty] of treeTiles()) {
   TRUNKS.push([x - 6, y - 5, x + 6, y + 1]);
 }
 
+// ---- garden furniture ----
+// Things people left in the park: a shed, benches, a picnic table, a bistro
+// set and a picnic blanket. Each stands on a patch of plain lawn (`tx`, `ty`
+// is its top-left tile); low ones can be jumped onto, the shed can't.
+
+export type FurnitureKind = 'shed' | 'bench' | 'picnic' | 'bistro' | 'blanket';
+
+/** Tiles each kind takes up. */
+export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
+  shed: [3, 2], bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3],
+};
+
+export const FURNITURE: { kind: FurnitureKind; tx: number; ty: number }[] = [
+  { kind: 'shed', tx: 40, ty: 40 },
+  { kind: 'bench', tx: 40, ty: 21 },
+  { kind: 'bench', tx: 25, ty: 38 },
+  { kind: 'picnic', tx: 17, ty: 49 },
+  { kind: 'bistro', tx: 66, ty: 33 },
+  { kind: 'blanket', tx: 52, ty: 25 },
+];
+
+/** True on tiles taken by furniture (nothing else grows or stands there). */
+export function furnished(tx: number, ty: number): boolean {
+  return FURNITURE.some((f) => {
+    const [w, h] = FURNITURE_SIZE[f.kind];
+    return tx >= f.tx && tx < f.tx + w && ty >= f.ty && ty < f.ty + h;
+  });
+}
+
+/** Solid parts of the furniture in world px, relative to the spot's top-left corner, with their height. */
+const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, number][]> = {
+  shed: [[2, 4, 47, 31, WALL]],
+  bench: [[2, 8, 30, 14, 7]],
+  // back bench, table, front bench
+  picnic: [[15, 16, 49, 20, 5], [12, 20, 52, 33, 10], [15, 33, 49, 40, 5]],
+  // left chair, table, right chair
+  bistro: [[6, 15, 14, 22, 5], [18, 14, 30, 22, 9], [34, 15, 42, 22, 5]],
+  // the basket (the blanket itself is flat)
+  blanket: [[39, 26, 51, 31, 6]],
+};
+
+const SOLIDS: [number, number, number, number, number][] = FURNITURE.flatMap((f) =>
+  FURNITURE_SOLIDS[f.kind].map(([x0, y0, x1, y1, h]) => [f.tx * TILE + x0, f.ty * TILE + y0, f.tx * TILE + x1, f.ty * TILE + y1, h] as [number, number, number, number, number]),
+);
+
+/** Screen boxes of furniture tall enough to hide a cat, and the ground y of their front. */
+export const COVERS: { x0: number; y0: number; x1: number; y1: number; front: number }[] = FURNITURE
+  .filter((f) => f.kind === 'shed')
+  .map((f) => ({ x0: f.tx * TILE - 1, y0: f.ty * TILE - 25, x1: f.tx * TILE + 49, y1: f.ty * TILE + 31, front: f.ty * TILE + 30 }));
+
 // ---- lanterns ----
 // Small lanterns on the grass beside the paths, a good few tiles apart.
 const LANTERN_SPACING = 7;
@@ -305,7 +362,7 @@ function placeLanterns(): [number, number][] {
   const spots: { tx: number; ty: number; dx: number; dy: number; k: number }[] = [];
   for (let ty = 1; ty < MAP_H - 1; ty++)
     for (let tx = 1; tx < MAP_W - 1; tx++) {
-      if (tileAt(tx, ty) !== '.' || near(tx, ty, 'wlBSTFg', 1)) continue;
+      if (tileAt(tx, ty) !== '.' || near(tx, ty, 'wlBSTFg', 1) || [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => furnished(tx + dx, ty + dy))) continue;
       const side = ([[0, 1], [0, -1], [1, 0], [-1, 0]] as const).find(([dx, dy]) => tileAt(tx + dx, ty + dy) === 'p' && levelAt(tx + dx, ty + dy) === levelAt(tx, ty));
       if (side) spots.push({ tx, ty, dx: side[0], dy: side[1], k: hash2(tx, ty, 61) });
     }

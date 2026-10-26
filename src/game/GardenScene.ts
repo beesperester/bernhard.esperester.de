@@ -14,6 +14,7 @@ import { Sunlight } from './Sunlight.ts';
 import { Clouds } from './Clouds.ts';
 import { PondReflection } from './PondReflection.ts';
 import { Trees } from './Trees.ts';
+import { Furniture } from './Furniture.ts';
 import { Vignette } from './Vignette.ts';
 import { Daylight } from './Daylight.ts';
 import { RimLight } from './RimLight.ts';
@@ -132,6 +133,7 @@ export class GardenScene extends Phaser.Scene {
 
     const props = buildProps();
     this.trees = new Trees(this, props, canvases.props);
+    const furniture = new Furniture(this, toCanvas);
     // birds sing from a tree somewhere near you, preferably one with a bird in it
     sound.setSource('birds', () => {
       const { x, y } = sound.listener;
@@ -161,7 +163,7 @@ export class GardenScene extends Phaser.Scene {
     // time of day: tint, sunlit rims, lanterns, and stars and moon in the water
     this.daylight = new Daylight(this, Date.now());
     this.rims = new RimLight(this, {
-      trees: reflect.props, upright: buildUprightMask(), terrain: canvases.terrain,
+      trees: [...reflect.props, ...furniture.pieces], upright: buildUprightMask(), terrain: canvases.terrain,
       catSheet: canvases.cats[0], catFrames: FRAME_NAMES.length * 2, catSize: CAT,
     });
     this.lanterns = new Lanterns(this);

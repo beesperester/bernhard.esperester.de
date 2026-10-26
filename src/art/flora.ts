@@ -1,7 +1,7 @@
 // Swaying plants: each kind is drawn in 5 lean frames (-2..2) so the wind
 // (and passing cats) can bend them.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { TILE, MAP_W, MAP_H, tileAt } from '../world/map.ts';
+import { TILE, MAP_W, MAP_H, tileAt, furnished } from '../world/map.ts';
 
 export const LEANS = 5;
 
@@ -103,6 +103,7 @@ export function placeFlora(): Plant[] {
   for (let ty = 1; ty < MAP_H - 1; ty++)
     for (let tx = 1; tx < MAP_W - 1; tx++) {
       const ch = tileAt(tx, ty);
+      if (furnished(tx, ty)) continue;
       const h = hash2(tx, ty, 100);
       if (ch === ',') {
         for (let k = 0; k < 4; k++) at(1, tx, ty, k);

@@ -4,7 +4,7 @@ import type { Prop } from '../art/tiles.ts';
 import { Act, Prey, SWIPE_AT_MS } from './state.ts';
 import type { CatView } from './CatView.ts';
 import type { PreyRef } from './Ambient.ts';
-import { TILE, tileAt, levelAt, elevAt } from '../world/map.ts';
+import { TILE, tileAt, levelAt, elevAt, furnished } from '../world/map.ts';
 import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
 import { lightAt } from '../world/sky.ts';
 import { sound } from '../audio/sound.ts';
@@ -76,7 +76,7 @@ export class Birds {
       const out: Spot[] = [];
       for (let y = ty - 3; y <= ty + 3; y++)
         for (let x = tx - 3; x <= tx + 3; x++) {
-          if ((x === tx && y === ty) || !'.,p'.includes(tileAt(x, y)) || levelAt(x, y) !== levelAt(tx, ty)) continue;
+          if ((x === tx && y === ty) || !'.,p'.includes(tileAt(x, y)) || levelAt(x, y) !== levelAt(tx, ty) || furnished(x, y)) continue;
           if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !'.,pf'.includes(tileAt(x + dx, y + dy)))) continue;
           const cx = x * TILE + 8, cy = y * TILE + 10;
           out.push({ x: cx, y: cy, h: elevAt(cx, cy), depth: cy, perch: false });

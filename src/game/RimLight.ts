@@ -34,7 +34,7 @@ export class RimLight {
 
   constructor(
     scene: Phaser.Scene,
-    parts: { trees: { p: Prop; canvas: HTMLCanvasElement }[]; upright: Raster; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catFrames: number; catSize: number },
+    parts: { trees: { p: Pick<Prop, 'x' | 'y' | 'depthY'>; canvas: HTMLCanvasElement }[]; upright: Raster; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catFrames: number; catSize: number },
   ) {
     const add = (key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']) => {
       const tex = scene.textures.createCanvas(key, w, h)!;
@@ -86,7 +86,7 @@ export class RimLight {
       });
     });
 
-    // trees
+    // trees and furniture
     parts.trees.forEach(({ p, canvas }, i) => {
       const { width: w, height: h } = canvas;
       const a = canvas.getContext('2d')!.getImageData(0, 0, w, h).data;
