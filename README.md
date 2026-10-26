@@ -37,10 +37,10 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 
 ## Music
 
-Every `.mp3`/`.ogg`/`.m4a` in `src/music/` is part of the playlist (the file name is the title). Songs play in random order, never the same one twice in a row; with a single song it loops. Convert masters before adding them, e.g.
+There are two playlists: every `.mp3`/`.ogg`/`.m4a` in `src/music/day/` plays while the sun is up, and those in `src/music/night/` after dark, following the garden's Berlin sun (the file name is the title). Songs play in random order, never the same one twice in a row; with a single song it loops. At dusk and dawn the current song fades out and the other playlist takes over; if one folder is empty, the other plays day and night. Convert masters before adding them, e.g.
 
 ```sh
-ffmpeg -i "Song.wav" -c:a libmp3lame -q:a 2 "src/music/Song.mp3"
+ffmpeg -i "Song.wav" -c:a libmp3lame -q:a 2 "src/music/day/Song.mp3"
 ```
 
 ## Sounds
