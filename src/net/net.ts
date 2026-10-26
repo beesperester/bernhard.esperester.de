@@ -4,8 +4,8 @@
 import { joinRoom, selfId, type Room } from 'trystero';
 import { Prey, type CatMsg } from '../game/state.ts';
 
-// bump the version whenever CatMsg changes so old and new clients don't mix
-const APP_ID = 'bernhard.esperester.de/garden-of-cats/v5';
+// unversioned until the site is released; after that, version it when the protocol changes
+const APP_ID = 'bernhard.esperester.de/garden-of-cats';
 /** A garden is "full" at this many cats; later visitors open the next one. */
 const ROOM_CAP = 20;
 const MAX_ROOMS = 50;
