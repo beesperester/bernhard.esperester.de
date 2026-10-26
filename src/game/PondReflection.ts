@@ -5,8 +5,6 @@ import type { Prop } from '../art/tiles.ts';
 import type { CatView } from './CatView.ts';
 import type { LivePlant } from './Meadow.ts';
 
-const MARGIN = 48; // how far above the pond objects may stand and still reflect
-
 type Box = { x: number; y: number; w: number; h: number };
 let count = 0;
 
@@ -53,10 +51,12 @@ export class PondReflection {
 
     this.catSheets = opts.catSheets;
     this.floraSheets = opts.floraSheets;
-    const near = (bx: number, base: number, half: number) =>
-      bx + half > x && bx - half < x + w && base > y - MARGIN && base < y + h;
-    this.trees = opts.props.filter(({ p, canvas }) => near(p.x + canvas.width / 2, p.depthY + 1, canvas.width / 2));
-    this.plants = opts.plants.filter((p) => near(p.x, p.y, 8));
+    // an object's reflection hangs from its base line as far down as the object is tall;
+    // keep everything whose reflection reaches this patch (tall trees span several)
+    const near = (bx: number, base: number, half: number, tall: number) =>
+      bx + half > x && bx - half < x + w && base + tall > y && base < y + h;
+    this.trees = opts.props.filter(({ p, canvas }) => near(p.x + canvas.width / 2, p.depthY + 1, canvas.width / 2, p.depthY + 1 - p.y));
+    this.plants = opts.plants.filter((p) => near(p.x, p.y, 8, FLORA[p.kind].h));
   }
 
   /** Draw `src` region flipped vertically around world line `base`. */
