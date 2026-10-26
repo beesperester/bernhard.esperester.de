@@ -26,21 +26,6 @@ export const MUNCH_MS = 1500;
 export const Prey = { Fish: 0, Fly: 1, Bee: 2, Bird: 3, Firefly: 4, Frog: 5, Beetle: 6, Dragonfly: 7, Bat: 8, Mouse: 9 } as const;
 export type Prey = (typeof Prey)[keyof typeof Prey];
 
-/**
- * What a catch is worth on the scoreboard: the bigger the prey, the more.
- * Bees count against you (they sting); a blackbird (colour 3) beats the little birds.
- */
-export function preyPoints(kind: Prey, colour = 0): number {
-  switch (kind) {
-    case Prey.Bee: return -1;
-    case Prey.Fly: case Prey.Firefly: case Prey.Beetle: return 1;
-    case Prey.Dragonfly: return 2;
-    case Prey.Fish: case Prey.Frog: case Prey.Mouse: return 3;
-    case Prey.Bird: return colour === 3 ? 5 : 4;
-    case Prey.Bat: return 4;
-  }
-}
-
 /** Everything other visitors need to draw a cat: [x, y, z, facing, act, seq, coat]. */
 export type CatMsg = [number, number, number, number, number, number, number];
 

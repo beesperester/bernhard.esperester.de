@@ -1,14 +1,11 @@
-import Phaser from 'phaser';
-import { Act, Prey } from './state.ts';
-import type { PreyRef } from './Ambient.ts';
-import type { CatView } from './CatView.ts';
-import type { Prop } from '../art/tiles.ts';
-import { DEPTH } from './Daylight.ts';
-import { LANTERNS, elevAt, waterBoxes } from '../world/map.ts';
-import { LANTERN_H } from '../art/critters.ts';
-import { lightAt } from '../world/sky.ts';
-import { inSeason } from '../world/season.ts';
-import { Pool, seedRng, hash2, smooth, clamp01 } from './fauna.ts';
+import { Act, Prey } from '../state.ts';
+import type { CatView } from '../CatView.ts';
+import { DEPTH } from '../Daylight.ts';
+import { LANTERNS, elevAt, waterBoxes } from '../../world/map.ts';
+import { LANTERN_H } from '../../art/critters.ts';
+import { lightAt } from '../../world/sky.ts';
+import { inSeason } from '../../world/season.ts';
+import { Pool, seedRng, hash2, smooth, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
 
 // What flies about after dark: bats flitting round the lanterns and over the
 // ponds from dusk on, now and then one hanging upside down under a tree for a
@@ -35,7 +32,7 @@ interface Owl { id: number; perch: Perch; from: number; to: number; t0: number; 
 
 const darkness = (ms: number) => lightAt(ms).night;
 
-export class NightFlyers {
+export class NightFlyers implements Fauna {
   private readonly bats: Pool;
   private readonly owls: Pool;
   private readonly eyes: Pool;
@@ -54,8 +51,8 @@ export class NightFlyers {
   /** Bats on the wing this frame, for cats leaping at them. */
   private prey: PreyRef[] = [];
 
-  constructor(scene: Phaser.Scene, trees: { p: Prop; canvas: HTMLCanvasElement }[], isCaught: (id: number) => boolean) {
-    this.isCaught = isCaught;
+  constructor({ scene, trees, isCaught }: FaunaContext) {
+    this.isCaught = (id) => isCaught(Prey.Bat, id);
     this.bats = new Pool(scene, 'bat');
     this.owls = new Pool(scene, 'owl');
     this.eyes = new Pool(scene, 'owl-eyes');
@@ -94,7 +91,7 @@ export class NightFlyers {
     }
   }
 
-  update(gt: number, cats: CatView[], prey: PreyRef[], view: Phaser.Geom.Rectangle): void {
+  update({ gt, cats, prey, view }: FaunaFrame): void {
     this.prey = prey;
     this.bats.begin();
     this.owls.begin();

@@ -1,16 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Act, Facing, Prey, frameFor, preyPoints, SWIPE_AT_MS } from './state.ts';
-
-describe('preyPoints', () => {
-  it('scores every kind of prey, bigger prey more', () => {
-    for (const kind of Object.values(Prey)) expect(typeof preyPoints(kind)).toBe('number');
-    expect(preyPoints(Prey.Bee)).toBeLessThan(0);
-    expect(preyPoints(Prey.Fly)).toBeLessThan(preyPoints(Prey.Dragonfly));
-    expect(preyPoints(Prey.Dragonfly)).toBeLessThan(preyPoints(Prey.Fish));
-    expect(preyPoints(Prey.Fish)).toBeLessThan(preyPoints(Prey.Bird));
-    expect(preyPoints(Prey.Bird, 3)).toBeGreaterThan(preyPoints(Prey.Bird, 0));
-  });
-});
+import { Act, Facing, frameFor, SWIPE_AT_MS } from './state.ts';
 
 describe('frameFor', () => {
   it('mirrors side frames when facing right', () => {

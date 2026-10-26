@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import type { Light } from '../world/sky.ts';
 import { DEPTH } from './Daylight.ts';
-import { seedRng } from './fauna.ts';
+import { seedRng } from './fauna/kit.ts';
 import { cullerFor } from './Culler.ts';
 
 type Box = { x: number; y: number; w: number; h: number };

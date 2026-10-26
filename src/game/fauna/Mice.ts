@@ -1,13 +1,11 @@
-import Phaser from 'phaser';
-import { Act, Prey } from './state.ts';
+import { Act, Prey } from '../state.ts';
 import { Wary, type Senses } from './Wary.ts';
-import type { CatView } from './CatView.ts';
-import type { PreyRef } from './Ambient.ts';
-import { MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileAt } from '../world/map.ts';
-import { lightAt } from '../world/sky.ts';
-import { sound } from '../audio/sound.ts';
-import { Pool, seedRng, hash2, clamp01 } from './fauna.ts';
-import { groundOf, isOpenGround } from '../world/legend.ts';
+import type { CatView } from '../CatView.ts';
+import { MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileAt } from '../../world/map.ts';
+import { lightAt } from '../../world/sky.ts';
+import { sound } from '../../audio/sound.ts';
+import { Pool, seedRng, hash2, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
+import { groundOf, isOpenGround } from '../../world/legend.ts';
 
 // Field mice, out after dark. Most sit tucked away in the tall grass, now and
 // then peeking out, and bolt when a cat comes through: a dash across to the
@@ -38,7 +36,7 @@ interface Pose { x: number; y: number; frame: number; right: boolean; alpha: num
 
 const open = (tx: number, ty: number, level: number) => isOpenGround(tileAt(tx, ty)) && levelAt(tx, ty) === level && !furnished(tx, ty);
 
-export class Mice {
+export class Mice implements Fauna {
   private readonly mice: Pool;
   private readonly wary: Wary;
   private readonly grass: Pt[] = [];
@@ -51,8 +49,8 @@ export class Mice {
   private readonly fled = new Map<number, Dash>();
   private readonly isCaught: (id: number) => boolean;
 
-  constructor(scene: Phaser.Scene, isCaught: (id: number) => boolean) {
-    this.isCaught = isCaught;
+  constructor({ scene, isCaught }: FaunaContext) {
+    this.isCaught = (id) => isCaught(Prey.Mouse, id);
     this.mice = new Pool(scene, 'mouse');
     this.wary = new Wary(scene);
     for (let ty = 1; ty < MAP_H - 1; ty++)
@@ -63,7 +61,7 @@ export class Mice {
       }
   }
 
-  update(gt: number, now: number, cats: CatView[], prey: PreyRef[], view: Phaser.Geom.Rectangle): void {
+  update({ gt, now, cats, prey, view }: FaunaFrame): void {
     this.mice.begin();
     this.wary.begin();
     const near = ([x, y]: Pt) => x > view.x - 100 && x < view.right + 100 && y > view.y - 100 && y < view.bottom + 100;

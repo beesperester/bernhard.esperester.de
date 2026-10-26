@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
-import { Prey } from './state.ts';
+import { Prey } from '../state.ts';
 import { Wary, type Senses } from './Wary.ts';
-import type { CatView } from './CatView.ts';
-import type { PreyRef } from './Ambient.ts';
-import { DEPTH } from './Daylight.ts';
-import { MAP_H, MAP_W, TILE, elevAt, levelAt, tileAt } from '../world/map.ts';
-import { lightAt } from '../world/sky.ts';
-import { inSeason } from '../world/season.ts';
-import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
-import { groundOf, isLawnOrTall, isLilyPad, isMeadow, isOpenWater, isPond } from '../world/legend.ts';
+import type { CatView } from '../CatView.ts';
+import { DEPTH } from '../Daylight.ts';
+import { MAP_H, MAP_W, TILE, elevAt, levelAt, tileAt } from '../../world/map.ts';
+import { lightAt } from '../../world/sky.ts';
+import { inSeason } from '../../world/season.ts';
+import { Pool, seedRng, hash2, lerp, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
+import type { Effects } from './Effects.ts';
+import { groundOf, isLawnOrTall, isLilyPad, isMeadow, isOpenWater, isPond } from '../../world/legend.ts';
 
 // Fireflies drifting over the grass and frogs sitting at the water's edge,
 // only after dark. Deterministic like the rest of the fauna: whether something
@@ -28,15 +28,10 @@ type Pt = [number, number];
 interface Swarm { id: number; at: Pt; n: number; t0: number; life: number }
 interface Frog { id: number; at: Pt; water: Pt; lily: boolean; t0: number; life: number }
 
-export interface Fx {
-  ripple(x: number, y: number, delay: number): void;
-  splash(x: number, y: number, dir: number): void;
-  splashSound(x: number, y: number, volume: number, rate: number): void;
-}
-
 const dark = (ms: number) => lightAt(ms).night >= DARK;
 
-export class NightLife {
+export class NightLife implements Fauna {
+  readonly catches = [Prey.Firefly] as const;
   private readonly bodies: Pool;
   private readonly glows: Pool;
   private readonly frogs: Pool;
@@ -48,10 +43,10 @@ export class NightLife {
   /** Frogs that jumped back in early: when, and from where. */
   private readonly dived = new Map<number, number>();
   private readonly isCaught: (kind: Prey, id: number) => boolean;
-  private readonly fx: Fx;
+  private readonly fx: Effects;
   private readonly wary: Wary;
 
-  constructor(scene: Phaser.Scene, isCaught: (kind: Prey, id: number) => boolean, fx: Fx) {
+  constructor({ scene, isCaught, fx }: FaunaContext) {
     this.isCaught = isCaught;
     this.fx = fx;
     this.wary = new Wary(scene);
@@ -81,7 +76,7 @@ export class NightLife {
       }
   }
 
-  update(gt: number, now: number, cats: CatView[], prey: PreyRef[], view: Phaser.Geom.Rectangle): void {
+  update({ gt, now, cats, prey, view }: FaunaFrame): void {
     this.bodies.begin();
     this.glows.begin();
     this.frogs.begin();
@@ -95,6 +90,11 @@ export class NightLife {
     this.glows.end();
     this.frogs.end();
     this.wary.end();
+  }
+
+  /** A caught firefly goes out in a puff of light. */
+  onCatch(p: PreyRef): void {
+    this.fx.glowPuff(p.x, p.y - p.h);
   }
 
   // ---------------------------------------------------------------- fireflies

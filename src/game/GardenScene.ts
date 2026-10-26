@@ -8,7 +8,7 @@ import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildHeldBat, buildMouse, buildHeldMouse, MOUSE_W, MOUSE_H, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildDashPuff, PUFF_W, PUFF_H, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ, buildBat, buildHangingBat, buildBeetle, buildDragonfly, BEETLE_COLOURS, BEETLE_W, BEETLE_H, DRAGONFLY_W, DRAGONFLY_H, buildOwl, buildOwlEyes, BAT_W, BAT_H, OWL_W, OWL_H } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, FEET, heightUnder, waterUnder, wetAt, iceAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
-import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, preyPoints, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
+import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
 import { Sunlight } from './Sunlight.ts';
@@ -27,6 +27,7 @@ import { snowCap } from '../art/furniture.ts';
 import { SEASON, rainfall } from '../world/season.ts';
 import { Weather, addWeatherTextures } from './Weather.ts';
 import { Ambient } from './Ambient.ts';
+import { PREY, preyPoints } from './fauna/prey.ts';
 import { Net } from '../net/net.ts';
 import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
@@ -82,16 +83,6 @@ function loadCoat(): number {
   const coat = Math.floor(Math.random() * COATS.length);
   try { localStorage.setItem('cat-coat', String(coat)); } catch { /* ignore */ }
   return coat;
-}
-
-/** What a cat does with what it caught: eat a fish, feast on a bird, frog or bat, munch a bug; a bee stings. */
-function eatAct(kind: Prey): Act {
-  switch (kind) {
-    case Prey.Fish: return Act.Eat;
-    case Prey.Bird: case Prey.Frog: case Prey.Bat: case Prey.Mouse: return Act.Feast;
-    case Prey.Bee: return Act.Hiss; // ouch, it stung
-    default: return Act.Munch;
-  }
 }
 
 export class GardenScene extends Phaser.Scene {
@@ -544,7 +535,7 @@ export class GardenScene extends Phaser.Scene {
     if (grab && me.act === Act.Jump && !this.airCatch) {
       this.airCatch = { got: null };
       const prey = this.ambient.preyNear(me);
-      if (prey && prey.kind !== Prey.Fish) {
+      if (prey && !PREY[prey.kind].swipeOnly) {
         me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
@@ -565,7 +556,7 @@ export class GardenScene extends Phaser.Scene {
     // pounce: dashing into prey grabs it, no swipe needed (fish have to be fished for)
     if (this.dashing && !busy) {
       const prey = this.ambient.preyNear(me);
-      if (prey && prey.kind !== Prey.Fish) {
+      if (prey && !PREY[prey.kind].swipeOnly) {
         me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
@@ -591,7 +582,7 @@ export class GardenScene extends Phaser.Scene {
         }
       }
       if (elapsed >= CATCH_MS) {
-        const after = c.got === null ? null : eatAct(c.got);
+        const after = c.got === null ? null : PREY[c.got].eat;
         if (after !== null) begin(after);
         else me.setAct(Act.Idle, now);
         this.catching = null;
@@ -659,7 +650,7 @@ export class GardenScene extends Phaser.Scene {
         const got = this.airCatch?.got ?? null;
         this.airCatch = null;
         if (got !== null && !wetAt(me.x, me.y)) {
-          begin(eatAct(got));
+          begin(PREY[got].eat);
           return;
         }
         if (wetAt(me.x, me.y)) {
