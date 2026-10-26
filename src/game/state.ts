@@ -23,7 +23,7 @@ export const EAT_MS = 2600;
 export const MUNCH_MS = 1500;
 
 /** Things a cat can swipe at. */
-export const Prey = { Fish: 0, Fly: 1, Bee: 2, Bird: 3, Firefly: 4, Frog: 5, Beetle: 6, Dragonfly: 7 } as const;
+export const Prey = { Fish: 0, Fly: 1, Bee: 2, Bird: 3, Firefly: 4, Frog: 5, Beetle: 6, Dragonfly: 7, Bat: 8, Mouse: 9 } as const;
 export type Prey = (typeof Prey)[keyof typeof Prey];
 
 /**
@@ -35,8 +35,9 @@ export function preyPoints(kind: Prey, colour = 0): number {
     case Prey.Bee: return -1;
     case Prey.Fly: case Prey.Firefly: case Prey.Beetle: return 1;
     case Prey.Dragonfly: return 2;
-    case Prey.Fish: case Prey.Frog: return 3;
+    case Prey.Fish: case Prey.Frog: case Prey.Mouse: return 3;
     case Prey.Bird: return colour === 3 ? 5 : 4;
+    case Prey.Bat: return 4;
   }
 }
 

@@ -96,6 +96,37 @@ export function buildDust(): Raster {
   return r;
 }
 
+/** Cartoon cloud left behind where a cat dashes off: 5 frames, PUFF_W x PUFF_H, swelling then breaking up. */
+export const PUFF_W = 20, PUFF_H = 14, PUFF_FRAMES = 5;
+export function buildDashPuff(): Raster {
+  const r = new Raster(PUFF_W * PUFF_FRAMES, PUFF_H);
+  const line = hex('#6a7090'), fill = hex('#fbf8ee'), shade = hex('#cfd2e0'), shine = hex('#ffffff');
+  // blobs per frame: [x, y, radius], around the centre bottom of the frame
+  const frames: [number, number, number][][] = [
+    [[10, 9, 2.6], [7, 10, 1.8], [13, 10, 1.8]],
+    [[10, 8, 3.6], [6, 10, 2.6], [14, 10, 2.6], [9, 5, 2]],
+    [[10, 7, 4.2], [5, 9, 3.2], [15, 9, 3.2], [8, 4, 2.6], [13, 4, 2.2]],
+    [[11, 6, 3], [3.5, 9, 2.6], [16.5, 9, 2.6], [7, 3, 2], [15, 3, 1.8]],
+    [[11, 4, 1.8], [2.5, 9, 1.6], [17.5, 9, 1.6], [6, 2, 1.2]],
+  ];
+  frames.forEach((blobs, f) => {
+    const ox = f * PUFF_W;
+    const inside = (x: number, y: number) => blobs.find(([bx, by, br]) => (x + 0.5 - bx) ** 2 + (y + 0.5 - by) ** 2 <= br * br);
+    for (let y = 0; y < PUFF_H; y++)
+      for (let x = 0; x < PUFF_W; x++) {
+        const b = inside(x, y);
+        if (b) {
+          const [bx, by, br] = b;
+          const dx = x + 0.5 - bx, dy = y + 0.5 - by;
+          r.set(ox + x, y, dx + dy > br * 0.55 ? shade : dx + dy < -br * 0.9 && br > 2 ? shine : fill);
+        } else if (inside(x - 1, y) || inside(x + 1, y) || inside(x, y - 1) || inside(x, y + 1)) {
+          if (x > 0 && x < PUFF_W - 1 && y > 0 && y < PUFF_H) r.set(ox + x, y, line);
+        }
+      }
+  });
+  return r;
+}
+
 /** Dark shape of a fish just below the surface, facing right. */
 export function buildFishShadow(): Raster {
   const r = new Raster(10, 4);
@@ -234,6 +265,39 @@ const BAT = [
 export function buildBat(): Raster {
   const r = new Raster(BAT_W * BAT.length, BAT_H);
   BAT.forEach((rows, f) => r.paint(rows, f * BAT_W, 0, { o: hex('#2e2634'), w: hex('#54465c') }));
+  return r;
+}
+
+// field mouse, 8x5, side on, facing left: frame 0 sitting up, 1-2 running, 3 just the ears peeking out of the grass
+export const MOUSE_W = 8, MOUSE_H = 5;
+const MOUSE_PAL = () => ({ o: hex('#4a3830'), f: hex('#c8b098'), l: hex('#f0e4d0'), e: hex('#101010'), p: hex('#ffb8b0') });
+export function buildMouse(): Raster {
+  const r = new Raster(MOUSE_W * 4, MOUSE_H);
+  const pal = MOUSE_PAL();
+  r.paint(['..p.....', '.offoo..', 'eoffffo.', '.olllfo.', '..o..opp'], 0, 0, pal);
+  r.paint(['........', '..p.....', '.offooo.', 'eoffffop', '.o.o.o.p'], MOUSE_W, 0, pal);
+  r.paint(['........', '..p.....', '.offoooo', 'eofffffp', '..oo.o..'], MOUSE_W * 2, 0, pal);
+  r.paint(['........', '........', '.p..p...', '.ofefo..', '........'], MOUSE_W * 3, 0, pal);
+  return r;
+}
+
+/** A mouse held in the mouth, facing left: whole, half eaten, just the tail. */
+export function buildHeldMouse(): Raster {
+  const r = new Raster(HELD_W * 3, 5);
+  const pal = MOUSE_PAL();
+  r.paint(['.p......', 'ofoffoo.', 'effffffp', '.olllo.p', '........'], 0, 0, pal);
+  r.paint(['.p......', 'ofoo....', 'effo....', '.olo....', '........'], HELD_W, 0, pal);
+  r.paint(['........', '........', '...pp...', '.....p..', '........'], HELD_W * 2, 0, pal);
+  return r;
+}
+
+/** A bat held in the mouth, facing left: whole, half eaten, a scrap of wing. */
+export function buildHeldBat(): Raster {
+  const pal = { o: hex('#2e2634'), w: hex('#54465c'), e: hex('#e8d8a0') };
+  const r = new Raster(HELD_W * 3, 5);
+  r.paint(['.o....o.', 'owo..oww', 'oewwwwwo', '.owwwow.', '..o..o..'], 0, 0, pal);
+  r.paint(['.o......', 'owo.....', 'oewwo...', '.owo....', '..o.....'], HELD_W, 0, pal);
+  r.paint(['........', '........', '..ow....', '...o....', '........'], HELD_W * 2, 0, pal);
   return r;
 }
 

@@ -5,7 +5,7 @@ import { buildCatSheet, buildEyeSheet, COATS, CAT, FRAME_NAMES } from '../art/ca
 import { buildGround, buildProps, buildUprightMask, buildWaterMask, TREE_W, type Prop } from '../art/tiles.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
-import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ, buildBat, buildHangingBat, buildBeetle, buildDragonfly, BEETLE_COLOURS, BEETLE_W, BEETLE_H, DRAGONFLY_W, DRAGONFLY_H, buildOwl, buildOwlEyes, BAT_W, BAT_H, OWL_W, OWL_H } from '../art/critters.ts';
+import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildHeldBat, buildMouse, buildHeldMouse, MOUSE_W, MOUSE_H, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildDashPuff, PUFF_W, PUFF_H, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ, buildBat, buildHangingBat, buildBeetle, buildDragonfly, BEETLE_COLOURS, BEETLE_W, BEETLE_H, DRAGONFLY_W, DRAGONFLY_H, buildOwl, buildOwlEyes, BAT_W, BAT_H, OWL_W, OWL_H } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, FEET, heightUnder, waterUnder, wetAt, iceAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, preyPoints, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
@@ -80,6 +80,16 @@ function loadCoat(): number {
   return coat;
 }
 
+/** What a cat does with what it caught: eat a fish, feast on a bird, frog or bat, munch a bug; a bee stings. */
+function eatAct(kind: Prey): Act {
+  switch (kind) {
+    case Prey.Fish: return Act.Eat;
+    case Prey.Bird: case Prey.Frog: case Prey.Bat: case Prey.Mouse: return Act.Feast;
+    case Prey.Bee: return Act.Hiss; // ouch, it stung
+    default: return Act.Munch;
+  }
+}
+
 export class GardenScene extends Phaser.Scene {
   private me!: CatView;
   private remotes = new Map<string, RemoteCat>();
@@ -128,6 +138,8 @@ export class GardenScene extends Phaser.Scene {
   private vel = { x: 0, y: 0 };
   private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number } | null = null;
   private catching: { swiped: boolean; got: Prey | null } | null = null;
+  /** A swipe made in mid-jump (one per jump), and what it got, to eat on landing. */
+  private airCatch: { got: Prey | null } | null = null;
 
   constructor() {
     super('garden');
@@ -300,6 +312,9 @@ export class GardenScene extends Phaser.Scene {
     sheet('owl', buildOwl(), OWL_W, OWL_H);
     sheet('owl-eyes', buildOwlEyes(), OWL_W, OWL_H);
     sheet('held-frog', buildHeldFrog(), HELD_W, 5);
+    sheet('held-bat', buildHeldBat(), HELD_W, 5);
+    sheet('mouse', buildMouse(), MOUSE_W, MOUSE_H);
+    sheet('held-mouse', buildHeldMouse(), HELD_W, 5);
     const lantern = buildLantern();
     snowCap(lantern, SEASON.snow);
     sheet('lantern', lantern, LANTERN_W, LANTERN_H);
@@ -311,6 +326,7 @@ export class GardenScene extends Phaser.Scene {
     sheet('ripple', buildRipples(), RIPPLE_W, RIPPLE_H);
     addWeatherTextures(this, toCanvas);
     sheet('dust', buildDust(), 6, 5);
+    sheet('dash-puff', buildDashPuff(), PUFF_W, PUFF_H);
     tex.addCanvas('fish', toCanvas(buildFish()));
     tex.addCanvas('fish-shadow', toCanvas(buildFishShadow()));
     sheet('held-fish', buildHeldFish(), HELD_W, 5);
@@ -514,6 +530,18 @@ export class GardenScene extends Phaser.Scene {
     if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || mew || grab)) me.setAct(Act.Idle, now);
 
+    // in mid-jump: one swipe at whatever flies within reach, a bird or bat on the wing included
+    if (grab && me.act === Act.Jump && !this.airCatch) {
+      this.airCatch = { got: null };
+      const prey = this.ambient.preyNear(me);
+      if (prey && prey.kind !== Prey.Fish) {
+        me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
+        this.ambient.catchPrey(prey.kind, prey.id, me);
+        this.net.catchPrey(prey.kind, prey.id);
+        this.ate(prey.kind, prey.colour);
+        this.airCatch.got = prey.kind;
+      }
+    }
     // catching: swipe at a fish, butterfly, bee or bird within a tile of the cat
     const busy = me.act === Act.Jump || me.act === Act.Catch || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast;
     if (grab && !busy && !wetAt(me.x, me.y)) {
@@ -553,11 +581,8 @@ export class GardenScene extends Phaser.Scene {
         }
       }
       if (elapsed >= CATCH_MS) {
-        if (c.got === Prey.Fish) begin(Act.Eat);
-        else if (c.got === Prey.Bird || c.got === Prey.Frog) begin(Act.Feast);
-        else if (c.got === Prey.Firefly) begin(Act.Munch);
-        else if (c.got === Prey.Fly || c.got === Prey.Beetle || c.got === Prey.Dragonfly) begin(Act.Munch);
-        else if (c.got === Prey.Bee) begin(Act.Hiss); // ouch, it stung
+        const after = c.got === null ? null : eatAct(c.got);
+        if (after !== null) begin(after);
         else me.setAct(Act.Idle, now);
         this.catching = null;
       }
@@ -620,6 +645,13 @@ export class GardenScene extends Phaser.Scene {
         me.z = ground;
         this.vz = 0;
         me.setAct(moving ? Act.Walk : Act.Idle, now);
+        // landing with something caught on the way: eat it
+        const got = this.airCatch?.got ?? null;
+        this.airCatch = null;
+        if (got !== null && !wetAt(me.x, me.y)) {
+          begin(eatAct(got));
+          return;
+        }
         if (wetAt(me.x, me.y)) {
           // splash! straight back out to where we last stood on dry land
           const { x, y } = this.lastDry;
@@ -632,6 +664,7 @@ export class GardenScene extends Phaser.Scene {
     } else {
       me.z = ground;
       if (me.act === Act.Jump) me.setAct(moving ? Act.Walk : Act.Idle, now);
+      this.airCatch = null;
     }
 
     if (me.act !== Act.Jump && !wetAt(me.x, me.y)) this.lastDry = { x: me.x, y: me.y };

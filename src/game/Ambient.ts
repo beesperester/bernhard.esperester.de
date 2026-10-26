@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
 import type { Raster } from '../art/raster.ts';
 import { Pool, seedRng, hash2, lerp, smooth, clamp01 } from './fauna.ts';
-import { BUTTERFLY_COLOURS, RIPPLE_FRAMES, Z_SIZES } from '../art/critters.ts';
+import { BUTTERFLY_COLOURS, PUFF_FRAMES, RIPPLE_FRAMES, Z_SIZES } from '../art/critters.ts';
 import type { Prop } from '../art/tiles.ts';
 import { Birds } from './Birds.ts';
 import { NightLife } from './NightLife.ts';
 import { NightFlyers } from './NightFlyers.ts';
 import { Bugs } from './Bugs.ts';
+import { Mice } from './Mice.ts';
 import { DEPTH } from './Daylight.ts';
 import { lightAt } from '../world/sky.ts';
 import { inSeason } from '../world/season.ts';
@@ -49,7 +50,7 @@ const BEE_SENSES: Senses = { walking: 30, jumping: 36, hissing: 48, dashing: 56,
  * quite still; splashing again, getting up and walking, hissing or jumping
  * before then scares it off. At the paw it stays a while for the catch.
  */
-const LURE_P = 0.75, LURE_COME_MS = 1600, LURE_GO_MS = 1800, LURE_EVERY_MS = 2500;
+const LURE_P = 0.5, LURE_CALM_MS = 8000, LURE_COME_MS = 1600, LURE_GO_MS = 1800, LURE_EVERY_MS = 2500;
 const LURE_FROM: [number, number] = [36, 90];
 /** How far along it waits, how long it waits for a crouch, how long the creeping up takes, how long it stays at the paw. */
 const LURE_WAIT_K = 0.35, LURE_WAIT_MS = 7000, LURE_CREEP_MS = 2400, LURE_STAY_MS = 5000;
@@ -68,7 +69,7 @@ interface Lure {
 }
 
 interface Particle {
-  img: Img; kind: 'ripple' | 'drop' | 'z' | 'dust' | 'leap' | 'feather' | 'puff';
+  img: Img; kind: 'ripple' | 'drop' | 'z' | 'dust' | 'leap' | 'feather' | 'puff' | 'cloud';
   x: number; y: number; z: number; vx: number; vy: number; vz: number;
   t: number; life: number; delay: number; cat?: CatView;
   /** Draw order, if not by its own ground position. */
@@ -76,7 +77,11 @@ interface Particle {
 }
 
 /** Something catchable this frame. `y` is the ground point under it, `h` its height. */
-export interface PreyRef { kind: Prey; id: number; x: number; y: number; h: number; colour: number }
+export interface PreyRef {
+  kind: Prey; id: number; x: number; y: number; h: number; colour: number;
+  /** On the wing: only a cat in mid-jump can get it. */
+  air?: boolean;
+}
 
 const preyKey = (kind: Prey, id: number) => kind * 1e10 + id;
 
@@ -99,7 +104,7 @@ export class Ambient {
   private bursts: Burst[] = [];
   private readonly burstKeys = new Set<string>();
   private particles: Particle[] = [];
-  private readonly perCat = new WeakMap<CatView, { nextZ: number; nextDust: number; wet: boolean; swipe: number; nextLure: number }>();
+  private readonly perCat = new WeakMap<CatView, { nextZ: number; nextDust: number; wet: boolean; swipe: number; nextLure: number; lastSplash: number; dashing: boolean; dashEnd: number }>();
   private lures: Lure[] = [];
   /** Bees that took fright (not caught, just gone). */
   private readonly shooed = new Set<number>();
@@ -109,6 +114,7 @@ export class Ambient {
   private readonly birds: Birds;
   private readonly night: NightLife;
   private readonly flyers: NightFlyers;
+  private readonly mice: Mice;
   private readonly bugs: Bugs;
 
   private readonly pools: Record<'fish' | 'shadow' | 'bee' | 'fly' | 'flyShadow', Pool>;
@@ -133,8 +139,9 @@ export class Ambient {
       splash: (x, y, dir) => this.splash(x, y, dir),
       splashSound: (x, y, v, r) => this.splashSound(x, y, v, r),
     });
-    this.flyers = new NightFlyers(scene, opts.trees);
+    this.flyers = new NightFlyers(scene, opts.trees, (id) => this.caught.has(preyKey(Prey.Bat, id)));
     this.bugs = new Bugs(scene, (kind, id) => this.caught.has(preyKey(kind, id)));
+    this.mice = new Mice(scene, (id) => this.caught.has(preyKey(Prey.Mouse, id)));
     this.wary = new Wary(scene);
     this.flowers = opts.flowers;
     this.water = opts.water;
@@ -175,8 +182,9 @@ export class Ambient {
     this.updateButterflies(gt, cats);
     this.birds.update(gt, this.scene.time.now, cats, this.prey);
     this.night.update(gt, this.scene.time.now, cats, this.prey, view);
-    this.flyers.update(gt, cats, view);
+    this.flyers.update(gt, cats, this.prey, view);
     this.bugs.update(gt, this.scene.time.now, cats, this.prey, view);
+    this.mice.update(gt, this.scene.time.now, cats, this.prey, view);
     this.updateCats(gt, cats);
     this.updateParticles(dt);
     for (const p of Object.values(this.pools)) p.end();
@@ -193,6 +201,7 @@ export class Ambient {
   preyNear(cat: CatView): PreyRef | null {
     let best: PreyRef | null = null, bd = Infinity;
     for (const p of this.prey) {
+      if (p.air && cat.act !== Act.Jump) continue;
       const dx = p.x - cat.x, dy = p.y - (cat.y - (p.kind === Prey.Fish ? 3 : 0));
       if (Math.abs(dx) > TILE + 6 || Math.abs(dy) > TILE + 4) continue;
       // out of reach from the top of a ledge, or from below it
@@ -240,11 +249,15 @@ export class Ambient {
       return;
     }
     if (kind === Prey.Frog) cat.heldKey = 'held-frog';
+    if (kind === Prey.Bat) cat.heldKey = 'held-bat';
+    if (kind === Prey.Mouse) cat.heldKey = 'held-mouse';
     const img = kind === Prey.Fish ? this.scene.add.image(p.x, p.y, 'fish')
       : kind === Prey.Frog ? this.scene.add.image(p.x, p.y - p.h, 'frog', 0).setOrigin(0.5, 1)
       : kind === Prey.Bird ? this.scene.add.image(p.x, p.y - p.h, `bird-${p.colour}`, 2).setOrigin(0.5, 1)
       : kind === Prey.Beetle ? this.scene.add.image(p.x, p.y - p.h, `beetle-${p.colour}`, 0).setOrigin(0.5, 1)
       : kind === Prey.Dragonfly ? this.scene.add.image(p.x, p.y - p.h, 'dragonfly', 1).setOrigin(0.5, 1)
+      : kind === Prey.Bat ? this.scene.add.image(p.x, p.y - p.h, 'bat', 1).setOrigin(0.5, 1)
+      : kind === Prey.Mouse ? this.scene.add.image(p.x, p.y - p.h, 'mouse', 1).setOrigin(0.5, 1)
       : this.scene.add.image(p.x, p.y - p.h, `butterfly-${p.colour}`, 1).setOrigin(0.5, 1);
     this.particles.push({ img: img.setDepth(100000), kind: 'leap', x: p.x, y: p.y - p.h, z: 0, vx: 0, vy: 0, vz: 0, t: 0, life: kind === Prey.Fish ? 0.3 : 0.18, delay: 0, cat });
   }
@@ -493,7 +506,7 @@ export class Ambient {
     const now = this.scene.time.now;
     for (const c of cats) {
       let s = this.perCat.get(c);
-      if (!s) this.perCat.set(c, (s = { nextZ: 0, nextDust: 0, wet: false, swipe: -1, nextLure: 0 }));
+      if (!s) this.perCat.set(c, (s = { nextZ: 0, nextDust: 0, wet: false, swipe: -1, nextLure: 0, lastSplash: -1e9, dashing: false, dashEnd: 0 }));
 
       // a paw slapping the water splashes, and may lure a fish over
       if (c.act === Act.Catch && now - c.actStart >= SWIPE_AT_MS && s.swipe !== c.actStart) {
@@ -507,10 +520,13 @@ export class Ambient {
           const mine = this.lures.find((l) => l.cat === c && l.phase !== 'go');
           if (mine) this.scareLure(mine, gt + (mine.phase === 'close' ? 150 : 0));
           // and the water needs to calm down before the next one comes
+          // a fish only comes to the first splash on calm water: splashing again and again just keeps them away
+          const calm = clamp01((now - s.lastSplash - 1000) / LURE_CALM_MS);
+          s.lastSplash = now;
           if (mine || this.lures.some((l) => l.cat === c)) s.nextLure = now + LURE_EVERY_MS;
           else if (now >= s.nextLure) {
             s.nextLure = now + LURE_EVERY_MS;
-            this.lure(strHash(`${c.id}:${c.seq}`), gt, [px, py], c);
+            this.lure(strHash(`${c.id}:${c.seq}`), gt, [px, py], c, calm);
           }
         }
       }
@@ -530,6 +546,17 @@ export class Ambient {
       }
 
       const dashing = c.speed > DUST_SPEED && c.act !== Act.Jump;
+      // a cartoon cloud left hanging where the cat shot off
+      if (dashing && !s.dashing && now - s.dashEnd > 350) {
+        const back = c.facing === Facing.Left ? 4 : c.facing === Facing.Right ? -4 : 0;
+        const backY = c.facing === Facing.Up ? 3 : c.facing === Facing.Down ? -3 : 0;
+        this.particles.push({
+          img: this.scene.add.image(0, 0, 'dash-puff', 0).setOrigin(0.5, 1), kind: 'cloud',
+          x: c.x + back, y: c.y + 1 + backY - c.z, z: 0, vx: back * 1.5, vy: -3, vz: 0, t: 0, life: 0.5, delay: 0, depth: c.y + backY,
+        });
+      }
+      if (s.dashing && !dashing) s.dashEnd = now;
+      s.dashing = dashing;
       if (dashing && now >= s.nextDust) {
         s.nextDust = now + 70;
         const back = c.facing === Facing.Left ? 5 : c.facing === Facing.Right ? -5 : 0;
@@ -554,10 +581,15 @@ export class Ambient {
 
   // ---------------------------------------------------------------- lured fish
 
-  /** Maybe bring a fish over from deeper water to a splash at `at`. */
-  private lure(seed: number, gt: number, at: Pt, cat: CatView): void {
+  /**
+   * Maybe bring a fish over from deeper water to a splash at `at`: more likely
+   * on calm water (`calm` 0..1), at dawn and dusk when they feed, and where
+   * there is plenty of open water around for fish to be in.
+   */
+  private lure(seed: number, gt: number, at: Pt, cat: CatView, calm: number): void {
     const r = seedRng(seed, 40);
-    if (r() >= LURE_P || this.lures.length >= 4) return;
+    const roll = r();
+    if (this.lures.length >= 4) return;
     const wet = ([x, y]: Pt) => this.water.isSet(Math.round(x), Math.round(y));
     // where it comes from: open water within reach, with water all the way
     const from = [...this.open, ...this.shore].filter(([x, y]) => {
@@ -567,6 +599,10 @@ export class Ambient {
       return true;
     });
     if (!from.length) return;
+    const light = lightAt(gt);
+    const twilight = clamp01(1 - Math.abs(light.elevation - 2) / 10);
+    const hour = twilight > 0 ? 0.6 + 0.8 * twilight : light.day > 0.5 ? 0.6 : 0.45;
+    if (roll >= LURE_P * calm * hour * Math.min(1, from.length / 12)) return;
     const id = 1e9 + (seed % 1e8);
     if (this.lures.some((l) => l.id === id)) return;
     this.lures.push({ id, t0: gt, at, from: from[Math.floor(r() * from.length)], cat, phase: 'come', since: gt, k: 0 });
@@ -677,6 +713,12 @@ export class Ambient {
           p.x += p.vx * dt;
           p.y += p.vy * dt;
           p.img.setFrame(Math.min(2, Math.floor(u * 3))).setPosition(Math.round(p.x), Math.round(p.y)).setAlpha(1 - u * 0.5);
+          break;
+        case 'cloud':
+          // drifts off a little, slowing, while it swells and breaks up
+          p.x += p.vx * dt * (1 - u);
+          p.y += p.vy * dt;
+          p.img.setFrame(Math.min(PUFF_FRAMES - 1, Math.floor(u * PUFF_FRAMES))).setPosition(Math.round(p.x), Math.round(p.y)).setDepth(p.depth!);
           break;
         case 'puff':
           // a caught firefly's light swells and fades

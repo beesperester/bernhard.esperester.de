@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { Act } from './state.ts';
+import { Act, Prey } from './state.ts';
+import type { PreyRef } from './Ambient.ts';
 import type { CatView } from './CatView.ts';
 import type { Prop } from '../art/tiles.ts';
 import { DEPTH } from './Daylight.ts';
@@ -49,7 +50,12 @@ export class NightFlyers {
   /** Owls and roosting bats that left early: when, and which way. */
   private readonly scared = new Map<number, { t: number; dir: number }>();
 
-  constructor(scene: Phaser.Scene, trees: { p: Prop; canvas: HTMLCanvasElement }[]) {
+  private readonly isCaught: (id: number) => boolean;
+  /** Bats on the wing this frame, for cats leaping at them. */
+  private prey: PreyRef[] = [];
+
+  constructor(scene: Phaser.Scene, trees: { p: Prop; canvas: HTMLCanvasElement }[], isCaught: (id: number) => boolean) {
+    this.isCaught = isCaught;
     this.bats = new Pool(scene, 'bat');
     this.owls = new Pool(scene, 'owl');
     this.eyes = new Pool(scene, 'owl-eyes');
@@ -88,7 +94,8 @@ export class NightFlyers {
     }
   }
 
-  update(gt: number, cats: CatView[], view: Phaser.Geom.Rectangle): void {
+  update(gt: number, cats: CatView[], prey: PreyRef[], view: Phaser.Geom.Rectangle): void {
+    this.prey = prey;
     this.bats.begin();
     this.owls.begin();
     this.eyes.begin();
@@ -133,7 +140,7 @@ export class NightFlyers {
   private updateBats(gt: number, view: Phaser.Geom.Rectangle): void {
     for (let k = Math.floor((gt - BAT_MAX) / BAT_SLOT); k <= Math.floor(gt / BAT_SLOT); k++) {
       const b = this.batAt(k);
-      if (!b || gt < b.t0 || gt > b.t0 + b.life) continue;
+      if (!b || gt < b.t0 || gt > b.t0 + b.life || this.isCaught(b.id)) continue;
       const [ax, ay] = b.at;
       if (ax < view.x - 200 || ax > view.right + 200 || ay < view.y - 200 || ay > view.bottom + 200) continue;
       const r = seedRng(b.id, 42);
@@ -143,7 +150,10 @@ export class NightFlyers {
       // quick loops round the spot, with jinks after moths
       let x = ax + Math.sin(t * f1 + p1) * R + Math.sin(t * f3 + p2) ** 3 * 12;
       let y = ay + Math.cos(t * f1 * 0.9 + p1) * R * 0.5 + Math.sin(t * f2 + p3) * 6;
+      // and every so often a swoop down low after something over the grass: that's when a cat can leap for it
+      const swoop = Math.max(0, Math.sin(t * f1 * 0.37 + p3)) ** 12 * 22;
       let h = elevAt(ax, ay) + 34 + Math.sin(t * f2 * 0.7 + p2) * 8 + Math.sin(t * f3 * 1.3 + p1) ** 5 * 6;
+      h = Math.max(elevAt(ax, ay) + 10, h - swoop);
       // fluttering in from somewhere and off again
       const tau = gt - b.t0;
       const away = 1 - smooth(clamp01(Math.min(tau, b.life - tau) / BAT_IN_MS));
@@ -161,6 +171,7 @@ export class NightFlyers {
   private flyingBat(id: number, x: number, y: number, h: number, gt: number, alpha: number): void {
     const flap = [0, 1, 2, 1][Math.floor(gt / 55 + id) % 4];
     this.bats.get('bat', flap).setOrigin(0.5, 1).setPosition(Math.round(x), Math.round(y - h)).setDepth(99000 + y).setAlpha(alpha);
+    if (alpha > 0.5) this.prey.push({ kind: Prey.Bat, id, x, y, h, colour: 0, air: true });
   }
 
   private roostAt(k: number): Roost | null {
@@ -186,7 +197,7 @@ export class NightFlyers {
     const taken = new Set<Perch>();
     for (let k = Math.floor((gt - ROOST_MAX) / ROOST_SLOT); k <= Math.floor(gt / ROOST_SLOT); k++) {
       const b = this.roostAt(k);
-      if (!b || gt < b.t0 || taken.has(b.spot)) continue;
+      if (!b || gt < b.t0 || taken.has(b.spot) || this.isCaught(b.id)) continue;
       const s = b.spot;
       const scared = this.scared.get(b.id);
       const leave = scared ? scared.t : b.t0 + b.life;
