@@ -58,6 +58,6 @@ npm run build      # → dist/
 node tools/preview.ts /tmp/preview   # render sprite sheets & garden to PNG
 ```
 
-## Deployment (all-inkl)
+## Deployment
 
-Upload the contents of `dist/` to the document root of `bernhard.esperester.de`. No PHP or database needed.
+GitHub Pages: every push to `main` builds the site and publishes `dist/` (`.github/workflows/pages.yml`), served at https://bernhard.esperester.de. The domain points at GitHub with a DNS record at all-inkl: `bernhard` → CNAME → `beesperester.github.io`. No server-side code is needed; the cats talk to each other directly.
