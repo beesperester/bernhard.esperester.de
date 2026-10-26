@@ -2,10 +2,10 @@
 // (Trystero's default strategy); after that all traffic flows browser-to-browser
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
-import type { CatMsg } from '../game/state.ts';
+import { Prey, type CatMsg } from '../game/state.ts';
 
 // bump the version whenever CatMsg changes so old and new clients don't mix
-const APP_ID = 'bernhard.esperester.de/garden-of-cats/v3';
+const APP_ID = 'bernhard.esperester.de/garden-of-cats/v4';
 /** A garden is "full" at this many cats; later visitors open the next one. */
 const ROOM_CAP = 20;
 const MAX_ROOMS = 50;
@@ -14,8 +14,8 @@ const SETTLE_MS = 4000;
 
 export interface NetEvents {
   onState: (peerId: string, msg: CatMsg) => void;
-  /** Another cat caught the surfacing fish with this id. */
-  onCatch: (peerId: string, fishId: number) => void;
+  /** Another cat caught (or swiped at) the fish, butterfly or bee with this id. */
+  onCatch: (peerId: string, kind: Prey, id: number) => void;
   onLeave: (peerId: string) => void;
   onStatus: (garden: number, peers: number, settled: boolean) => void;
 }
@@ -23,7 +23,7 @@ export interface NetEvents {
 export class Net {
   private room: Room | null = null;
   private send: ((msg: CatMsg, target?: string) => void) | null = null;
-  private sendCatch: ((fishId: number) => void) | null = null;
+  private sendCatch: ((kind: Prey, id: number) => void) | null = null;
   /** Peer clock minus our clock, in ms, measured once when a peer joins. */
   private offsets = new Map<string, number>();
   readonly id = selfId;
@@ -46,8 +46,8 @@ export class Net {
     this.send?.(msg);
   }
 
-  catchFish(fishId: number): void {
-    this.sendCatch?.(fishId);
+  catchPrey(kind: Prey, id: number): void {
+    this.sendCatch?.(kind, id);
   }
 
   /**
@@ -80,10 +80,12 @@ export class Net {
       const msg = sanitize(data);
       if (msg) this.ev.onState(peerId, msg);
     };
-    const fish = room.makeAction<number>('fish');
-    this.sendCatch = (id) => void fish.send(id).catch(() => {});
-    fish.onMessage = (id, { peerId }) => {
-      if (this.room === room && typeof id === 'number' && Number.isInteger(id)) this.ev.onCatch(peerId, id);
+    const prey = room.makeAction<[number, number]>('catch');
+    this.sendCatch = (kind, id) => void prey.send([kind, id]).catch(() => {});
+    prey.onMessage = (data, { peerId }) => {
+      if (this.room !== room || !Array.isArray(data) || data.length !== 2) return;
+      const [kind, id] = data;
+      if ((kind === Prey.Fish || kind === Prey.Fly || kind === Prey.Bee) && Number.isInteger(id)) this.ev.onCatch(peerId, kind, id);
     };
     // clock sync: ask a new peer for its time, take the best of a few round trips
     const clock = room.makeAction<number, number>('clock', { kind: 'request', onRequest: () => Date.now() });

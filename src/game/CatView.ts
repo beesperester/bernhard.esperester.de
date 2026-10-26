@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Act, ACT_MAX, EAT_MS, Facing, frameFor, type CatMsg } from './state.ts';
+import { Act, ACT_MAX, EAT_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { COATS } from '../art/cat.ts';
 import { WORLD_W, WORLD_H, groundAt } from '../world/map.ts';
 
@@ -72,7 +72,7 @@ export class CatView {
         .setDepth(y + 0.5);
     }
 
-    const content = this.act === Act.Eat && ms > EAT_MS - 700;
+    const content = (this.act === Act.Eat && ms > EAT_MS - 700) || (this.act === Act.Munch && ms > MUNCH_MS - 500);
     const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Roll || content ? 'bubble-roll' : null;
     this.bubble.setVisible(!!emote);
     if (emote) {

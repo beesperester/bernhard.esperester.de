@@ -6,7 +6,7 @@ import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildBee, buildButterfly, buildDust, buildFish, buildFishShadow, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds } from '../world/map.ts';
-import { Act, CATCH_MS, EAT_MS, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
+import { Act, CATCH_MS, EAT_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
 import { Sunlight } from './Sunlight.ts';
@@ -83,7 +83,7 @@ export class GardenScene extends Phaser.Scene {
   private dashReadyAt = 0;
   private lastDry = { x: 0, y: 0 };
   private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number } | null = null;
-  private catching: { target: number | null; swiped: boolean; got: boolean } | null = null;
+  private catching: { swiped: boolean; got: Prey | null } | null = null;
 
   constructor() {
     super('garden');
@@ -155,9 +155,9 @@ export class GardenScene extends Phaser.Scene {
         }
         this.updateStatus();
       },
-      onCatch: (id, fishId) => {
+      onCatch: (id, kind, preyId) => {
         const cat = this.remotes.get(id);
-        if (cat) this.ambient.catchFish(fishId, cat);
+        if (cat) this.ambient.catchPrey(kind, preyId, cat);
       },
       onLeave: (id) => {
         this.remotes.get(id)?.destroy();
@@ -329,15 +329,16 @@ export class GardenScene extends Phaser.Scene {
       this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, used * DASH_COOLDOWN_MS);
     }
     this.ui.setDashCooldown(Math.ceil(Math.max(0, this.dashReadyAt - now) / 1000));
-    if (me.act === Act.Eat && elapsed >= EAT_MS) me.setAct(Act.Idle, now);
+    if ((me.act === Act.Eat && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || grab)) me.setAct(Act.Idle, now);
 
-    // catching: swipe at a fish lingering within a tile of the cat
-    if (grab && me.act !== Act.Jump && me.act !== Act.Catch && me.act !== Act.Eat && !wetAt(me.x, me.y)) {
-      const fish = this.ambient.fishNear(me);
-      if (fish) me.facing = fish.x < me.x ? Facing.Left : Facing.Right;
+    // catching: swipe at a fish, butterfly or bee within a tile of the cat
+    const busy = me.act === Act.Jump || me.act === Act.Catch || me.act === Act.Eat || me.act === Act.Munch;
+    if (grab && !busy && !wetAt(me.x, me.y)) {
+      const prey = this.ambient.preyNear(me);
+      if (prey) me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
       else if (me.facing === Facing.Up || me.facing === Facing.Down) me.facing = Facing.Left;
-      this.catching = { target: fish?.id ?? null, swiped: false, got: false };
+      this.catching = { swiped: false, got: null };
       begin(Act.Catch);
       return;
     }
@@ -345,16 +346,18 @@ export class GardenScene extends Phaser.Scene {
       const c = this.catching;
       if (!c.swiped && elapsed >= SWIPE_AT_MS) {
         c.swiped = true;
-        // the fish may have drifted off or been taken by someone else meanwhile
-        const fish = this.ambient.fishNear(me);
-        if (c.target !== null && fish?.id === c.target) {
-          this.ambient.catchFish(fish.id, me);
-          this.net.catchFish(fish.id);
-          c.got = true;
+        // whatever is within reach when the paw lands (things drift and fly)
+        const prey = this.ambient.preyNear(me);
+        if (prey) {
+          this.ambient.catchPrey(prey.kind, prey.id, me);
+          this.net.catchPrey(prey.kind, prey.id);
+          c.got = prey.kind;
         }
       }
       if (elapsed >= CATCH_MS) {
-        if (c.got) begin(Act.Eat);
+        if (c.got === Prey.Fish) begin(Act.Eat);
+        else if (c.got === Prey.Fly) begin(Act.Munch);
+        else if (c.got === Prey.Bee) begin(Act.Hiss); // ouch, it stung
         else me.setAct(Act.Idle, now);
         this.catching = null;
       }
@@ -369,7 +372,7 @@ export class GardenScene extends Phaser.Scene {
     }
 
     if (moving) {
-      if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep || me.act === Act.Eat)
+      if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep || me.act === Act.Eat || me.act === Act.Munch)
         me.setAct(Act.Idle, now);
       if (dx !== 0) me.facing = dx < 0 ? Facing.Left : Facing.Right;
       else me.facing = dy < 0 ? Facing.Up : Facing.Down;

@@ -1,13 +1,13 @@
 import Phaser from 'phaser';
 import { mulberry32, type Raster } from '../art/raster.ts';
 import { BUTTERFLY_COLOURS, RIPPLE_FRAMES, Z_SIZES } from '../art/critters.ts';
-import { Act, Facing } from './state.ts';
+import { Act, Facing, Prey } from './state.ts';
 import type { CatView } from './CatView.ts';
 import { tileAt, wetAt, TILE } from '../world/map.ts';
 
 // All fauna is a deterministic function of a shared garden clock and fixed
 // seeds, so every visitor sees the same fish, bees and butterflies without
-// sending anything. Only interactions travel over the network (a caught fish),
+// sending anything. Only interactions travel over the network (a catch),
 // or are derived from cat states that are synced anyway (startled butterflies).
 
 type Img = Phaser.GameObjects.Image;
@@ -47,6 +47,10 @@ const BEES = 5, BEE_EPOCH = 45000, BEE_HOP = 4000;
 // resting butterflies
 const FLY_SLOT = 5000, FLY_P = 0.55, FLY_WINDOW = 50000, FLIGHT_MS = 6000, BURST_MS = 3000;
 const DUST_SPEED = 110;
+/** A stung-and-swatted bee zooms off for this long. */
+const BEE_FLEE_MS = 1600;
+/** Butterflies and bees below this height are within paw reach. */
+const REACH_H = 14;
 
 interface Jump { t0: number; x: number; y: number; dir: number }
 interface Shallow { id: number; t0: number; life: number; a: Pt; b: Pt; period: number }
@@ -60,7 +64,10 @@ interface Particle {
   t: number; life: number; delay: number; cat?: CatView;
 }
 
-export interface FishRef { id: number; x: number; y: number }
+/** Something catchable this frame. `y` is the ground point under it, `h` its height. */
+export interface PreyRef { kind: Prey; id: number; x: number; y: number; h: number; colour: number }
+
+const preyKey = (kind: Prey, id: number) => kind * 1e10 + id;
 
 export class Ambient {
   private readonly scene: Phaser.Scene;
@@ -77,12 +84,13 @@ export class Ambient {
   private readonly butterflies = new Map<number, Butterfly | null>();
   private readonly takeoffs = new Map<number, Takeoff>();
   private readonly caught = new Set<number>();
+  private readonly fleeing = new Map<number, { t: number; x: number; y: number; h: number; dir: number }>();
   private bursts: Burst[] = [];
   private readonly burstKeys = new Set<string>();
   private particles: Particle[] = [];
   private readonly perCat = new WeakMap<CatView, { nextZ: number; nextDust: number; wet: boolean }>();
   private lastGt = -1;
-  private visibleShallow: FishRef[] = [];
+  private prey: PreyRef[] = [];
 
   private readonly pools: Record<'fish' | 'shadow' | 'bee' | 'fly' | 'flyShadow', Pool>;
 
@@ -118,6 +126,7 @@ export class Ambient {
   update(gt: number, dt: number, cats: CatView[]): void {
     if (this.lastGt < 0 || Math.abs(gt - this.lastGt) > 5000) this.lastGt = gt; // first frame or clock jump
     for (const p of Object.values(this.pools)) p.begin();
+    this.prey = [];
     this.updateJumps(gt);
     this.updateShallows(gt);
     this.updateBees(gt);
@@ -128,29 +137,42 @@ export class Ambient {
     this.lastGt = gt;
   }
 
-  /** The visible surfacing fish within a tile of this cat, if any. */
-  fishNear(cat: CatView): FishRef | null {
-    let best: FishRef | null = null, bd = Infinity;
-    for (const f of this.visibleShallow) {
-      const dx = f.x - cat.x, dy = f.y - (cat.y - 3);
+  /** The nearest catchable fish, butterfly or bee within a tile of this cat, if any. */
+  preyNear(cat: CatView): PreyRef | null {
+    let best: PreyRef | null = null, bd = Infinity;
+    for (const p of this.prey) {
+      const dx = p.x - cat.x, dy = p.y - (cat.y - (p.kind === Prey.Fish ? 3 : 0));
       if (Math.abs(dx) > TILE + 6 || Math.abs(dy) > TILE + 4) continue;
       const d = dx * dx + dy * dy;
-      if (d < bd) { bd = d; best = f; }
+      if (d < bd) { bd = d; best = p; }
     }
     return best;
   }
 
-  /** Remove a surfacing fish and send it leaping into the cat's mouth. */
-  catchFish(id: number, cat: CatView): void {
-    if (this.caught.has(id)) return;
-    this.caught.add(id);
-    const f = this.visibleShallow.find((v) => v.id === id);
-    if (!f) return;
-    this.splash(f.x, f.y, 0);
-    this.ripple(f.x, f.y, 0);
-    this.ripple(f.x, f.y, 0.25);
-    const img = this.scene.add.image(f.x, f.y, 'fish').setDepth(100000);
-    this.particles.push({ img, kind: 'leap', x: f.x, y: f.y, z: 0, vx: 0, vy: 0, vz: 0, t: 0, life: 0.3, delay: 0, cat });
+  /**
+   * A cat got it: a fish leaps into its mouth, a butterfly flutters into it,
+   * and a bee stings and zooms off.
+   */
+  catchPrey(kind: Prey, id: number, cat: CatView): void {
+    const key = preyKey(kind, id);
+    if (this.caught.has(key)) return;
+    this.caught.add(key);
+    if (this.caught.size > 256) this.caught.delete(this.caught.values().next().value!);
+    const p = this.prey.find((v) => v.kind === kind && v.id === id);
+    if (!p) return;
+    if (kind === Prey.Bee) {
+      this.fleeing.set(id, { t: this.lastGt, x: p.x, y: p.y, h: p.h, dir: Math.sign(p.x - cat.x) || 1 });
+      return;
+    }
+    if (kind === Prey.Fish) {
+      this.splash(p.x, p.y, 0);
+      this.ripple(p.x, p.y, 0);
+      this.ripple(p.x, p.y, 0.25);
+    }
+    const img = kind === Prey.Fish
+      ? this.scene.add.image(p.x, p.y, 'fish')
+      : this.scene.add.image(p.x, p.y - p.h, `butterfly-${p.colour}`, 1).setOrigin(0.5, 1);
+    this.particles.push({ img: img.setDepth(100000), kind: 'leap', x: p.x, y: p.y - p.h, z: 0, vx: 0, vy: 0, vz: 0, t: 0, life: kind === Prey.Fish ? 0.3 : 0.18, delay: 0, cat });
   }
 
   // ---------------------------------------------------------------- fish
@@ -215,11 +237,10 @@ export class Ambient {
   }
 
   private updateShallows(gt: number): void {
-    this.visibleShallow = [];
     const k1 = Math.floor(gt / SHALLOW_SLOT);
     for (let k = Math.floor((gt - SHALLOW_MAX_LIFE) / SHALLOW_SLOT) - 1; k <= k1; k++) {
       const s = this.shallowAt(k);
-      if (!s || this.caught.has(s.id) || gt < s.t0 || gt > s.t0 + s.life) continue;
+      if (!s || this.caught.has(preyKey(Prey.Fish, s.id)) || gt < s.t0 || gt > s.t0 + s.life) continue;
       const ph = ((gt - s.t0) / s.period) * Math.PI * 2;
       const u = 0.5 - 0.5 * Math.cos(ph);
       const x = lerp(s.a[0], s.b[0], u), y = lerp(s.a[1], s.b[1], u);
@@ -227,7 +248,7 @@ export class Ambient {
       const fade = Math.min(1, (gt - s.t0) / 1200, (s.t0 + s.life - gt) / 1500);
       const alpha = 0.42 * fade * (0.85 + 0.15 * Math.sin(gt / 300 + s.id));
       this.pools.shadow.get().setFlipX(heading < 0).setPosition(Math.round(x), Math.round(y)).setAlpha(alpha).setDepth(-99995);
-      if (alpha > 0.15) this.visibleShallow.push({ id: s.id, x, y });
+      if (alpha > 0.15) this.prey.push({ kind: Prey.Fish, id: s.id, x, y, h: 0, colour: 0 });
     }
   }
 
@@ -257,7 +278,8 @@ export class Ambient {
         const start = e * BEE_EPOCH + hash2(b, e, 904) * 15000;
         const dur = 22000 + hash2(b, e, 905) * 10000;
         const tau = gt - start;
-        if (tau < 0 || tau > dur) continue;
+        const id = e * BEES + b;
+        if (tau < 0 || tau > dur || this.caught.has(preyKey(Prey.Bee, id))) continue;
         const i = Math.floor(tau / BEE_HOP), frac = (tau - i * BEE_HOP) / 1000;
         const route = this.beeRoute(b, e, i + 1);
         const [ax, ay] = this.flowers[route[i]], [bx, by] = this.flowers[route[i + 1]];
@@ -267,10 +289,25 @@ export class Ambient {
         const x = lerp(ax, bx, m) + Math.cos(ang) * 6;
         const y = lerp(ay, by, m) + Math.sin(ang) * 3;
         const h = 7 + Math.sin(gt / 250 + b) * 2;
+        const alpha = Math.min(1, tau / 1000, (dur - tau) / 1000);
         this.pools.bee.get('bee', Math.floor(gt / 40) % 2)
           .setPosition(Math.round(x), Math.round(y - h)).setDepth(y)
-          .setAlpha(Math.min(1, tau / 1000, (dur - tau) / 1000));
+          .setAlpha(alpha);
+        if (alpha > 0.5) this.prey.push({ kind: Prey.Bee, id, x, y, h, colour: 0 });
       }
+
+    // swatted bees zoom off in an angry zigzag
+    for (const [id, f] of this.fleeing) {
+      const tau = gt - f.t;
+      if (tau > BEE_FLEE_MS || tau < 0) { this.fleeing.delete(id); continue; }
+      const s = tau / 1000;
+      const x = f.x + f.dir * (40 * s + 50 * s * s) + Math.sin(s * 30) * 3;
+      const y = f.y - 12 * s;
+      const h = f.h + 30 * s;
+      this.pools.bee.get('bee', Math.floor(gt / 25) % 2)
+        .setPosition(Math.round(x), Math.round(y - h)).setDepth(99000 + y)
+        .setAlpha(clamp01((BEE_FLEE_MS - tau) / 500));
+    }
   }
 
   // ---------------------------------------------------------------- butterflies
@@ -308,7 +345,8 @@ export class Ambient {
     return [x0 + dir * speed * s + Math.sin(s * 6) * 1.7, y0 + vy * s, 3 + vh * climb + Math.sin(s * 9) * 0.5];
   }
 
-  private drawButterfly(colour: number, x: number, y: number, h: number, frame: number, alpha: number): void {
+  private drawButterfly(id: number, colour: number, x: number, y: number, h: number, frame: number, alpha: number): void {
+    if (h < REACH_H && alpha > 0.5) this.prey.push({ kind: Prey.Fly, id, x, y, h, colour });
     this.pools.fly.get(`butterfly-${colour}`, frame)
       .setOrigin(0.5, 1).setPosition(Math.round(x), Math.round(y - h))
       .setDepth(h > 14 ? 99000 + y : y).setAlpha(alpha);
@@ -319,11 +357,12 @@ export class Ambient {
   private updateButterflies(gt: number, cats: CatView[]): void {
     for (let k = Math.floor((gt - FLY_WINDOW) / FLY_SLOT); k <= Math.floor(gt / FLY_SLOT); k++) {
       const b = this.butterflyAt(k);
-      if (!b) continue;
+      if (!b || this.caught.has(preyKey(Prey.Fly, b.id))) continue;
       const [fx, fy] = b.flower;
       let off = this.takeoffs.get(b.id);
       if (!off && gt >= b.land) {
-        const near = cats.find((c) => Math.hypot(c.x - fx, c.y - fy) < 24);
+        // a walking cat startles it only up close, so you can sneak up and pounce; a dashing one from afar
+        const near = cats.find((c) => Math.hypot(c.x - fx, c.y - fy) < (c.speed > DUST_SPEED ? 40 : c.speed > 5 ? 12 : 0));
         if (near) off = { t: gt, dir: Math.sign(fx - near.x) || 1 };
         else if (gt >= b.land + b.restMax) off = { t: b.land + b.restMax, dir: hash2(b.id, 6, 909) < 0.5 ? -1 : 1 };
         if (off) this.takeoffs.set(b.id, off);
@@ -332,14 +371,14 @@ export class Ambient {
       if (gt < b.land) {
         // fluttering down onto the flower
         const u = (gt - (b.land - 1200)) / 1200;
-        this.drawButterfly(b.colour, fx + Math.sin(u * 8) * 3 * (1 - u), fy, lerp(40, 3, smooth(u)), Math.floor(gt / 90) % 2, Math.min(1, u * 2));
+        this.drawButterfly(b.id, b.colour, fx + Math.sin(u * 8) * 3 * (1 - u), fy, lerp(40, 3, smooth(u)), Math.floor(gt / 90) % 2, Math.min(1, u * 2));
       } else if (!off || gt < off.t) {
         // resting, wings slowly opening and closing
-        this.drawButterfly(b.colour, fx, fy, 3, hash2(b.id, Math.floor(gt / 1300), 910) < 0.5 ? 0 : 1, 1);
+        this.drawButterfly(b.id, b.colour, fx, fy, 3, hash2(b.id, Math.floor(gt / 1300), 910) < 0.5 ? 0 : 1, 1);
       } else if (gt < off.t + FLIGHT_MS) {
         const tau = gt - off.t;
         const [x, y, h] = this.flight(b.id, tau, fx, fy, off.dir, false);
-        this.drawButterfly(b.colour, x, y, h, Math.floor(gt / 70) % 2, clamp01((FLIGHT_MS - tau) / 1500));
+        this.drawButterfly(b.id, b.colour, x, y, h, Math.floor(gt / 70) % 2, clamp01((FLIGHT_MS - tau) / 1500));
       }
     }
 
@@ -347,12 +386,13 @@ export class Ambient {
     this.bursts = this.bursts.filter((u) => gt - u.t0 < BURST_MS);
     for (const u of this.bursts)
       for (let i = 0; i < u.n; i++) {
-        const seed = u.seed + i * 7919;
+        const seed = (u.seed + i * 7919) >>> 0;
+        if (this.caught.has(preyKey(Prey.Fly, seed))) continue;
         const r = seedRng(seed, 8);
         const tau = gt - u.t0 - r() * 150;
         if (tau < 0) continue;
         const [x, y, h] = this.flight(seed, tau, u.x + (r() - 0.5) * 14, u.y + (r() - 0.5) * 6, r() < 0.5 ? -1 : 1, true);
-        this.drawButterfly(Math.floor(r() * BUTTERFLY_COLOURS.length), x, y, h, Math.floor(gt / 45 + i) % 2, clamp01((BURST_MS - tau) / 1000));
+        this.drawButterfly(seed, Math.floor(r() * BUTTERFLY_COLOURS.length), x, y, h, Math.floor(gt / 45 + i) % 2, clamp01((BURST_MS - tau) / 1000));
       }
   }
 
