@@ -20,6 +20,7 @@ import { Net } from '../net/net.ts';
 import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
 import { touch, setupUI } from '../ui/ui.ts';
+import { setCatCount } from '../ui/favicon.ts';
 
 const SPEED = 64; // px per second
 const DASH_SPEED = 168;
@@ -172,6 +173,7 @@ export class GardenScene extends Phaser.Scene {
 
     this.ui = setupUI();
     this.ui.setStatus('looking for other cats…');
+    setCatCount(1);
     this.net = new Net(() => this.state(), {
       onState: (id, msg) => {
         const cat = this.remotes.get(id);
@@ -273,6 +275,7 @@ export class GardenScene extends Phaser.Scene {
     const n = this.remotes.size;
     const others = n === 0 ? 'just you so far' : n === 1 ? '1 other cat' : `${n} other cats`;
     this.ui.setStatus(`garden ${this.garden} · ${others}`);
+    setCatCount(n + 1);
   }
 
   update(time: number, delta: number): void {

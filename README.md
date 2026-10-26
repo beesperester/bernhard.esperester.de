@@ -8,6 +8,7 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 - Butterflies resting on flowers (or fluttering low) can be caught too — sneak up and stop before pouncing; walking right at them or dashing startles them. Swiping at a bee gets you stung: hiss!
 - Dashing through grass startles a burst of butterflies
 - Birds drop in on the trees, sit in the crowns and sometimes flutter down to peck on the lawn. Walk up and they fly off. Hold **X** to crouch and creep closer: at about two cat lengths the bird spots you (**!**) and leaves a moment later, so freeze and pounce with **Shift** before it does (creeping on or a missed swipe scares it away)
+- The browser tab's icon shows how many cats are in your garden right now (you included)
 - Walking straight into an edge slides you into an opening just beside it (corner slip, as in the Zelda games), so the narrow gaps of the labyrinth are easy to enter
 - Idle cats sit down after a few seconds and lick their paws now and then; after 30 s they curl up and sleep (zzZZzz)
 - Jump onto low obstacles — hedges, bushes, rocks, the fountain rim — and walk along them. Jump into the pond and you splash and scramble straight back out
