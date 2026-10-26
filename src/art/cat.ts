@@ -223,6 +223,24 @@ const roll3 = patch(roll1, [
   [0, 6, '..oooowo.owwwo..'],
 ]);
 
+// ---- curled up asleep (side; two breathing frames) ----
+const sleep1 = [
+  ...Array(7).fill('................'),
+  '..o..o..........',
+  '.opoobooooooo...',
+  '.obbbbbbbdbdbboo',
+  'obbbbbbdbbbbdbbo',
+  'oboobbbbbdbbbbbo',
+  'pwwbbbbbbbbbdbbo',
+  'owwwwobbbbbbbbbo',
+  '.ooddddddddddoo.',
+  '...oooooooooo...',
+];
+const sleep2 = patch(sleep1, [
+  [0, 7, '..o..o..ooooo...'],
+  [0, 8, '.opoobobbbdbboo.'],
+]);
+
 export const FRAMES = {
   downStand, downWalk1, downWalk2,
   upStand, upWalk1, upWalk2,
@@ -231,6 +249,7 @@ export const FRAMES = {
   lickDown1, lickDown2, lickSide1, lickSide2,
   hiss1, hiss2,
   roll1, roll2, roll3,
+  sleep1, sleep2,
 } as const;
 
 export type FrameName = keyof typeof FRAMES;

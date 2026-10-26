@@ -16,6 +16,9 @@ export class CatView {
   z = 0;
   /** Last rendered sheet frame, for reflections. */
   frame = 0;
+  /** Smoothed ground speed in px/s (dashing cats kick up dust). */
+  speed = 0;
+  private last = { x: 0, y: 0, t: -1 };
 
   readonly shadow: Phaser.GameObjects.Image;
   private readonly sprite: Phaser.GameObjects.Sprite;
@@ -39,10 +42,16 @@ export class CatView {
     const ms = now - this.actStart;
     const z = this.z;
     const x = Math.round(this.x), y = Math.round(this.y);
+    const dtm = now - this.last.t;
+    if (this.last.t >= 0 && dtm > 0) {
+      const inst = Math.hypot(this.x - this.last.x, this.y - this.last.y) / (dtm / 1000);
+      this.speed += (inst - this.speed) * Math.min(1, dtm / 150);
+    }
+    this.last = { x: this.x, y: this.y, t: now };
     // the shadow lies on whatever surface is below the cat
     this.shadow.setPosition(x, y - 1 - groundAt(this.x, this.y)).setDepth(y - 0.5);
     this.sprite.setPosition(x, y - Math.round(z)).setDepth(y);
-    this.frame = frameFor(this.act, this.facing, ms, now);
+    this.frame = frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
 
     const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Roll ? 'bubble-roll' : null;
@@ -82,7 +91,7 @@ export class RemoteCat extends CatView {
     this.ty = Phaser.Math.Clamp(y, 0, WORLD_H);
     this.tz = Phaser.Math.Clamp(z, 0, 40);
     this.facing = Phaser.Math.Clamp(facing, 0, 3) as Facing;
-    const a = Phaser.Math.Clamp(act, 0, 6) as Act;
+    const a = Phaser.Math.Clamp(act, 0, 7) as Act;
     if (a !== this.act || seq !== this.seq) this.setAct(a, now);
     this.seq = seq;
     this.lastSeen = now;

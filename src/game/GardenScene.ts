@@ -3,19 +3,24 @@ import { Raster } from '../art/raster.ts';
 import { buildCatSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
 import { buildGround, buildProps, buildWaterMask } from '../art/tiles.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
+import { BUTTERFLY_COLOURS, RIPPLE_W, RIPPLE_H, Z_SIZES, buildBee, buildButterfly, buildDust, buildFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, FEET, heightUnder, groundAt, spawnPoints } from '../world/map.ts';
-import { Act, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, type CatMsg } from './state.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, groundAt, spawnPoints, tileAt, pondBounds } from '../world/map.ts';
+import { Act, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
 import { Sunlight } from './Sunlight.ts';
 import { PondReflection } from './PondReflection.ts';
 import { Trees } from './Trees.ts';
 import { Vignette } from './Vignette.ts';
+import { Ambient } from './Ambient.ts';
 import { Net } from '../net/net.ts';
 import { touch, setupUI } from '../ui/ui.ts';
 
 const SPEED = 64; // px per second
+const DASH_SPEED = 168;
+const DASH_MS = 2500;
+const DASH_COOLDOWN_MS = 1500;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
 const TICK_MS = 50;
 const SEND_MS = 100;
@@ -48,6 +53,7 @@ export class GardenScene extends Phaser.Scene {
     up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key;
     left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key;
     jump: Phaser.Input.Keyboard.Key; hiss: Phaser.Input.Keyboard.Key; roll: Phaser.Input.Keyboard.Key;
+    dash: Phaser.Input.Keyboard.Key;
   };
   private lastInput = 0;
   private nextLick = 0;
@@ -63,6 +69,9 @@ export class GardenScene extends Phaser.Scene {
   private vignette!: Vignette;
   private camAnchor!: Phaser.GameObjects.Zone;
   private vz = 0;
+  private ambient!: Ambient;
+  private dashUntil = 0;
+  private dashReadyAt = 0;
 
   constructor() {
     super('garden');
@@ -87,6 +96,10 @@ export class GardenScene extends Phaser.Scene {
     });
     this.sun = new Sunlight(this, toCanvas);
     this.vignette = new Vignette(this);
+    const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
+    for (let ty = 0; ty < MAP_H; ty++)
+      for (let tx = 0; tx < MAP_W; tx++) if (tileAt(tx, ty) === 'f') flowers.push([tx * TILE + 8, ty * TILE + 8]);
+    this.ambient = new Ambient(this, { flowers, water: buildWaterMask(), pond: pondBounds() });
 
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
@@ -110,7 +123,7 @@ export class GardenScene extends Phaser.Scene {
     const K = Phaser.Input.Keyboard.KeyCodes;
     this.keys = {
       up: kb.addKey(K.UP), down: kb.addKey(K.DOWN), left: kb.addKey(K.LEFT), right: kb.addKey(K.RIGHT),
-      jump: kb.addKey(K.SPACE), hiss: kb.addKey(K.H), roll: kb.addKey(K.R),
+      jump: kb.addKey(K.SPACE), hiss: kb.addKey(K.H), roll: kb.addKey(K.R), dash: kb.addKey(K.SHIFT),
     };
 
     this.ui = setupUI();
@@ -150,6 +163,19 @@ export class GardenScene extends Phaser.Scene {
     const props = buildProps().map((p) => toCanvas(p.raster));
     const flora = addFloraTextures(this, (i) => toCanvas(buildFloraSheet(FLORA[i])));
     for (const [k, make] of Object.entries(ICONS)) tex.addCanvas(k, toCanvas(make()));
+    const sheet = (key: string, r: Raster, fw: number, fh: number) => {
+      const t = tex.addCanvas(key, toCanvas(r))!;
+      for (let f = 0; f * fw < r.w; f++) t.add(f, 0, f * fw, 0, fw, fh);
+    };
+    BUTTERFLY_COLOURS.forEach((_, i) => sheet(`butterfly-${i}`, buildButterfly(i), 7, 5));
+    sheet('bee', buildBee(), 4, 3);
+    sheet('ripple', buildRipples(), RIPPLE_W, RIPPLE_H);
+    sheet('dust', buildDust(), 6, 5);
+    tex.addCanvas('fish', toCanvas(buildFish()));
+    Z_SIZES.forEach((n, i) => tex.addCanvas(`z-${i}`, toCanvas(buildZ(n))));
+    const drop = new Raster(1, 1);
+    drop.set(0, 0, [232, 244, 255]);
+    tex.addCanvas('drop', toCanvas(drop));
     return { cats, props, flora };
   }
 
@@ -206,6 +232,7 @@ export class GardenScene extends Phaser.Scene {
     this.trees.update(cats);
     this.meadow.update(time, cats);
     this.pond.update(time, cats);
+    this.ambient.update(time, dt, cats);
     this.sun.update(time, dt);
     if (this.youMarker.active) {
       const bob = Math.floor(time / 300) % 2;
@@ -222,9 +249,10 @@ export class GardenScene extends Phaser.Scene {
     const jump = JD(k.jump) || touch.pressed.has('jump');
     const hiss = JD(k.hiss) || touch.pressed.has('hiss');
     const roll = JD(k.roll) || touch.pressed.has('roll');
+    const dash = JD(k.dash) || touch.pressed.has('dash');
     touch.pressed.clear();
     const moving = dx !== 0 || dy !== 0;
-    if (moving || jump || hiss || roll) {
+    if (moving || jump || hiss || roll || dash) {
       this.lastInput = now;
       this.ui.hideHelp();
     }
@@ -242,6 +270,11 @@ export class GardenScene extends Phaser.Scene {
       this.nextLick = now + 4000 + Math.random() * 7000;
     }
 
+    if (dash && now >= this.dashReadyAt) {
+      this.dashUntil = now + DASH_MS;
+      this.dashReadyAt = this.dashUntil + DASH_COOLDOWN_MS;
+    }
+    if (me.act === Act.Sleep && (jump || hiss || roll)) me.setAct(Act.Idle, now);
     const grounded = me.act !== Act.Jump;
     if (hiss && grounded) begin(Act.Hiss);
     else if (roll && grounded) begin(Act.Roll);
@@ -251,11 +284,12 @@ export class GardenScene extends Phaser.Scene {
     }
 
     if (moving) {
-      if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Sit || me.act === Act.Lick) me.setAct(Act.Idle, now);
+      if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep) me.setAct(Act.Idle, now);
       if (dx !== 0) me.facing = dx < 0 ? Facing.Left : Facing.Right;
       else me.facing = dy < 0 ? Facing.Up : Facing.Down;
       if (dx !== 0 && dy !== 0) { dx *= Math.SQRT1_2; dy *= Math.SQRT1_2; }
-      this.move(dx * SPEED * dt, dy * SPEED * dt);
+      const speed = now < this.dashUntil ? DASH_SPEED : SPEED;
+      this.move(dx * speed * dt, dy * speed * dt);
       if (me.act === Act.Idle) me.setAct(Act.Walk, now);
     } else if (me.act === Act.Walk) {
       me.setAct(Act.Idle, now);
@@ -283,6 +317,8 @@ export class GardenScene extends Phaser.Scene {
       this.nextLick = now + 2500 + Math.random() * 4000;
     }
     if (me.act === Act.Sit && now >= this.nextLick) begin(Act.Lick);
+    // after a long while the cat curls up and falls asleep
+    if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS) me.setAct(Act.Sleep, now);
   }
 
   /** Move horizontally, but only onto surfaces no higher than the cat currently is. */
