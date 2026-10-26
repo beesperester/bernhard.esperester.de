@@ -2,8 +2,9 @@
 // lit, and the phase of the moon. Everything is a pure function of the
 // (shared) garden clock, so every visitor sees the same time of day.
 //
-// For a look at other times: ?time=21:30 shows that Berlin time today, and
-// ?speed=600 runs the day 600x faster.
+// For a look at other times: ?time=21:30 shows that Berlin time today,
+// ?date=2027-01-15 that day (with its sun and its season), and ?speed=600
+// runs the day 600x faster.
 
 const LAT = 52.52, LON = 13.405;
 const RAD = Math.PI / 180;
@@ -11,7 +12,12 @@ const RAD = Math.PI / 180;
 export type RGB = [number, number, number];
 
 export interface Light {
-  /** Sun height above the horizon and compass bearing (0 north, 90 east), degrees. */
+  /**
+   * Sun height above the horizon, degrees, and its bearing as laid out on the
+   * screen (0 up, 90 right). The garden's top faces south, so the sun rises on
+   * the left, stands at the top at noon and sets on the right; shadows fall
+   * left, down and right.
+   */
   elevation: number;
   azimuth: number;
   /** 0 at night, 1 in daylight; and the reverse, but only fully 1 once it's properly dark. */
@@ -81,11 +87,12 @@ function tintFor(el: number): RGB {
 /** How the garden is lit at garden time `ms`. */
 export function lightAt(ms: number): Light {
   const t = skyTime(ms);
-  const { elevation, azimuth } = sunPosition(t);
-  // towards the sun: east is right, north is up the screen (squashed, it's a 3/4 view), and up is up
+  const sun = sunPosition(t);
+  const elevation = sun.elevation, azimuth = (sun.azimuth + 180) % 360;
+  // towards the sun: the screen's right and up (squashed, it's a 3/4 view), and up is up
   const A = azimuth * RAD, h = Math.max(0, elevation) * RAD;
-  const east = Math.sin(A) * Math.cos(h), north = Math.cos(A) * Math.cos(h), up = Math.sin(h);
-  let sx = east, sy = -north * 0.5 - up;
+  const right = Math.sin(A) * Math.cos(h), ahead = Math.cos(A) * Math.cos(h), up = Math.sin(h);
+  let sx = right, sy = -ahead * 0.5 - up;
   const len = Math.hypot(sx, sy) || 1;
   sx /= len;
   sy /= len;
@@ -108,9 +115,10 @@ export function lightAt(ms: number): Light {
 const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 const SPEED = Math.max(1, Number(params.get('speed')) || 1);
 const TIME = /^(\d{1,2}):(\d{2})$/.exec(params.get('time') ?? '');
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/.exec(params.get('date') ?? '');
 const START = Date.now();
-/** Shift so that "now" shows the requested Berlin wall-clock time today. */
-const SHIFT = TIME ? berlinShift(START, +TIME[1], +TIME[2]) : 0;
+/** Shift so that "now" shows the requested Berlin wall-clock time on the requested day. */
+const SHIFT = (TIME ? berlinShift(START, +TIME[1], +TIME[2]) : 0) + (DATE ? dayShift(START, +DATE[1], +DATE[2], +DATE[3]) : 0);
 
 /** The moment the sky shows at garden time `ms`. */
 export function skyTime(ms: number): number {
@@ -122,11 +130,22 @@ export function berlinClock(ms: number): string {
   return new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' }).format(skyTime(ms));
 }
 
+/** Whole days from today (in Berlin) to the given date. */
+function dayShift(now: number, y: number, m: number, d: number): number {
+  const p = berlinParts(now);
+  return (Date.UTC(y, m - 1, d) - Date.UTC(+p.year, +p.month - 1, +p.day));
+}
+
+/** Berlin calendar date and wall-clock time at `ms`. */
+export function berlinParts(ms: number): Record<'year' | 'month' | 'day' | 'hour' | 'minute' | 'second', string> {
+  return Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })
+      .formatToParts(ms).map((p) => [p.type, p.value]),
+  ) as Record<'year' | 'month' | 'day' | 'hour' | 'minute' | 'second', string>;
+}
+
 function berlinShift(now: number, hh: number, mm: number): number {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', hourCycle: 'h23', hour: 'numeric', minute: 'numeric', second: 'numeric' })
-      .formatToParts(now).map((p) => [p.type, p.value]),
-  );
+  const parts = berlinParts(now);
   const current = (+parts.hour * 3600 + +parts.minute * 60 + +parts.second) * 1000;
   return (hh * 3600 + mm * 60) * 1000 - current;
 }

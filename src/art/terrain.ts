@@ -2,7 +2,7 @@
 // drawn shifted up by its height, with an earthy cliff face hanging below
 // wherever the ground in front is lower. Stairs bridge one level on south faces.
 import { Raster, hex, hash2 } from './raster.ts';
-import { bayer } from './tiles.ts';
+import { applySeason, bayer } from './tiles.ts';
 import { LEVEL, MAP_H, MAP_W, TILE, levelAt, tileAt } from '../world/map.ts';
 
 const K = { lip: hex('#2e6e24'), lip2: hex('#4c9a34'), k0: hex('#e2c08a'), k1: hex('#c0965e'), k2: hex('#93693e'), k3: hex('#5c3e24'), k4: hex('#3a2616') };
@@ -109,6 +109,8 @@ export function buildTerrain(ground: Raster): TerrainPiece[] {
           face(r, ox, TILE, fh, tx, ty, openL, openR);
         }
       }
+      // the grass lips and moss on the walls follow the season (the tops already do, from the ground)
+      applySeason(r, x0 * TILE, ty * TILE - e * LEVEL);
       out.push({ raster: r, x: x0 * TILE, y: ty * TILE - e * LEVEL, depth: ty * TILE, level: e, stairs: false });
     }
     for (let tx = 0; tx < MAP_W; tx++)

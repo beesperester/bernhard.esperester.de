@@ -5,6 +5,7 @@ import { Act, Prey, SWIPE_AT_MS } from './state.ts';
 import type { CatView } from './CatView.ts';
 import type { PreyRef } from './Ambient.ts';
 import { BATH_H, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../world/map.ts';
+import { SEASON } from '../world/season.ts';
 import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
 import { lightAt } from '../world/sky.ts';
 import { sound } from '../audio/sound.ts';
@@ -286,7 +287,7 @@ export class Birds {
 
     const pecking = !alert && u >= 1 && hash2(v.id, Math.floor(gt / 280), 925) < 0.4;
     // at the bath, every now and then a good splash: wings whirring, drops flying
-    const bathing = s.bath && !alert && u >= 1 && hash2(v.id, Math.floor(gt / BATHE_EVERY), 927) < BATHE_P;
+    const bathing = s.bath && !SEASON.frozen && !alert && u >= 1 && hash2(v.id, Math.floor(gt / BATHE_EVERY), 927) < BATHE_P;
     if (bathing) {
       const last = this.splashed.get(v.id) ?? -1e9;
       if (gt - last > 260 || gt < last) {

@@ -1,5 +1,6 @@
 import { Raster, hex, hash2, mulberry32, type RGB } from './raster.ts';
 import { TILE, MAP_W, MAP_H, LEVEL, tileAt, levelAt, treeTiles, trunkBase } from '../world/map.ts';
+import { SEASON, type Season } from '../world/season.ts';
 
 const C = {
   g0: hex('#68b848'), g1: hex('#90d468'), g2: hex('#4c9a34'), g3: hex('#2e6e24'), g4: hex('#5aaa3e'), g5: hex('#78c454'),
@@ -295,8 +296,9 @@ function fountain(r: Raster, ox: number, oy: number): void {
   r.set(ox + 13, oy + 2, C.w1); r.set(ox + 18, oy + 2, C.w1);
 }
 
-/** The static ground of the garden. `phase` alternates the water ripples. */
-export function buildGround(phase: number): Raster {
+/** The static ground of the garden. `phase` alternates the water ripples (still while frozen). */
+export function buildGround(phase: number, season: Season = SEASON): Raster {
+  if (season.frozen) phase = 0;
   const r = new Raster(MAP_W * TILE, MAP_H * TILE);
   for (let ty = 0; ty < MAP_H; ty++)
     for (let tx = 0; tx < MAP_W; tx++) {
@@ -335,7 +337,94 @@ export function buildGround(phase: number): Raster {
       }
     }
   shadeUnderCliffs(r);
+  applySeason(r, 0, 0, season);
+  scatterLitter(r, season);
   return r;
+}
+
+// ---------------------------------------------------------------- seasons
+
+const key = (c: RGB) => (c[0] << 16) | (c[1] << 8) | c[2];
+const lum = (c: RGB) => c[0] * 0.3 + c[1] * 0.55 + c[2] * 0.15;
+const mixRGB = (a: RGB, b: RGB, t: number): RGB => [Math.round(a[0] + (b[0] - a[0]) * t), Math.round(a[1] + (b[1] - a[1]) * t), Math.round(a[2] + (b[2] - a[2]) * t)];
+
+/** Snow in four tones, shadowed blue to sunlit white. */
+export const SNOW: RGB[] = ['#7a8aa8', '#a2b2ca', '#c4d0e0', '#e2eaf4'].map(hex);
+const SNOW_LINE = hex('#56607a');
+const ICE: [RGB, RGB][] = [[C.w0, hex('#a6d4ec')], [C.w1, hex('#e2f4ff')], [C.w2, hex('#7aa8cc')], [C.w3, hex('#f2fbff')]];
+/** Everything green or earthy that snow settles on, and the flowers that are gone under it. */
+const SNOWY: RGB[] = [
+  C.g0, C.g1, C.g2, C.g3, C.g4, C.g5, C.daisy, C.clover, C.yellow, C.orange, C.p0, C.p1, C.p2,
+  C.h0, C.h1, C.h2, C.h3, C.m0, C.c0, C.c1, C.c2, C.c3, C.r0, ...FLOWERS,
+  hex('#2e6e24'), hex('#4c9a34'), hex('#90d468'), hex('#5aaa3e'),
+];
+const GREENS: RGB[] = [C.g0, C.g1, C.g2, C.g3, C.g4, C.g5, C.clover, C.c0, C.c1, C.c2, C.c3];
+const FLOWERY = new Set([...FLOWERS, C.daisy, C.yellow, C.orange].map(key));
+/** The dark ones become the outlines of the snow, the rest a snow tone by brightness. */
+function snowFor(c: RGB): RGB {
+  if (c === C.h3 || c === C.g3 || c === C.c3 || lum(c) < 70) return SNOW_LINE;
+  const l = lum(c);
+  return SNOW[l < 110 ? 0 : l < 150 ? 1 : l < 200 ? 2 : 3];
+}
+/** Lawns going straw-coloured. */
+export function drabFor(c: RGB, t: number): RGB {
+  const l = lum(c);
+  return mixRGB(c, [Math.min(255, l * 1.15 + 18), l * 1.0 + 4, l * 0.5], t);
+}
+
+/**
+ * Dress a piece of garden art for the season: flowers gone over, lawns dull,
+ * snow over everything, ice on the water. (ox, oy) is where it sits in the world.
+ */
+export function applySeason(r: Raster, ox: number, oy: number, s: Season = SEASON): void {
+  const snowy = new Map(SNOWY.map((c) => [key(c), snowFor(c)]));
+  const greens = new Map(GREENS.map((c) => [key(c), drabFor(c, s.drab)]));
+  const ice = new Map(ICE.map(([a, b]) => [key(a), b]));
+  for (let y = 0; y < r.h; y++)
+    for (let x = 0; x < r.w; x++) {
+      const i = (y * r.w + x) * 4;
+      if (!r.data[i + 3]) continue;
+      const k = (r.data[i] << 16) | (r.data[i + 1] << 8) | r.data[i + 2];
+      const wx = ox + x, wy = oy + y;
+      let c: RGB | undefined;
+      if (s.frozen) c = ice.get(k);
+      // snow settles patchily at first, then everywhere
+      if (!c && s.snow > 0 && noise(wx / 20, wy / 20, 1203) * 0.8 + bayer(wx, wy) * 0.2 < s.snow * 1.25 - 0.1) c = snowy.get(k);
+      // flowers: some still out, some gone over
+      if (!c && FLOWERY.has(k) && hash2(wx >> 2, wy >> 2, 1204) >= s.bloom) c = hash2(wx, wy, 1205) < 0.5 ? C.g0 : C.g4;
+      if (c) k === key(c) || r.set(x, y, c);
+      if (s.drab > 0) {
+        const g = greens.get(c ? key(c) : k);
+        if (g) r.set(x, y, g);
+      }
+    }
+}
+
+const LEAF_COLOURS: RGB[] = ['#e8b030', '#e07828', '#c84828', '#a85a28', '#f0d058'].map(hex);
+
+/** Fallen leaves on the grass, thickest under the trees. */
+function scatterLitter(r: Raster, s: Season): void {
+  if (s.litter <= 0 || s.snow >= 0.6) return;
+  const amount = s.litter * (1 - s.snow);
+  const grassy = new Set([...GREENS].map((c) => key(drabFor(c, s.drab))));
+  const trees = treeTiles().map(([tx, ty]) => trunkBase(tx, ty));
+  for (let y = 0; y < r.h; y += 1)
+    for (let x = 0; x < r.w; x += 1) {
+      const h = hash2(x, y, 1206);
+      if (h > 0.05) continue;
+      let p = amount * 0.06;
+      for (const [bx, by] of trees) {
+        const dx = (x - bx) / 34, dy = (y - by) / 16;
+        const d = dx * dx + dy * dy;
+        if (d < 1) p += amount * 0.9 * (1 - d);
+      }
+      if (h > p * 0.05) continue;
+      const i = (y * r.w + x) * 4;
+      if (!grassy.has((r.data[i] << 16) | (r.data[i + 1] << 8) | r.data[i + 2])) continue;
+      const c = LEAF_COLOURS[Math.floor(hash2(x, y, 1207) * LEAF_COLOURS.length)];
+      r.set(x, y, c);
+      if (hash2(x, y, 1208) < 0.6) r.set(x + 1, y, c);
+    }
 }
 
 /**
@@ -397,6 +486,8 @@ export interface Prop {
   y: number;
   /** y used for depth sorting against cats (their feet). */
   depthY: number;
+  /** 0, 1 green trees, 2 cherry, 3 apple. */
+  kind: number;
 }
 
 // [highlight, light, mid, dark, outline]
@@ -407,16 +498,26 @@ const CANOPIES: { c: RGB[]; dots?: RGB[] }[] = [
   { c: ['#a6e070', '#72c050', '#4c9c3c', '#307430', '#173f1c'].map(hex), dots: [hex('#e83838'), hex('#ff6a50')] },
 ];
 const BARK = ['#b88048', '#86532a', '#5a3417', '#2e1a0a'].map(hex);
+/** Autumn foliage: yellow, orange, red and russet, same tone order as the canopies. */
+const AUTUMN: RGB[][] = [
+  ['#fff2a8', '#f8d450', '#e0a430', '#b07420', '#4a2c10'].map(hex),
+  ['#ffdc98', '#f8a444', '#d87028', '#a04818', '#4a2010'].map(hex),
+  ['#ffb898', '#ea6444', '#c23a2a', '#862222', '#3e1010'].map(hex),
+  ['#e8c890', '#c89458', '#9c6a38', '#6e4626', '#36200e'].map(hex),
+];
 
 export const TREE_W = 64;
 export const TREE_H = 84;
 
 /** A big tree built from many shaded leaf clumps, with branches, bark and roots. */
-function tree(seed: number, kind: number): Raster {
+function tree(seed: number, kind: number, season: Season): Raster {
   const W = TREE_W, H = TREE_H, cx = W / 2, base = H - 1;
   const r = new Raster(W, H);
   const rnd = mulberry32(seed * 977 + kind * 13);
-  const pal = CANOPIES[kind].c;
+  // the cherry blossoms first, then turns green like the others
+  const pal = kind === 2 ? CANOPIES[0].c : CANOPIES[kind].c;
+  /** Which palette each leafy pixel was painted from, for its outline. */
+  const painted = new Map<number, RGB[]>();
   const rx = 24 + rnd() * 5, ry = 21 + rnd() * 4, ccy = 31;
   const trunkTop = ccy + 4;
 
@@ -432,7 +533,7 @@ function tree(seed: number, kind: number): Raster {
       r.set(x, y, c);
     }
   }
-  // branches reaching up into the crown
+  // branches reaching up into the crown (all of them show once the leaves are gone)
   const branch = (x0: number, y0: number, x1: number, y1: number, th: number) => {
     const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0));
     for (let i = 0; i <= n; i++) {
@@ -441,6 +542,15 @@ function tree(seed: number, kind: number): Raster {
       for (let k = 0; k < w; k++) r.set(x + k, y, k === 0 ? BARK[3] : k === 1 ? BARK[1] : BARK[2]);
     }
   };
+
+  // the whole crown's limbs and twigs, hidden by the leaves in summer
+  const limb = (x: number, y: number, a: number, len: number, th: number, depth: number) => {
+    const x1 = x + Math.cos(a) * len, y1 = y + Math.sin(a) * len * 0.8;
+    branch(Math.round(x), Math.round(y), Math.round(x1), Math.round(y1), th);
+    if (depth >= 3) return;
+    for (const da of [-0.5 - rnd() * 0.3, 0.4 + rnd() * 0.3]) limb(x1, y1, a + da, len * (0.55 + rnd() * 0.15), Math.max(1, th - 1), depth + 1);
+  };
+  for (const a of [-2.5, -1.95, -1.35, -0.75]) limb(cx - 1 + (a < -1.6 ? -1 : 1), trunkTop + 2, a + (rnd() - 0.5) * 0.25, 11 + rnd() * 5, 3, 0);
 
   // leaf clumps: an outer ring for the silhouette plus a filled interior
   type Clump = { x: number; y: number; r: number };
@@ -457,12 +567,19 @@ function tree(seed: number, kind: number): Raster {
   clumps.sort((a, b) => a.y - b.y);
 
   const drawClump = (c: Clump, i: number) => {
+    // some clumps have dropped their leaves; the rest may have turned (or be blossom)
+    const roll = hash2(i, seed, 1301);
+    const blossom = kind === 2 && roll < season.blossom;
+    if (!blossom && roll >= season.leaves) return;
+    const pal = blossom ? CANOPIES[2].c
+      : hash2(i, seed, 1302) < season.turn ? AUTUMN[Math.floor(hash2(i, seed, 1303) * AUTUMN.length)]
+      : kind === 2 ? CANOPIES[0].c : CANOPIES[kind].c;
     for (let y = Math.floor(c.y - c.r); y <= c.y + c.r; y++)
       for (let x = Math.floor(c.x - c.r); x <= c.x + c.r; x++) {
         const dx = x + 0.5 - c.x, dy = y + 0.5 - c.y, d = Math.hypot(dx, dy);
         if (d > c.r) continue;
         // soft dark rim only on the shadow side; the silhouette is outlined later
-        if (d > c.r - 1.2 && dx + dy > -c.r * 0.2) { r.set(x, y, pal[3]); continue; }
+        if (d > c.r - 1.2 && dx + dy > -c.r * 0.2) { r.set(x, y, pal[3]); painted.set(y * W + x, pal); continue; }
         // light from the top-left plus the clump's place in the crown
         const crown = ((c.x - cx) / rx) * 0.25 + ((c.y - ccy) / ry) * 0.45;
         const l = -(dx * 0.55 + dy * 0.85) / c.r - crown + (bayer(x, y) - 0.5) * 0.35 + (hash2(x, y, seed + i) - 0.5) * 0.25;
@@ -472,6 +589,7 @@ function tree(seed: number, kind: number): Raster {
         if (h < 0.07 && tone > 0) tone--;
         else if (h > 0.95 && tone < 3) tone++;
         r.set(x, y, pal[tone]);
+        painted.set(y * W + x, pal);
       }
     // a few leaf glints
     for (let k = 0; k < 2; k++) {
@@ -491,14 +609,16 @@ function tree(seed: number, kind: number): Raster {
     drawClump(c, i + back.length);
   });
 
-  const dots = CANOPIES[kind].dots;
+  // the apple tree: white blossom in spring, red apples late in the summer; the cherry's white highlights only in blossom
+  const dots = kind === 3 ? (season.appleBlossom > 0.3 ? [hex('#ffffff'), hex('#f8d8e8')] : season.apples > 0.3 ? CANOPIES[3].dots : undefined)
+    : kind === 2 && season.blossom > 0.3 ? CANOPIES[2].dots : undefined;
   if (dots)
     for (let k = 0; k < 30; k++) {
       const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * 0.9;
       const x = Math.round(cx + Math.cos(a) * rx * d), y = Math.round(ccy + Math.sin(a) * ry * d);
-      if (!r.isSet(x - 1, y) || !r.isSet(x + 2, y + 2)) continue;
+      if (!painted.has(y * W + x - 1) || !painted.has((y + 2) * W + x + 2)) continue;
       const c = dots[k % dots.length];
-      r.set(x, y, c); r.set(x + 1, y, c); r.set(x, y + 1, c); r.set(x + 1, y + 1, pal[3]);
+      r.set(x, y, c); r.set(x + 1, y, c); r.set(x, y + 1, c); r.set(x + 1, y + 1, painted.get(y * W + x)?.[3] ?? pal[3]);
     }
 
   // outline the silhouette of the crown
@@ -511,7 +631,7 @@ function tree(seed: number, kind: number): Raster {
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++)
       if (leafy(x, y) && (!r.isSet(x - 1, y) || !r.isSet(x + 1, y) || !r.isSet(x, y - 1) || !r.isSet(x, y + 1))) edge.push([x, y]);
-  for (const [x, y] of edge) r.set(x, y, pal[4]);
+  for (const [x, y] of edge) r.set(x, y, (painted.get(y * W + x) ?? pal)[4]);
 
   // canopy shade falling onto the upper trunk
   for (let y = trunkTop; y < trunkTop + 8; y++)
@@ -522,10 +642,18 @@ function tree(seed: number, kind: number): Raster {
         if (isBark) r.set(x, y, BARK[2]);
       }
     }
+  // snow lying along the tops of the branches and on what's left of the leaves
+  if (season.snow > 0)
+    for (let x = 0; x < W; x++)
+      for (let y = 1; y < base - 6; y++)
+        if (r.isSet(x, y) && !r.isSet(x, y - 1) && hash2(x, y, seed + 1304) < season.snow) {
+          r.set(x, y, SNOW[3]);
+          if (r.isSet(x, y + 1) && hash2(x, y, seed + 1305) < 0.5) r.set(x, y + 1, SNOW[1]);
+        }
   return r;
 }
 
-export function buildProps(): Prop[] {
+export function buildProps(season: Season = SEASON): Prop[] {
   return treeTiles().map(([tx, ty], i) => {
     const h = hash2(tx, ty, 55);
     const kind = h < 0.22 ? 2 : h < 0.36 ? 3 : h < 0.6 ? 1 : 0;
@@ -533,10 +661,11 @@ export function buildProps(): Prop[] {
     // trees on raised ground are drawn lifted with it
     const lift = levelAt(tx, ty) * LEVEL;
     return {
-      raster: tree(i + 1, kind),
+      raster: tree(i + 1, kind, season),
       x: bx - TREE_W / 2,
       y: by - (TREE_H - 1) - lift,
       depthY: by,
+      kind,
     };
   });
 }

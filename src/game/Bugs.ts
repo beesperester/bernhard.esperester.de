@@ -6,6 +6,7 @@ import type { PreyRef } from './Ambient.ts';
 import { BEETLE_COLOURS } from '../art/critters.ts';
 import { MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileAt } from '../world/map.ts';
 import { lightAt } from '../world/sky.ts';
+import { inSeason } from '../world/season.ts';
 import { Pool, seedRng, hash2, lerp, smooth, clamp01 } from './fauna.ts';
 
 // Beetles crawling about the lawns and paths (they can't fly: scare one and it
@@ -84,7 +85,7 @@ export class Bugs {
   private beetleAt(k: number): Beetle | null {
     if (!this.beetleVisits.has(k)) {
       let b: Beetle | null = null;
-      if (this.ground.length && hash2(k, 51, 971) < BEETLE_P) {
+      if (this.ground.length && hash2(k, 51, 971) < BEETLE_P && inSeason('beetle', k * BEETLE_SLOT, hash2(k, 51, 1607))) {
         const r = seedRng(k, 51);
         const t0 = k * BEETLE_SLOT;
         // ladybirds and rose chafers by day, the black ground beetles at night
@@ -163,7 +164,7 @@ export class Bugs {
     if (!this.dragonVisits.has(k)) {
       let d: Dragonfly | null = null;
       const t0 = k * DRAGON_SLOT;
-      if (this.hovers.length && hash2(k, 53, 973) < DRAGON_P && lightAt(t0).day > 0.6) {
+      if (this.hovers.length && hash2(k, 53, 973) < DRAGON_P && lightAt(t0).day > 0.6 && inSeason('dragonfly', t0, hash2(k, 53, 1608))) {
         const r = seedRng(k, 53);
         d = { id: k, home: Math.floor(r() * this.hovers.length), t0: t0 + r() * DRAGON_SLOT, life: 30000 + r() * 40000, from: r() * Math.PI * 2 };
       }

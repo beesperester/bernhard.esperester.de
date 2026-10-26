@@ -6,6 +6,7 @@ import type { PreyRef } from './Ambient.ts';
 import { DEPTH } from './Daylight.ts';
 import { MAP_H, MAP_W, TILE, elevAt, levelAt, tileAt } from '../world/map.ts';
 import { lightAt } from '../world/sky.ts';
+import { inSeason } from '../world/season.ts';
 import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
 
 // Fireflies drifting over the grass and frogs sitting at the water's edge,
@@ -101,7 +102,7 @@ export class NightLife {
     if (!this.swarms.has(k)) {
       let s: Swarm | null = null;
       const t0 = k * FIRE_SLOT;
-      if (this.grass.length && dark(t0)) {
+      if (this.grass.length && dark(t0) && inSeason('firefly', t0, hash2(k, 31, 1603))) {
         const r = seedRng(k, 31);
         s = { id: k, at: this.grass[Math.floor(r() * this.grass.length)], n: 2 + Math.floor(r() * 3), t0: t0 + r() * FIRE_SLOT, life: 25000 + r() * 20000 };
       }
@@ -147,7 +148,7 @@ export class NightLife {
     if (!this.frogVisits.has(k)) {
       let f: Frog | null = null;
       const t0 = k * FROG_SLOT;
-      if (this.shore.length && hash2(k, 33, 930) < FROG_P && dark(t0)) {
+      if (this.shore.length && hash2(k, 33, 930) < FROG_P && dark(t0) && inSeason('frog', t0, hash2(k, 33, 1604))) {
         const r = seedRng(k, 33);
         const spots = this.pads.length && r() < LILY_P ? this.pads : this.shore;
         const s = spots[Math.floor(r() * spots.length)];

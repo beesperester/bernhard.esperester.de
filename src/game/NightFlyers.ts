@@ -6,6 +6,7 @@ import { DEPTH } from './Daylight.ts';
 import { LANTERNS, elevAt, waterBoxes } from '../world/map.ts';
 import { LANTERN_H } from '../art/critters.ts';
 import { lightAt } from '../world/sky.ts';
+import { inSeason } from '../world/season.ts';
 import { Pool, seedRng, hash2, smooth, clamp01 } from './fauna.ts';
 
 // What flies about after dark: bats flitting round the lanterns and over the
@@ -119,7 +120,7 @@ export class NightFlyers {
     if (!this.batVisits.has(k)) {
       let b: Bat | null = null;
       const t0 = k * BAT_SLOT;
-      if (this.haunts.length && hash2(k, 41, 940) < BAT_P && darkness(t0) >= BAT_DUSK) {
+      if (this.haunts.length && hash2(k, 41, 940) < BAT_P && darkness(t0) >= BAT_DUSK && inSeason('bat', t0, hash2(k, 41, 1605))) {
         const r = seedRng(k, 41);
         b = { id: k, at: this.haunts[Math.floor(r() * this.haunts.length)], from: r() * Math.PI * 2, t0: t0 + r() * BAT_SLOT, life: 30000 + r() * 50000 };
       }
@@ -166,7 +167,7 @@ export class NightFlyers {
     if (!this.roostVisits.has(k)) {
       let b: Roost | null = null;
       const t0 = k * ROOST_SLOT;
-      if (this.roosts.length && hash2(k, 44, 960) < ROOST_P && darkness(t0) >= BAT_DUSK) {
+      if (this.roosts.length && hash2(k, 44, 960) < ROOST_P && darkness(t0) >= BAT_DUSK && inSeason('bat', t0, hash2(k, 44, 1606))) {
         const r = seedRng(k, 44);
         const from = r() * Math.PI * 2;
         b = { id: 1e6 + k, spot: this.roosts[Math.floor(r() * this.roosts.length)], from, to: from + 1 + r() * 4, t0: t0 + r() * ROOST_SLOT, life: 70000 + r() * 80000 };

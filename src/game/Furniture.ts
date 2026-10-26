@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { Raster } from '../art/raster.ts';
-import { buildBasket, buildBench, buildBirdBath, buildBistroTable, buildBlanket, buildChair, buildPicnicTable, buildShed } from '../art/furniture.ts';
+import { buildBasket, buildBench, buildBirdBath, buildBistroTable, buildBlanket, buildChair, buildPicnicTable, buildShed, dressForSeason } from '../art/furniture.ts';
 import { FURNITURE, TILE } from '../world/map.ts';
 
 /** Blankets lie flat on the grass, under everything that stands. */
@@ -20,7 +20,9 @@ export class Furniture {
     const sprite = (key: string, build: () => Raster, x: number, y: number, depth: number, flip = false) => {
       let canvas = art.get(key);
       if (!canvas) {
-        art.set(key, (canvas = toCanvas(build())));
+        const r = build();
+        dressForSeason(r, key);
+        art.set(key, (canvas = toCanvas(r)));
         scene.textures.addCanvas(`furniture-${key}`, canvas);
       }
       scene.add.image(x, y, `furniture-${key}`).setOrigin(0).setDepth(depth).setFlipX(flip);

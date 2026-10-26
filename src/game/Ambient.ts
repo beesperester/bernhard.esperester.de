@@ -9,6 +9,7 @@ import { NightFlyers } from './NightFlyers.ts';
 import { Bugs } from './Bugs.ts';
 import { DEPTH } from './Daylight.ts';
 import { lightAt } from '../world/sky.ts';
+import { inSeason } from '../world/season.ts';
 import { Act, Facing, Prey, SWIPE_AT_MS } from './state.ts';
 import { Wary, type Senses } from './Wary.ts';
 import type { CatView } from './CatView.ts';
@@ -354,7 +355,7 @@ export class Ambient {
         const dur = 22000 + hash2(b, e, 905) * 10000;
         const tau = gt - start;
         const id = e * BEES + b;
-        if (tau < 0 || tau > dur || this.caught.has(preyKey(Prey.Bee, id)) || this.shooed.has(id) || lightAt(start).day < 0.5) continue;
+        if (tau < 0 || tau > dur || this.caught.has(preyKey(Prey.Bee, id)) || this.shooed.has(id) || lightAt(start).day < 0.5 || !inSeason('bee', start, hash2(b, e, 1602))) continue;
         const i = Math.floor(tau / BEE_HOP), frac = (tau - i * BEE_HOP) / 1000;
         const route = this.beeRoute(b, e, i + 1);
         const [ax, ay] = this.flowers[route[i]], [bx, by] = this.flowers[route[i + 1]];
@@ -402,7 +403,7 @@ export class Ambient {
     if (!this.butterflies.has(k)) {
       let b: Butterfly | null = null;
       // butterflies only come out in daylight
-      if (hash2(k, 4, 908) < FLY_P && this.flowers.length && lightAt(k * FLY_SLOT).day > 0.5) {
+      if (hash2(k, 4, 908) < FLY_P && this.flowers.length && lightAt(k * FLY_SLOT).day > 0.5 && inSeason('butterfly', k * FLY_SLOT, hash2(k, 4, 1601))) {
         const r = seedRng(k, 4);
         b = {
           id: k, flower: this.flowers[Math.floor(r() * this.flowers.length)],
@@ -545,7 +546,7 @@ export class Ambient {
           this.burstKeys.add(key);
           if (this.burstKeys.size > 64) this.burstKeys.delete(this.burstKeys.values().next().value!);
           const seed = strHash(key);
-          if (lightAt(gt).day > 0.5) this.bursts.push({ t0: gt, x: c.x, y: c.y, seed, n: 4 + (seed % 4) });
+          if (lightAt(gt).day > 0.5 && inSeason('butterfly', gt, 0.5)) this.bursts.push({ t0: gt, x: c.x, y: c.y, seed, n: 4 + (seed % 4) });
         }
       }
     }

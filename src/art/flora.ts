@@ -2,6 +2,8 @@
 // (and passing cats) can bend them.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
 import { TILE, MAP_W, MAP_H, tileAt, furnished } from '../world/map.ts';
+import { SEASON } from '../world/season.ts';
+import { drabFor } from './tiles.ts';
 
 export const LEANS = 5;
 
@@ -76,10 +78,17 @@ const cattail: FloraKind = {
 
 export const FLORA: FloraKind[] = [tuft, tall, cattail, ...PETALS.map((_, i) => flower(i))];
 
-/** A sheet with the 5 lean frames side by side. */
+/** A sheet with the 5 lean frames side by side, the green gone straw-coloured in autumn and winter. */
 export function buildFloraSheet(k: FloraKind): Raster {
   const r = new Raster(k.w * LEANS, k.h);
   for (let f = 0; f < LEANS; f++) k.draw(r, f * k.w, f - 2);
+  if (SEASON.hay > 0) {
+    const greens = new Map([G.d, G.m, G.l, G.t, CATTAIL.s].map((c) => [c.join(), drabFor(c, SEASON.hay)]));
+    for (let i = 0; i < r.data.length; i += 4) {
+      const c = greens.get(`${r.data[i]},${r.data[i + 1]},${r.data[i + 2]}`);
+      if (c) r.set((i / 4) % r.w, Math.floor(i / 4 / r.w), c);
+    }
+  }
   return r;
 }
 
@@ -122,5 +131,12 @@ export function placeFlora(): Plant[] {
         at(flowerKind(tx, ty), tx, ty, 0);
       }
     }
-  return out;
+  // flowers only while they're out; under snow just a few grass tips poke through (the reeds stand)
+  const s = SEASON;
+  return out.filter((p) => {
+    const roll = hash2(p.x, p.y, 1401);
+    if (p.kind >= 3) return roll < s.bloom * (1 - s.snow);
+    if (p.kind < 2) return roll < 1 - s.snow * 0.85;
+    return true;
+  });
 }
