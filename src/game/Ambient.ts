@@ -43,18 +43,28 @@ const FLY_SENSES: Senses = { walking: 36, jumping: 40, hissing: 48, dashing: 64,
 const BEE_SENSES: Senses = { walking: 30, jumping: 36, hissing: 48, dashing: 56, notice: 26, react: 750, swipe: 26 };
 /**
  * Fish lured by a paw splashing the water: one may come over from deeper water
- * (decided by the splash, so everyone sees the same fish), stays a while, and
- * swims off again.
+ * (decided by the splash, so everyone sees the same fish) and wait, curious,
+ * a little way off. It only creeps up to the paw while the cat crouches
+ * quite still; splashing again, getting up and walking, hissing or jumping
+ * before then scares it off. At the paw it stays a while for the catch.
  */
-const LURE_P = 0.75, LURE_COME_MS = 1600, LURE_STAY_MS = 6500, LURE_GO_MS = 1800, LURE_EVERY_MS = 2500;
+const LURE_P = 0.75, LURE_COME_MS = 1600, LURE_GO_MS = 1800, LURE_EVERY_MS = 2500;
 const LURE_FROM: [number, number] = [36, 90];
+/** How far along it waits, how long it waits for a crouch, how long the creeping up takes, how long it stays at the paw. */
+const LURE_WAIT_K = 0.35, LURE_WAIT_MS = 7000, LURE_CREEP_MS = 2400, LURE_STAY_MS = 5000;
 
 interface Jump { t0: number; x: number; y: number; dir: number }
 interface Shallow { id: number; t0: number; life: number; a: Pt; b: Pt; period: number }
 interface Butterfly { id: number; flower: Pt; colour: number; land: number; restMax: number }
 interface Takeoff { t: number; dir: number }
 interface Burst { t0: number; x: number; y: number; seed: number; n: number }
-interface Lure { id: number; t0: number; at: Pt; from: Pt }
+interface Lure {
+  id: number; t0: number; at: Pt; from: Pt; cat: CatView;
+  /** Coming, waiting a way off, creeping up, at the paw, or going (from `k` along the way). */
+  phase: 'come' | 'wait' | 'close' | 'go';
+  /** When this phase began, and how far towards the paw it is (0 out in the water, 1 at the paw). */
+  since: number; k: number;
+}
 
 interface Particle {
   img: Img; kind: 'ripple' | 'drop' | 'z' | 'dust' | 'leap' | 'feather' | 'puff';
@@ -492,9 +502,14 @@ export class Ambient {
           this.splash(px, py, Math.sign(px - c.x));
           this.ripple(px, py, 0);
           this.splashSound(px, py, 0.3, 1.4);
-          if (now >= s.nextLure) {
+          // splashing on and on just scares a lured fish off (one at the paw had its chance: the swipe)
+          const mine = this.lures.find((l) => l.cat === c && l.phase !== 'go');
+          if (mine) this.scareLure(mine, gt + (mine.phase === 'close' ? 150 : 0));
+          // and the water needs to calm down before the next one comes
+          if (mine || this.lures.some((l) => l.cat === c)) s.nextLure = now + LURE_EVERY_MS;
+          else if (now >= s.nextLure) {
             s.nextLure = now + LURE_EVERY_MS;
-            this.lure(strHash(`${c.id}:${c.seq}`), gt, [px, py]);
+            this.lure(strHash(`${c.id}:${c.seq}`), gt, [px, py], c);
           }
         }
       }
@@ -539,7 +554,7 @@ export class Ambient {
   // ---------------------------------------------------------------- lured fish
 
   /** Maybe bring a fish over from deeper water to a splash at `at`. */
-  private lure(seed: number, gt: number, at: Pt): void {
+  private lure(seed: number, gt: number, at: Pt, cat: CatView): void {
     const r = seedRng(seed, 40);
     if (r() >= LURE_P || this.lures.length >= 4) return;
     const wet = ([x, y]: Pt) => this.water.isSet(Math.round(x), Math.round(y));
@@ -553,26 +568,59 @@ export class Ambient {
     if (!from.length) return;
     const id = 1e9 + (seed % 1e8);
     if (this.lures.some((l) => l.id === id)) return;
-    this.lures.push({ id, t0: gt, at, from: from[Math.floor(r() * from.length)] });
+    this.lures.push({ id, t0: gt, at, from: from[Math.floor(r() * from.length)], cat, phase: 'come', since: gt, k: 0 });
+  }
+
+  private scareLure(l: Lure, at: number): void {
+    if (l.phase === 'go') return;
+    l.phase = 'go';
+    l.since = at;
   }
 
   private updateLures(gt: number): void {
-    this.lures = this.lures.filter((l) => gt - l.t0 < LURE_COME_MS + LURE_STAY_MS + LURE_GO_MS && !this.caught.has(preyKey(Prey.Fish, l.id)));
+    const dt = Math.max(0, gt - this.lastGt);
+    this.lures = this.lures.filter((l) => {
+      if (!this.caught.has(preyKey(Prey.Fish, l.id))) return !(l.phase === 'go' && gt - l.since >= LURE_GO_MS);
+      // the catching swipe splashes too: that one doesn't lure the next fish
+      const s = this.perCat.get(l.cat);
+      if (s) s.nextLure = this.scene.time.now + LURE_EVERY_MS;
+      return false;
+    });
     for (const l of this.lures) {
-      const tau = gt - l.t0;
+      const c = l.cat;
       const [fx, fy] = l.from, [ax, ay] = l.at;
-      // nosing about a little in front of the paw
-      const wig = Math.sin(gt / 420 + l.id) * 3;
+      const still = (c.act === Act.Crouch || c.act === Act.Sneak) && c.speed < 5;
+      // the cat walking off, or hissing or jumping about, scares it
+      const away = Math.hypot(c.x - ax, c.y - ay) > 24 || c.act === Act.Hiss || c.act === Act.Jump || (c.speed > 20 && c.act !== Act.Sneak);
+      switch (l.phase) {
+        case 'come':
+          l.k = LURE_WAIT_K * smooth(Math.min(1, (gt - l.since) / LURE_COME_MS));
+          if (gt - l.since >= LURE_COME_MS) { l.phase = 'wait'; l.since = gt; }
+          else if (away) this.scareLure(l, gt);
+          break;
+        case 'wait':
+          // creeps closer only while the cat keeps low and still
+          if (still) l.k = Math.min(1, l.k + ((1 - LURE_WAIT_K) * dt) / LURE_CREEP_MS);
+          if (l.k >= 1) { l.phase = 'close'; l.since = gt; }
+          else if (away || gt - l.since > LURE_WAIT_MS) this.scareLure(l, gt);
+          break;
+        case 'close':
+          if (gt - l.since > LURE_STAY_MS || Math.hypot(c.x - ax, c.y - ay) > 40) this.scareLure(l, gt);
+          break;
+      }
+      // swimming off from wherever it got to
+      const going = l.phase === 'go' && gt >= l.since;
+      const u = going ? (gt - l.since) / LURE_GO_MS : 0;
+      const k = going ? l.k * (1 - smooth(Math.min(1, u))) : l.k;
+      // nosing about a little, more so in front of the paw
+      const wig = Math.sin(gt / 420 + l.id) * (1 + 2 * l.k);
       const sx = ax + wig, sy = ay + Math.sin(gt / 610 + l.id) * 1.2 + 1;
-      const k = tau < LURE_COME_MS ? smooth(tau / LURE_COME_MS)
-        : tau < LURE_COME_MS + LURE_STAY_MS ? 1
-        : 1 - smooth((tau - LURE_COME_MS - LURE_STAY_MS) / LURE_GO_MS);
       const x = lerp(fx, sx, k), y = lerp(fy, sy, k);
-      const leaving = tau >= LURE_COME_MS + LURE_STAY_MS;
-      const heading = tau < LURE_COME_MS ? ax - fx : leaving ? fx - ax : Math.cos(gt / 420 + l.id);
-      const alpha = 0.45 * Math.min(1, tau / 600, leaving ? 1 - (tau - LURE_COME_MS - LURE_STAY_MS) / LURE_GO_MS : 1);
+      const heading = l.phase === 'come' ? ax - fx : going ? fx - ax : Math.cos(gt / 420 + l.id);
+      const alpha = 0.45 * Math.min(1, (gt - l.t0) / 600, going ? 1 - u : 1);
       this.pools.shadow.get().setFlipX(heading < 0).setPosition(Math.round(x), Math.round(y)).setAlpha(alpha).setDepth(-99995);
-      if (alpha > 0.15) this.prey.push({ kind: Prey.Fish, id: l.id, x, y, h: 0, colour: 0 });
+      // out of reach until it's come right up
+      if (alpha > 0.15 && k > 0.85) this.prey.push({ kind: Prey.Fish, id: l.id, x, y, h: 0, colour: 0 });
     }
   }
 
