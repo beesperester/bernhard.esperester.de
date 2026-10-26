@@ -77,6 +77,12 @@ export class Board {
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   }
 
+  /** The name of the cat behind a peer, once it has told us. */
+  nameOf(peerId: string): string {
+    const id = this.peers.get(peerId);
+    return (id && this.entries.get(id)?.name) || '';
+  }
+
   /** A new garden starts with a fresh board (we keep our name). */
   reset(): void {
     const me = { ...this.me, score: 0 };

@@ -7,6 +7,9 @@ import { DEPTH } from './Daylight.ts';
 /** Colour of a cat hidden behind a hill. */
 const SILHOUETTE = 0x5ee86a;
 
+/** Names float over everything but the emotes, the same size at any zoom. */
+const LABEL_DEPTH = 99999.6, LABEL_PX = 10;
+
 /** Light shared by all cats, set by the scene every frame. */
 export const catLight = {
   /** Sunlit rim strength (0 = none) and colour. */
@@ -40,6 +43,8 @@ export class CatView {
   readonly local: boolean;
   /** What is in its mouth while eating (fish, bird or frog). */
   heldKey = 'held-fish';
+  /** Shown under the cat. */
+  name = '';
 
   readonly shadow: Phaser.GameObjects.Image;
   private readonly sprite: Phaser.GameObjects.Sprite;
@@ -49,6 +54,7 @@ export class CatView {
   private readonly ghost: Phaser.GameObjects.Sprite;
   private readonly rim: Phaser.GameObjects.Sprite;
   private readonly eyes: Phaser.GameObjects.Sprite;
+  private readonly label: Phaser.GameObjects.Text;
 
   constructor(scene: Phaser.Scene, x: number, y: number, coat: number, local = false) {
     this.x = x;
@@ -64,6 +70,16 @@ export class CatView {
     this.rim = scene.add.sprite(x, y, 'cat-rim', 0).setOrigin(0.5, 1).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     this.eyes = scene.add.sprite(x, y, `cat-eyes-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(DEPTH.glow)
       .setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+    // drawn at screen resolution and shrunk by the zoom, so the letters stay sharp
+    this.label = scene.add.text(x, y, '', {
+      fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+      fontSize: `${LABEL_PX}px`,
+      fontStyle: 'bold',
+      color: local ? '#ffe890' : '#fff4dc',
+      stroke: '#183018',
+      strokeThickness: 3,
+      resolution: Math.max(1, window.devicePixelRatio || 1),
+    }).setOrigin(0.5, 0).setDepth(LABEL_DEPTH);
   }
 
   setAct(act: Act, now: number): void {
@@ -116,6 +132,11 @@ export class CatView {
         .setDepth(y + 0.5);
     }
 
+    // the name, just under the cat's feet (and under its shadow on a ledge)
+    if (this.label.text !== this.name) this.label.setText(this.name);
+    const zoom = this.label.scene.cameras.main.zoom;
+    this.label.setVisible(!!this.name).setScale(1 / zoom).setPosition(x, y + 1 - Math.round(groundAt(this.x, this.y)));
+
     const content = ((this.act === Act.Eat || this.act === Act.Feast) && ms > EAT_MS - 700) || (this.act === Act.Munch && ms > MUNCH_MS - 500);
     const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Roll || content ? 'bubble-roll' : null;
     this.bubble.setVisible(!!emote);
@@ -134,6 +155,7 @@ export class CatView {
     this.ghost.destroy();
     this.rim.destroy();
     this.eyes.destroy();
+    this.label.destroy();
   }
 }
 

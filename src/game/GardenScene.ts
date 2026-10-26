@@ -325,7 +325,9 @@ export class GardenScene extends Phaser.Scene {
     const dt = Math.min(delta, 100) / 1000;
     this.updateLocal(time, dt);
 
+    this.me.name = this.board.me.name;
     for (const [id, cat] of this.remotes) {
+      cat.name = this.board.nameOf(id);
       if (time - cat.lastSeen > STALE_MS) {
         cat.destroy();
         this.remotes.delete(id);

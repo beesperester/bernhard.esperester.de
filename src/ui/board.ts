@@ -1,10 +1,26 @@
 // The scoreboard in the corner, and the dialog for naming your cat.
 import { NAME_AT, NAME_MAX, type Entry } from '../game/Board.ts';
+import { WOODS, buildPlank, rasterURL } from '../art/plank.ts';
 
 const SHOWN = 8;
 
+/** Every name is painted on a wooden plank: a few oak ones to vary, golden pine for you. */
+let planks: { oak: string[]; pine: string; walnut: string } | null = null;
+function plankArt() {
+  if (!planks) {
+    planks = {
+      oak: [11, 12, 13, 14].map((seed) => `url(${rasterURL(buildPlank(WOODS.oak, seed))})`),
+      pine: `url(${rasterURL(buildPlank(WOODS.pine, 21))})`,
+      walnut: `url(${rasterURL(buildPlank(WOODS.walnut, 31))})`,
+    };
+    document.querySelector<HTMLElement>('#board .title')!.style.borderImageSource = planks.walnut;
+  }
+  return planks;
+}
+
 export function renderBoard(rows: (Entry & { here: boolean })[], myId: string): void {
   const list = document.querySelector<HTMLOListElement>('#board ol')!;
+  const art = plankArt();
   const top = rows.filter((r) => r.score > 0 || r.id === myId).slice(0, SHOWN);
   const me = rows.find((r) => r.id === myId);
   if (me && !top.includes(me)) top.push(me);
@@ -12,13 +28,18 @@ export function renderBoard(rows: (Entry & { here: boolean })[], myId: string): 
   list.replaceChildren(...top.map((r) => {
     const li = document.createElement('li');
     li.className = r.id === myId ? 'me' : r.here ? '' : 'away';
+    const rank = rows.indexOf(r);
+    li.style.borderImageSource = r.id === myId ? art.pine : art.oak[rank % art.oak.length];
+    const place = document.createElement('span');
+    place.className = 'rank';
+    place.textContent = String(rank + 1);
     const name = document.createElement('span');
     name.className = 'name';
-    name.textContent = `${rows.indexOf(r) + 1}. ${r.name}`;
+    name.textContent = r.name;
     const n = document.createElement('span');
     n.className = 'n';
     n.textContent = String(r.score);
-    li.append(name, n);
+    li.append(place, name, n);
     if (!r.here) li.title = 'left the garden';
     return li;
   }));
