@@ -4,7 +4,7 @@ import { buildCatSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
 import { buildGround, buildProps, buildWaterMask, TREE_W } from '../art/tiles.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
-import { BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildBee, buildButterfly, buildDust, buildFish, buildFishShadow, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
+import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildBee, buildBird, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
@@ -23,6 +23,8 @@ import { touch, setupUI } from '../ui/ui.ts';
 
 const SPEED = 64; // px per second
 const DASH_SPEED = 168;
+/** Creeping up on a bird, low to the ground. */
+const SNEAK_SPEED = 26;
 /** Dash lasts while held, up to this long. */
 const DASH_MS = 2500;
 /** Recovery after a full-length dash; shorter dashes recover proportionally faster. */
@@ -65,7 +67,7 @@ export class GardenScene extends Phaser.Scene {
     up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key;
     left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key;
     jump: Phaser.Input.Keyboard.Key; hiss: Phaser.Input.Keyboard.Key; roll: Phaser.Input.Keyboard.Key;
-    dash: Phaser.Input.Keyboard.Key; catch: Phaser.Input.Keyboard.Key;
+    dash: Phaser.Input.Keyboard.Key; catch: Phaser.Input.Keyboard.Key; sneak: Phaser.Input.Keyboard.Key;
   };
   private lastInput = 0;
   private nextLick = 0;
@@ -108,9 +110,11 @@ export class GardenScene extends Phaser.Scene {
 
     const props = buildProps();
     this.trees = new Trees(this, props, canvases.props);
-    // birds sing from a tree somewhere near you
+    // birds sing from a tree somewhere near you, preferably one with a bird in it
     sound.setSource('birds', () => {
       const { x, y } = sound.listener;
+      const bird = this.ambient?.perchedBird(x, y, 220);
+      if (bird) return bird;
       const near = props.filter((p) => Math.hypot(p.x + TREE_W / 2 - x, p.depthY - 40 - y) < 220);
       const p = near[Math.floor(Math.random() * near.length)];
       return p ? { x: p.x + TREE_W / 2, y: p.depthY - 40 } : null;
@@ -133,7 +137,7 @@ export class GardenScene extends Phaser.Scene {
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)
       for (let tx = 0; tx < MAP_W; tx++) if (tileAt(tx, ty) === 'f') flowers.push([tx * TILE + 8, ty * TILE + 8]);
-    this.ambient = new Ambient(this, { flowers, water, pond: pondBounds() });
+    this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: reflect.props });
 
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
@@ -158,7 +162,7 @@ export class GardenScene extends Phaser.Scene {
     const K = Phaser.Input.Keyboard.KeyCodes;
     this.keys = {
       up: kb.addKey(K.UP), down: kb.addKey(K.DOWN), left: kb.addKey(K.LEFT), right: kb.addKey(K.RIGHT),
-      jump: kb.addKey(K.SPACE), hiss: kb.addKey(K.H), roll: kb.addKey(K.R), dash: kb.addKey(K.SHIFT), catch: kb.addKey(K.C),
+      jump: kb.addKey(K.SPACE), hiss: kb.addKey(K.H), roll: kb.addKey(K.R), dash: kb.addKey(K.SHIFT), catch: kb.addKey(K.C), sneak: kb.addKey(K.X),
     };
 
     this.ui = setupUI();
@@ -217,6 +221,11 @@ export class GardenScene extends Phaser.Scene {
     };
     BUTTERFLY_COLOURS.forEach((_, i) => sheet(`butterfly-${i}`, buildButterfly(i), 7, 5));
     sheet('bee', buildBee(), 4, 3);
+    BIRD_COLOURS.forEach((_, i) => {
+      sheet(`bird-${i}`, buildBird(i), BIRD_W, BIRD_H);
+      sheet(`held-bird-${i}`, buildHeldBird(i), HELD_W, 5);
+      tex.addCanvas(`feather-${i}`, toCanvas(buildFeather(i)));
+    });
     sheet('ripple', buildRipples(), RIPPLE_W, RIPPLE_H);
     sheet('dust', buildDust(), 6, 5);
     tex.addCanvas('fish', toCanvas(buildFish()));
@@ -315,9 +324,10 @@ export class GardenScene extends Phaser.Scene {
     const dash = JD(k.dash) || touch.pressed.has('dash');
     const dashHeld = k.dash.isDown || touch.held.has('dash');
     const grab = JD(k.catch) || touch.pressed.has('catch');
+    const sneakHeld = k.sneak.isDown || touch.held.has('sneak');
     touch.pressed.clear();
     const moving = dx !== 0 || dy !== 0;
-    if (moving || jump || hiss || roll || dash || grab) {
+    if (moving || jump || hiss || roll || dash || grab || sneakHeld) {
       this.lastInput = now;
       this.ui.hideHelp();
     }
@@ -351,21 +361,21 @@ export class GardenScene extends Phaser.Scene {
     }
 
     // dash runs while the key is held (up to DASH_MS), then needs a long rest
-    if (dash && !this.dashing && now >= this.dashReadyAt) {
+    if (dash && !sneakHeld && !this.dashing && now >= this.dashReadyAt) {
       this.dashing = true;
       this.dashStart = now;
     }
-    if (this.dashing && (!dashHeld || now - this.dashStart >= DASH_MS)) {
+    if (this.dashing && (!dashHeld || sneakHeld || now - this.dashStart >= DASH_MS)) {
       this.dashing = false;
       const used = Math.min(1, (now - this.dashStart) / DASH_MS);
       this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, used * DASH_COOLDOWN_MS);
     }
     this.ui.setDashCooldown(Math.ceil(Math.max(0, this.dashReadyAt - now) / 1000));
-    if ((me.act === Act.Eat && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
+    if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || grab)) me.setAct(Act.Idle, now);
 
-    // catching: swipe at a fish, butterfly or bee within a tile of the cat
-    const busy = me.act === Act.Jump || me.act === Act.Catch || me.act === Act.Eat || me.act === Act.Munch;
+    // catching: swipe at a fish, butterfly, bee or bird within a tile of the cat
+    const busy = me.act === Act.Jump || me.act === Act.Catch || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast;
     if (grab && !busy && !wetAt(me.x, me.y)) {
       const prey = this.ambient.preyNear(me);
       if (prey) me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
@@ -388,6 +398,7 @@ export class GardenScene extends Phaser.Scene {
       }
       if (elapsed >= CATCH_MS) {
         if (c.got === Prey.Fish) begin(Act.Eat);
+        else if (c.got === Prey.Bird) begin(Act.Feast);
         else if (c.got === Prey.Fly) begin(Act.Munch);
         else if (c.got === Prey.Bee) begin(Act.Hiss); // ouch, it stung
         else me.setAct(Act.Idle, now);
@@ -403,17 +414,21 @@ export class GardenScene extends Phaser.Scene {
       this.vz = JUMP_V;
     }
 
+    // holding sneak: belly to the ground, creeping slowly (and quietly)
+    const low = sneakHeld && me.act !== Act.Jump;
+    const to = (act: Act) => { if (me.act !== act) me.setAct(act, now); };
+    const afoot = (act: Act) => act === Act.Idle || act === Act.Walk || act === Act.Crouch || act === Act.Sneak;
     if (moving) {
-      if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep || me.act === Act.Eat || me.act === Act.Munch)
+      if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast)
         me.setAct(Act.Idle, now);
       if (dx !== 0) me.facing = dx < 0 ? Facing.Left : Facing.Right;
       else me.facing = dy < 0 ? Facing.Up : Facing.Down;
       if (dx !== 0 && dy !== 0) { dx *= Math.SQRT1_2; dy *= Math.SQRT1_2; }
-      const speed = this.dashing ? DASH_SPEED : SPEED;
+      const speed = low ? SNEAK_SPEED : this.dashing ? DASH_SPEED : SPEED;
       this.move(dx * speed * dt, dy * speed * dt);
-      if (me.act === Act.Idle) me.setAct(Act.Walk, now);
-    } else if (me.act === Act.Walk) {
-      me.setAct(Act.Idle, now);
+      if (afoot(me.act)) to(low ? Act.Sneak : Act.Walk);
+    } else if (afoot(me.act) || (low && (me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep))) {
+      to(low ? Act.Crouch : Act.Idle);
     }
 
     // vertical: fall onto whatever surface is below (also when walking off a hedge)

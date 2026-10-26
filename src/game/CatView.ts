@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
 import { Act, ACT_MAX, EAT_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { CAT, COATS } from '../art/cat.ts';
+import { WORLD_W, WORLD_H, groundAt, terrainCover } from '../world/map.ts';
 
 /** Colour of a cat hidden behind a hill. */
 const SILHOUETTE = 0x5ee86a;
-import { WORLD_W, WORLD_H, groundAt, terrainCover } from '../world/map.ts';
 
 /** Draws one cat (local or remote): shadow, sprite and emote bubble. */
 export class CatView {
@@ -21,6 +21,8 @@ export class CatView {
   z = 0;
   /** Last rendered sheet frame, for reflections. */
   frame = 0;
+  /** Colour of the bird this cat caught last, to show in its mouth. */
+  heldBird = 0;
   /** Smoothed ground speed in px/s (dashing cats kick up dust). */
   speed = 0;
   private last = { x: 0, y: 0, t: -1 };
@@ -73,21 +75,21 @@ export class CatView {
         .setCrop(cover.x0 - left, cover.y0 - top, cover.x1 - cover.x0, cover.y1 - cover.y0);
     }
 
-    // a fish in the mouth while eating: whole, half, bones
-    const eating = this.act === Act.Eat && ms < EAT_MS - 400;
+    // a fish or a bird in the mouth while eating: whole, half, bones (or a last tuft)
+    const eating = (this.act === Act.Eat || this.act === Act.Feast) && ms < EAT_MS - 400;
     this.held.setVisible(eating);
     if (eating) {
       const right = this.facing === Facing.Right;
       // the art faces left with the head at x=0; the head goes in the mouth, tail sticking out
       this.held
-        .setFrame(ms < 900 ? 0 : ms < 1700 ? 1 : 2)
+        .setTexture(this.act === Act.Feast ? `held-bird-${this.heldBird}` : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2)
         .setFlipX(!right)
         .setOrigin(right ? 0 : 1, 0.5)
         .setPosition(x + (right ? 5 : -5), y - 6 - Math.round(z))
         .setDepth(y + 0.5);
     }
 
-    const content = (this.act === Act.Eat && ms > EAT_MS - 700) || (this.act === Act.Munch && ms > MUNCH_MS - 500);
+    const content = ((this.act === Act.Eat || this.act === Act.Feast) && ms > EAT_MS - 700) || (this.act === Act.Munch && ms > MUNCH_MS - 500);
     const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Roll || content ? 'bubble-roll' : null;
     this.bubble.setVisible(!!emote);
     if (emote) {

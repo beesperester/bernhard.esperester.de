@@ -1,4 +1,4 @@
-// Small ambient creatures and effects: butterflies, bees, koi, ripples, sleep Zs, dust.
+// Small ambient creatures and effects: butterflies, bees, koi, birds, ripples, sleep Zs, dust.
 import { Raster, hex, type RGB } from './raster.ts';
 
 const OUTLINE = hex('#202020');
@@ -110,5 +110,51 @@ export function buildHeldFish(): Raster {
   r.paint(['..ooo..o', '.oxwxooo', 'oexxxxxo', '.oxxxooo', '..ooo..o'], 0, 0, pal);
   r.paint(['..ooo...', '.oxwxo..', 'oexxxbkb', '.oxxo.k.', '..oo....'], HELD_W, 0, pal);
   r.paint(['..k.k..k', '.kbkbkkb', 'kbbbbbbb', '.kbkbkkb', '..k.k..k'], HELD_W * 2, 0, pal);
+  return r;
+}
+
+// little garden birds, 9x7, facing left:
+//   frame 0 standing, 1 pecking, 2 wings up, 3 wings down
+//   h head  b back  l breast  w wing  t tail  k beak  e eye  f feet
+export const BIRD_W = 9;
+export const BIRD_H = 7;
+const BIRD = [
+  ['.oo......', 'ohho.....', 'kehbooooo', 'olbbwwwto', 'olllbwwo.', '.ooooooo.', '..f..f...'],
+  ['.........', '....oooo.', '...obwwto', '.oobbwwo.', 'ohhblbo..', 'kehllo...', '...f.f...'],
+  ['...ooo...', '..owwo...', '.ooowooo.', 'kehbbbbto', '.olllbbo.', '..ooooo..', '.........'],
+  ['.........', '.oo......', 'kehoooooo', 'olbbbbbto', '.oowwoo..', '...owo...', '....o....'],
+];
+/** [head, back, breast, wing, beak] for a sparrow, a robin, a blue tit and a blackbird. */
+export const BIRD_COLOURS: [string, string, string, string, string][] = [
+  ['#8a5a34', '#a07048', '#e8d8b8', '#5a3820', '#e8b040'],
+  ['#e86830', '#807058', '#f08048', '#5c5040', '#383028'],
+  ['#3868d0', '#78a048', '#f0d848', '#3858b8', '#383028'],
+  ['#2a262c', '#38323a', '#48404a', '#1c181e', '#f0a020'],
+];
+
+export function buildBird(i: number): Raster {
+  const [h, b, l, w, k] = BIRD_COLOURS[i].map(hex);
+  const pal = { o: OUTLINE, h, b, l, w, t: w, k, e: hex('#101010'), f: hex('#806048') };
+  const r = new Raster(BIRD_W * BIRD.length, BIRD_H);
+  BIRD.forEach((rows, f) => r.paint(rows, f * BIRD_W, 0, pal));
+  return r;
+}
+
+/** A bird in the mouth, facing left (head at the mouth): whole, half eaten, a last tuft. */
+export function buildHeldBird(i: number): Raster {
+  const [h, b, l, w, k] = BIRD_COLOURS[i].map(hex);
+  const pal = { o: OUTLINE, h, b, l, w, k, e: hex('#101010') };
+  const r = new Raster(HELD_W * 3, 5);
+  r.paint(['..oooo..', '.obbwwoo', 'ohbbwwwt', '.olllboo', '..oooo..'], 0, 0, pal);
+  r.paint(['..oo....', '.obwo...', 'ohbwo...', '.olo....', '..o.....'], HELD_W, 0, pal);
+  r.paint(['........', '.w......', 'w.b.....', '.l......', '........'], HELD_W * 2, 0, pal);
+  return r;
+}
+
+/** A single loose feather drifting down, 3x2. */
+export function buildFeather(i: number): Raster {
+  const [, b, l] = BIRD_COLOURS[i].map(hex);
+  const r = new Raster(3, 2);
+  r.paint(['bl.', '.lb'], 0, 0, { b, l });
   return r;
 }

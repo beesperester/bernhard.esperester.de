@@ -2,8 +2,8 @@ import { frameIndex, type FrameName } from '../art/cat.ts';
 
 export const Facing = { Down: 0, Up: 1, Left: 2, Right: 3 } as const;
 export type Facing = (typeof Facing)[keyof typeof Facing];
-export const Act = { Idle: 0, Walk: 1, Sit: 2, Lick: 3, Jump: 4, Hiss: 5, Roll: 6, Sleep: 7, Catch: 8, Eat: 9, Munch: 10 } as const;
-export const ACT_MAX = 10;
+export const Act = { Idle: 0, Walk: 1, Sit: 2, Lick: 3, Jump: 4, Hiss: 5, Roll: 6, Sleep: 7, Catch: 8, Eat: 9, Munch: 10, Crouch: 11, Sneak: 12, Feast: 13 } as const;
+export const ACT_MAX = 13;
 export type Act = (typeof Act)[keyof typeof Act];
 
 /** Jump velocity and gravity in px/s: a jump peaks at ~14px, enough to clear a hedge. */
@@ -22,7 +22,7 @@ export const EAT_MS = 2600;
 export const MUNCH_MS = 1500;
 
 /** Things a cat can swipe at. */
-export const Prey = { Fish: 0, Fly: 1, Bee: 2 } as const;
+export const Prey = { Fish: 0, Fly: 1, Bee: 2, Bird: 3 } as const;
 export type Prey = (typeof Prey)[keyof typeof Prey];
 
 /** Everything other visitors need to draw a cat: [x, y, z, facing, act, seq, coat]. */
@@ -37,7 +37,7 @@ export function frameFor(act: Act, facing: Facing, ms: number, now: number, fast
   let d = DIR[facing];
   const flip = facing === Facing.Right;
   // catching and eating only exist side-on
-  if (act === Act.Catch || act === Act.Eat || act === Act.Munch) d = 'side';
+  if (act === Act.Catch || act === Act.Eat || act === Act.Munch || act === Act.Feast) d = 'side';
   let name: FrameName;
   switch (act) {
     case Act.Walk:
@@ -64,7 +64,15 @@ export function frameFor(act: Act, facing: Facing, ms: number, now: number, fast
     case Act.Catch:
       name = ms < SWIPE_AT_MS ? 'catch1' : 'catch2';
       break;
+    case Act.Crouch:
+      name = `${d}Crouch` as FrameName;
+      break;
+    case Act.Sneak:
+      // slow, deliberate paw steps
+      name = cycle([`${d}Sneak1`, `${d}Crouch`, `${d}Sneak2`, `${d}Crouch`] as FrameName[], 5, now);
+      break;
     case Act.Eat:
+    case Act.Feast:
       name = ms < EAT_MS - 600 ? cycle(['sitSide', 'chew'], 4, ms) : 'sitSide';
       break;
     case Act.Munch:

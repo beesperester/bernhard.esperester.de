@@ -259,6 +259,68 @@ const chew = patch(sitSide, [
   [0, 9, '.orwbbbbbbo.....'],
 ]);
 
+// ---- crouching low and sneaking: belly to the ground, head forward, tail flat ----
+const sideCrouch = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '................',
+  '..o..o..........',
+  '.opoobo.........',
+  '.obbbbboooooooo.',
+  'obbdbdbbbdbdbbbo',
+  'obebbbbbbbbbbbbo',
+  'obebbbbbbbbbbbo.',
+  'pbbbbbbbbbbbboo.',
+  'owwwbbbbbbbbbddo',
+  '.owwobbbbbbbboo.',
+  '.obwoowwoobwwo..',
+  '.oooo.oo..ooo...',
+];
+const sideSneak1 = patch(sideCrouch, [
+  [0, 14, '.obwooowwobbwo..'],
+  [0, 15, 'ooooo..ooo.ooo..'],
+]);
+const sideSneak2 = patch(sideCrouch, [
+  [0, 14, '..obwoowwwoobwo.'],
+  [0, 15, '..oooo.....oooo.'],
+]);
+const downCrouch = [
+  '................',
+  '................',
+  '................',
+  ...downStand.slice(2, 11),
+  '.obowwwoowwwobo.',
+  '.obbbowwwwobbbo.',
+  '.obwwboooobwwbo.',
+  '..oooo....oooo..',
+];
+const downSneak1 = patch(downCrouch, [
+  [0, 14, '.obwwbooooobbbo.'],
+  [0, 15, '..oooo....oooo..'],
+  [9, 14, 'obwwbo'],
+]);
+const downSneak2 = flipRows(downSneak1);
+const upCrouch = [
+  '................',
+  '................',
+  '................',
+  ...upStand.slice(2, 9),
+  ...upStand.slice(10, 16),
+];
+const upSneak1 = patch(upCrouch, [
+  [0, 14, '..obbobbbbbbbo..'],
+  [0, 15, '...oooo..oooo...'],
+  [9, 14, 'oooo'],
+  [9, 15, '....'],
+]);
+const upSneak2 = patch(upCrouch, [
+  [0, 14, '..obbbbbbobbbo..'],
+  [0, 15, '.........oooo...'],
+  [3, 14, 'oooo'],
+]);
+
 export const FRAMES = {
   downStand, downWalk1, downWalk2,
   upStand, upWalk1, upWalk2,
@@ -269,6 +331,9 @@ export const FRAMES = {
   roll1, roll2, roll3,
   sleep1, sleep2,
   catch1, catch2, chew,
+  sideCrouch, sideSneak1, sideSneak2,
+  downCrouch, downSneak1, downSneak2,
+  upCrouch, upSneak1, upSneak2,
 } as const;
 
 export type FrameName = keyof typeof FRAMES;

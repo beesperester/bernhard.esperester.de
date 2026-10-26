@@ -45,8 +45,8 @@ export class CatSounds {
         if (c.act === Act.Munch) void sound.play('eat', { at, volume: 0.55, rate: vary(1.1, 1.25) });
         s.chews = 0;
       }
-      // a fish takes a couple of bites
-      if (c.act === Act.Eat && ms >= s.chews * 1000 && s.chews < 2) {
+      // a fish or a bird takes a couple of bites
+      if ((c.act === Act.Eat || c.act === Act.Feast) && ms >= s.chews * 1000 && s.chews < 2) {
         s.chews++;
         void sound.play('eat', { at, volume: 0.6, rate: vary(0.95, 1.05) });
       }
@@ -70,18 +70,19 @@ export class CatSounds {
 
       const tile = tileAt(Math.floor(c.x / TILE), Math.floor((c.y - 2) / TILE));
 
-      // pitter-patter on paths, bridges and stairs, and a pat when landing on them
+      // pitter-patter on paths, bridges and stairs, and a pat when landing on them; barely a sound when sneaking
+      const sneaking = c.act === Act.Sneak;
       const stepRate = STEP_RATE[tile];
       const landed = s.act === Act.Jump && c.act !== Act.Jump;
       if (stepRate && ((c.speed > 20 && c.act !== Act.Jump && now >= s.nextStep) || landed)) {
-        s.nextStep = now + (s.dashing ? 115 : 245) + Math.random() * 30;
-        void sound.play('steps', { at, volume: vary(0.18, 0.28) * (landed ? 1.4 : 1), rate: stepRate * vary(0.93, 1.07) });
+        s.nextStep = now + (s.dashing ? 115 : sneaking ? 400 : 245) + Math.random() * 30;
+        void sound.play('steps', { at, volume: vary(0.18, 0.28) * (landed ? 1.4 : sneaking ? 0.3 : 1), rate: stepRate * vary(0.93, 1.07) });
       }
 
       // rustling through tall grass and flowers
       if (c.speed > 20 && c.act !== Act.Jump && (tile === ',' || tile === 'f') && now >= s.nextRustle) {
-        s.nextRustle = now + (s.dashing ? 220 : 420) + Math.random() * 80;
-        void sound.play('rustle', { at, volume: vary(0.25, 0.4) * (tile === 'f' ? 0.7 : 1), rate: vary(0.88, 1.15) });
+        s.nextRustle = now + (s.dashing ? 220 : sneaking ? 700 : 420) + Math.random() * 80;
+        void sound.play('rustle', { at, volume: vary(0.25, 0.4) * (tile === 'f' ? 0.7 : 1) * (sneaking ? 0.35 : 1), rate: vary(0.88, 1.15) });
       }
 
       s.act = c.act;

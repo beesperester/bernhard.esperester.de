@@ -1,6 +1,6 @@
 // DOM overlay: status line, key help, and Game Boy style touch controls.
 
-export type Button = 'jump' | 'hiss' | 'roll' | 'dash' | 'catch';
+export type Button = 'jump' | 'hiss' | 'roll' | 'dash' | 'catch' | 'sneak';
 
 export interface Controls {
   up: boolean; down: boolean; left: boolean; right: boolean;
@@ -35,7 +35,7 @@ export function setupUI(): UI {
 
   if (isTouch()) {
     pad.hidden = false;
-    help.textContent = 'D-pad to move · A jump · B dash · CATCH fish · hiss & roll to talk';
+    help.textContent = 'D-pad to move · A jump · B dash · hold SNEAK to creep up on birds · CATCH · hiss & roll to talk';
     setupDpad(document.getElementById('dpad')!);
     for (const btn of pad.querySelectorAll<HTMLElement>('[data-btn]')) {
       btn.addEventListener('pointerdown', (e) => {

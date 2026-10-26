@@ -85,7 +85,7 @@ export class Net {
     prey.onMessage = (data, { peerId }) => {
       if (this.room !== room || !Array.isArray(data) || data.length !== 2) return;
       const [kind, id] = data;
-      if ((kind === Prey.Fish || kind === Prey.Fly || kind === Prey.Bee) && Number.isInteger(id)) this.ev.onCatch(peerId, kind, id);
+      if ((kind === Prey.Fish || kind === Prey.Fly || kind === Prey.Bee || kind === Prey.Bird) && Number.isInteger(id)) this.ev.onCatch(peerId, kind, id);
     };
     // clock sync: ask a new peer for its time, take the best of a few round trips
     const clock = room.makeAction<number, number>('clock', { kind: 'request', onRequest: () => Date.now() });

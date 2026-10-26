@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
-import { mulberry32, type Raster } from '../art/raster.ts';
+import type { Raster } from '../art/raster.ts';
+import { Pool, seedRng, hash2, lerp, smooth, clamp01 } from './fauna.ts';
 import { BUTTERFLY_COLOURS, RIPPLE_FRAMES, Z_SIZES } from '../art/critters.ts';
+import type { Prop } from '../art/tiles.ts';
+import { Birds } from './Birds.ts';
 import { Act, Facing, Prey } from './state.ts';
 import type { CatView } from './CatView.ts';
 import { tileAt, wetAt, elevAt, TILE } from '../world/map.ts';
@@ -14,30 +17,7 @@ import { sound } from '../audio/sound.ts';
 type Img = Phaser.GameObjects.Image;
 type Pt = [number, number];
 
-const seedRng = (...k: number[]) => mulberry32(k.reduce((a, v) => Math.imul(a ^ (v | 0), 2654435761) >>> 0, 0x9e3779b9));
-/** One deterministic random number in [0,1) for a tuple of integers. */
-const hash2 = (...k: number[]) => seedRng(...k)();
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const smooth = (t: number) => t * t * (3 - 2 * t);
-const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
 const strHash = (s: string) => [...s].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261);
-
-/** Reuses images instead of creating and destroying them every frame. */
-class Pool {
-  private imgs: Img[] = [];
-  private used = 0;
-  private readonly scene: Phaser.Scene;
-  private readonly key: string;
-  constructor(scene: Phaser.Scene, key: string) { this.scene = scene; this.key = key; }
-  begin(): void { this.used = 0; }
-  get(texture = this.key, frame: string | number = 0): Img {
-    let img = this.imgs[this.used];
-    if (!img) this.imgs.push((img = this.scene.add.image(0, 0, texture, frame)));
-    this.used++;
-    return img.setVisible(true).setTexture(texture, frame).setAlpha(1).setRotation(0).setFlipX(false);
-  }
-  end(): void { for (let i = this.used; i < this.imgs.length; i++) this.imgs[i].setVisible(false); }
-}
 
 // fish leaping out of the pond
 const JUMP_SLOT = 1000, JUMP_P = 0.12, LEAP_DELAY = 350, LEAP_MS = 750;
@@ -60,7 +40,7 @@ interface Takeoff { t: number; dir: number }
 interface Burst { t0: number; x: number; y: number; seed: number; n: number }
 
 interface Particle {
-  img: Img; kind: 'ripple' | 'drop' | 'z' | 'dust' | 'leap';
+  img: Img; kind: 'ripple' | 'drop' | 'z' | 'dust' | 'leap' | 'feather';
   x: number; y: number; z: number; vx: number; vy: number; vz: number;
   t: number; life: number; delay: number; cat?: CatView;
 }
@@ -92,11 +72,16 @@ export class Ambient {
   private readonly perCat = new WeakMap<CatView, { nextZ: number; nextDust: number; wet: boolean }>();
   private lastGt = -1;
   private prey: PreyRef[] = [];
+  private readonly birds: Birds;
 
   private readonly pools: Record<'fish' | 'shadow' | 'bee' | 'fly' | 'flyShadow', Pool>;
 
-  constructor(scene: Phaser.Scene, opts: { flowers: Pt[]; water: Raster; pond: { x: number; y: number; w: number; h: number } }) {
+  constructor(
+    scene: Phaser.Scene,
+    opts: { flowers: Pt[]; water: Raster; pond: { x: number; y: number; w: number; h: number }; trees: { p: Prop; canvas: HTMLCanvasElement }[] },
+  ) {
     this.scene = scene;
+    this.birds = new Birds(scene, opts.trees, (id) => this.caught.has(preyKey(Prey.Bird, id)));
     this.flowers = opts.flowers;
     this.water = opts.water;
     this.neighbours = this.flowers.map(([x, y], i) =>
@@ -132,13 +117,19 @@ export class Ambient {
     this.updateShallows(gt);
     this.updateBees(gt);
     this.updateButterflies(gt, cats);
+    this.birds.update(gt, this.scene.time.now, cats, this.prey);
     this.updateCats(gt, cats);
     this.updateParticles(dt);
     for (const p of Object.values(this.pools)) p.end();
     this.lastGt = gt;
   }
 
-  /** The nearest catchable fish, butterfly or bee within a tile of this cat, if any. */
+  /** A bird sitting in a tree near (x, y), for birdsong. */
+  perchedBird(x: number, y: number, range: number): { x: number; y: number } | null {
+    return this.birds.perchedNear(x, y, range);
+  }
+
+  /** The nearest catchable fish, butterfly, bee or bird within a tile of this cat, if any. */
   preyNear(cat: CatView): PreyRef | null {
     let best: PreyRef | null = null, bd = Infinity;
     for (const p of this.prey) {
@@ -154,7 +145,7 @@ export class Ambient {
 
   /**
    * A cat got it: a fish leaps into its mouth, a butterfly flutters into it,
-   * and a bee stings and zooms off.
+   * a bird is snatched in a puff of feathers, and a bee stings and zooms off.
    */
   catchPrey(kind: Prey, id: number, cat: CatView): void {
     const key = preyKey(kind, id);
@@ -173,8 +164,17 @@ export class Ambient {
       this.ripple(p.x, p.y, 0);
       this.ripple(p.x, p.y, 0.25);
     }
-    const img = kind === Prey.Fish
-      ? this.scene.add.image(p.x, p.y, 'fish')
+    if (kind === Prey.Bird) {
+      cat.heldBird = p.colour;
+      for (let i = 0; i < 6; i++)
+        this.particles.push({
+          img: this.scene.add.image(p.x, p.y, `feather-${p.colour}`).setDepth(100000), kind: 'feather',
+          x: p.x + Math.random() * 6 - 3, y: p.y - p.h - 3, z: 0, vx: Math.random() * 30 - 15, vy: -10 - Math.random() * 14, vz: 0,
+          t: 0, life: 1.4 + Math.random() * 0.8, delay: 0,
+        });
+    }
+    const img = kind === Prey.Fish ? this.scene.add.image(p.x, p.y, 'fish')
+      : kind === Prey.Bird ? this.scene.add.image(p.x, p.y - p.h, `bird-${p.colour}`, 2).setOrigin(0.5, 1)
       : this.scene.add.image(p.x, p.y - p.h, `butterfly-${p.colour}`, 1).setOrigin(0.5, 1);
     this.particles.push({ img: img.setDepth(100000), kind: 'leap', x: p.x, y: p.y - p.h, z: 0, vx: 0, vy: 0, vz: 0, t: 0, life: kind === Prey.Fish ? 0.3 : 0.18, delay: 0, cat });
   }
@@ -499,6 +499,14 @@ export class Ambient {
           p.x += p.vx * dt;
           p.y += p.vy * dt;
           p.img.setFrame(Math.min(2, Math.floor(u * 3))).setPosition(Math.round(p.x), Math.round(p.y)).setAlpha(1 - u * 0.5);
+          break;
+        case 'feather':
+          // burst up, then sway down slowly
+          p.vy = Math.min(p.vy + 40 * dt, 9);
+          p.vx *= 1 - 2 * dt;
+          p.x += (p.vx + Math.sin(p.t * 7 + p.life * 10) * 8) * dt;
+          p.y += p.vy * dt;
+          p.img.setPosition(Math.round(p.x), Math.round(p.y)).setAlpha(u > 0.6 ? (1 - u) / 0.4 : 1);
           break;
         case 'leap': {
           // caught fish arcs from the water into the cat's mouth

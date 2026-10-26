@@ -161,4 +161,5 @@ html, body {
 #buttons .a.down { transform: translateY(-15px); }
 #buttons [data-btn='hiss'] { grid-column: 1; grid-row: 2; justify-self: center; }
 #buttons [data-btn='roll'] { grid-column: 2; grid-row: 2; justify-self: center; }
-#buttons [data-btn='catch'] { grid-column: 1 / span 2; grid-row: 3; justify-self: center; }
+#buttons [data-btn='sneak'] { grid-column: 1; grid-row: 3; justify-self: center; }
+#buttons [data-btn='catch'] { grid-column: 2; grid-row: 3; justify-self: center; }
