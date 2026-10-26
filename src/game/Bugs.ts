@@ -8,6 +8,7 @@ import { MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileAt } from '../world
 import { lightAt } from '../world/sky.ts';
 import { inSeason } from '../world/season.ts';
 import { Pool, seedRng, hash2, lerp, smooth, clamp01 } from './fauna.ts';
+import { isOpenGround, isOpenWater, isPond } from '../world/legend.ts';
 
 // Beetles crawling about the lawns and paths (they can't fly: scare one and it
 // skitters off into the grass), and dragonflies darting about over the ponds
@@ -34,7 +35,7 @@ interface Dragonfly { id: number; home: number; t0: number; life: number; from: 
 interface Pose { x: number; y: number; h: number; dir: number; moving: boolean }
 
 const walkable = (tx: number, ty: number, level: number) =>
-  '.,pf'.includes(tileAt(tx, ty)) && levelAt(tx, ty) === level && !furnished(tx, ty);
+  isOpenGround(tileAt(tx, ty)) && levelAt(tx, ty) === level && !furnished(tx, ty);
 
 export class Bugs {
   private readonly beetles: Pool;
@@ -57,11 +58,11 @@ export class Bugs {
     this.beetles = new Pool(scene, 'beetle-0');
     this.dragonflies = new Pool(scene, 'dragonfly');
     this.shadows = new Pool(scene, 'shadow');
-    const water = (tx: number, ty: number) => 'wl'.includes(tileAt(tx, ty));
+    const water = (tx: number, ty: number) => isPond(tileAt(tx, ty));
     for (let ty = 1; ty < MAP_H - 1; ty++)
       for (let tx = 1; tx < MAP_W - 1; tx++) {
         if (walkable(tx, ty, levelAt(tx, ty)) && hash2(tx, ty, 970) < 0.35) this.ground.push([tx * TILE + 8, ty * TILE + 10]);
-        if (tileAt(tx, ty) === 'w' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !water(tx + dx, ty + dy)))
+        if (isOpenWater(tileAt(tx, ty)) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !water(tx + dx, ty + dy)))
           this.hovers.push([tx * TILE + 8, ty * TILE + 8]);
       }
     this.near = this.hovers.map(([x, y], i) => this.hovers.flatMap(([x2, y2], j) => (j !== i && Math.hypot(x2 - x, y2 - y) < 64 ? [j] : [])));

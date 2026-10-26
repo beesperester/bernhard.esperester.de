@@ -4,6 +4,7 @@ import { Raster, hex, hash2, type RGB } from './raster.ts';
 import { TILE, MAP_W, MAP_H, tileAt, furnished } from '../world/map.ts';
 import { SEASON } from '../world/season.ts';
 import { drabFor } from './tiles.ts';
+import { groundOf, isPond } from '../world/legend.ts';
 
 export const LEANS = 5;
 
@@ -95,7 +96,7 @@ export function buildFloraSheet(k: FloraKind): Raster {
 export interface Plant { kind: number; x: number; y: number }
 
 const nearWater = (tx: number, ty: number) => {
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ('wl'.includes(tileAt(tx + dx, ty + dy))) return true;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (isPond(tileAt(tx + dx, ty + dy))) return true;
   return false;
 };
 
@@ -111,14 +112,14 @@ export function placeFlora(): Plant[] {
   const flowerKind = (tx: number, ty: number) => 3 + Math.floor(hash2(tx, ty, 400) * PETALS.length);
   for (let ty = 1; ty < MAP_H - 1; ty++)
     for (let tx = 1; tx < MAP_W - 1; tx++) {
-      const ch = tileAt(tx, ty);
+      const ground = groundOf(tileAt(tx, ty));
       if (furnished(tx, ty)) continue;
       const h = hash2(tx, ty, 100);
-      if (ch === ',') {
+      if (ground === 'tall') {
         for (let k = 0; k < 4; k++) at(1, tx, ty, k);
         at(0, tx, ty, 4);
         if (h < 0.2) at(flowerKind(tx, ty), tx, ty, 5);
-      } else if (ch === '.') {
+      } else if (ground === 'lawn') {
         if (nearWater(tx, ty)) {
           if (h < 0.75) at(2, tx, ty, 0);
           if (h < 0.4) at(2, tx, ty, 1);
@@ -127,7 +128,7 @@ export function placeFlora(): Plant[] {
         if (h < 0.3) at(0, tx, ty, 0);
         if (h > 0.55 && h < 0.66) at(0, tx, ty, 1);
         else if (h > 0.9) at(flowerKind(tx, ty), tx, ty, 2);
-      } else if (ch === 'f' && h < 0.25) {
+      } else if (ground === 'flowers' && h < 0.25) {
         at(flowerKind(tx, ty), tx, ty, 0);
       }
     }

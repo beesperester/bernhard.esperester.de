@@ -4,6 +4,7 @@
 import { Raster, hex, hash2 } from './raster.ts';
 import { applySeason, bayer } from './tiles.ts';
 import { LEVEL, MAP_H, MAP_W, TILE, levelAt, tileAt } from '../world/map.ts';
+import { isStairs } from '../world/legend.ts';
 
 const K = { lip: hex('#2e6e24'), lip2: hex('#4c9a34'), k0: hex('#e2c08a'), k1: hex('#c0965e'), k2: hex('#93693e'), k3: hex('#5c3e24'), k4: hex('#3a2616') };
 const S = { s0: hex('#e8e4d8'), s1: hex('#c4bfb0'), s2: hex('#94907f'), s3: hex('#56534a'), moss: hex('#5aaa3e') };
@@ -21,7 +22,7 @@ export interface TerrainPiece {
   stairs: boolean;
 }
 
-const isStair = (tx: number, ty: number) => tileAt(tx, ty) === 'S';
+const isStair = (tx: number, ty: number) => isStairs(tileAt(tx, ty));
 /** The level a tile shows its top at (stairs reach the next level). */
 const topLevel = (tx: number, ty: number) => levelAt(tx, ty) + (isStair(tx, ty) ? 1 : 0);
 

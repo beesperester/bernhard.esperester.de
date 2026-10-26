@@ -7,6 +7,7 @@ import { MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileAt } from '../world
 import { lightAt } from '../world/sky.ts';
 import { sound } from '../audio/sound.ts';
 import { Pool, seedRng, hash2, clamp01 } from './fauna.ts';
+import { groundOf, isOpenGround } from '../world/legend.ts';
 
 // Field mice, out after dark. Most sit tucked away in the tall grass, now and
 // then peeking out, and bolt when a cat comes through: a dash across to the
@@ -35,7 +36,7 @@ interface Run { id: number; at: Pt; dir: number; t0: number; life: number }
 interface Dash { t: number; from: Pt; to: Pt; ms: number; hide: boolean }
 interface Pose { x: number; y: number; frame: number; right: boolean; alpha: number }
 
-const open = (tx: number, ty: number, level: number) => '.,pf'.includes(tileAt(tx, ty)) && levelAt(tx, ty) === level && !furnished(tx, ty);
+const open = (tx: number, ty: number, level: number) => isOpenGround(tileAt(tx, ty)) && levelAt(tx, ty) === level && !furnished(tx, ty);
 
 export class Mice {
   private readonly mice: Pool;
@@ -57,7 +58,7 @@ export class Mice {
     for (let ty = 1; ty < MAP_H - 1; ty++)
       for (let tx = 1; tx < MAP_W - 1; tx++) {
         const t = tileAt(tx, ty);
-        if (t === ',' && !furnished(tx, ty)) this.grass.push([tx * TILE + 8, ty * TILE + 11]);
+        if (groundOf(t) === 'tall' && !furnished(tx, ty)) this.grass.push([tx * TILE + 8, ty * TILE + 11]);
         else if (open(tx, ty, levelAt(tx, ty)) && hash2(tx, ty, 990) < 0.3) this.ground.push([tx * TILE + 8, ty * TILE + 10]);
       }
   }

@@ -35,6 +35,7 @@ import { setCatCount } from '../ui/favicon.ts';
 import { Board, NAME_AT } from './Board.ts';
 import { askName, renderBoard } from '../ui/board.ts';
 import { cullerFor } from './Culler.ts';
+import { castsNightBlob, groundOf } from '../world/legend.ts';
 
 const SPEED = 64; // px per second
 const DASH_SPEED = 168;
@@ -207,7 +208,7 @@ export class GardenScene extends Phaser.Scene {
     catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)
-      for (let tx = 0; tx < MAP_W; tx++) if (tileAt(tx, ty) === 'f') flowers.push([tx * TILE + 8, ty * TILE + 8]);
+      for (let tx = 0; tx < MAP_W; tx++) if (groundOf(tileAt(tx, ty)) === 'flowers') flowers.push([tx * TILE + 8, ty * TILE + 8]);
     this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: reflect.props });
     this.weather = new Weather(this, props, water);
 
@@ -366,7 +367,7 @@ export class GardenScene extends Phaser.Scene {
     // bushes and rocks in the ground art
     for (let ty = 0; ty < MAP_H; ty++)
       for (let tx = 0; tx < MAP_W; tx++)
-        if ('br'.includes(tileAt(tx, ty))) {
+        if (castsNightBlob(tileAt(tx, ty))) {
           const l = levelAt(tx, ty);
           blobs.push({ x: tx * TILE + 8, y: ty * TILE + 13 - l * LEVEL, w: 20, h: 8, depth: l ? ty * TILE + 0.0012 : -99992 });
         }

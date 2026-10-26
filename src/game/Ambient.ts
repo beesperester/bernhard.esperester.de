@@ -16,6 +16,7 @@ import { Wary, type Senses } from './Wary.ts';
 import type { CatView } from './CatView.ts';
 import { tileAt, wetAt, elevAt, TILE } from '../world/map.ts';
 import { sound } from '../audio/sound.ts';
+import { isGrassy } from '../world/legend.ts';
 
 // All fauna is a deterministic function of a shared garden clock and fixed
 // seeds, so every visitor sees the same fish, bees and butterflies without
@@ -566,7 +567,7 @@ export class Ambient {
         });
       }
       // dashing through grass flushes out butterflies (at most once per cat per 3s slot)
-      if (dashing && ',f.'.includes(tileAt(Math.floor(c.x / TILE), Math.floor((c.y - 2) / TILE)))) {
+      if (dashing && isGrassy(tileAt(Math.floor(c.x / TILE), Math.floor((c.y - 2) / TILE)))) {
         const slot = Math.floor(gt / 3000);
         const key = `${c.id}:${slot}`;
         if (!this.burstKeys.has(key)) {

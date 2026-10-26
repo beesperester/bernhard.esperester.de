@@ -2,6 +2,7 @@ import { sound, type Playing } from '../audio/sound.ts';
 import { tileAt, TILE } from '../world/map.ts';
 import { Act } from './state.ts';
 import type { CatView } from './CatView.ts';
+import { groundOf, isMeadow } from '../world/legend.ts';
 
 /** Content cats purr. */
 const PURRING: ReadonlySet<Act> = new Set([Act.Sit, Act.Lick, Act.Sleep, Act.Roll]);
@@ -81,9 +82,9 @@ export class CatSounds {
       }
 
       // rustling through tall grass and flowers
-      if (c.speed > 20 && c.act !== Act.Jump && (tile === ',' || tile === 'f') && now >= s.nextRustle) {
+      if (c.speed > 20 && c.act !== Act.Jump && isMeadow(tile) && now >= s.nextRustle) {
         s.nextRustle = now + (s.dashing ? 220 : sneaking ? 700 : 420) + Math.random() * 80;
-        void sound.play('rustle', { at, volume: vary(0.25, 0.4) * (tile === 'f' ? 0.7 : 1) * (sneaking ? 0.35 : 1), rate: vary(0.88, 1.15) });
+        void sound.play('rustle', { at, volume: vary(0.25, 0.4) * (groundOf(tile) === 'flowers' ? 0.7 : 1) * (sneaking ? 0.35 : 1), rate: vary(0.88, 1.15) });
       }
 
       s.act = c.act;

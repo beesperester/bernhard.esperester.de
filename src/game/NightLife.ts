@@ -8,6 +8,7 @@ import { MAP_H, MAP_W, TILE, elevAt, levelAt, tileAt } from '../world/map.ts';
 import { lightAt } from '../world/sky.ts';
 import { inSeason } from '../world/season.ts';
 import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
+import { groundOf, isLawnOrTall, isLilyPad, isMeadow, isOpenWater, isPond } from '../world/legend.ts';
 
 // Fireflies drifting over the grass and frogs sitting at the water's edge,
 // only after dark. Deterministic like the rest of the fauna: whether something
@@ -57,23 +58,23 @@ export class NightLife {
     this.bodies = new Pool(scene, 'firefly');
     this.glows = new Pool(scene, 'glow-firefly');
     this.frogs = new Pool(scene, 'frog');
-    const water = (x: number, y: number) => 'wl'.includes(tileAt(x, y));
+    const water = (x: number, y: number) => isPond(tileAt(x, y));
     for (let ty = 1; ty < MAP_H - 1; ty++)
       for (let tx = 1; tx < MAP_W - 1; tx++) {
         const ch = tileAt(tx, ty);
         // fireflies like long grass and flowers, and the edges of the ponds
-        if (',f'.includes(ch) || (ch === '.' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => water(tx + dx, ty + dy))))
+        if (isMeadow(ch) || (groundOf(ch) === 'lawn' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => water(tx + dx, ty + dy))))
           this.grass.push([tx * TILE + 8, ty * TILE + 8]);
         // frogs: out on a lily pad, climbing up from the open water beside it...
-        if (ch === 'l') {
-          const side = ([[0, 1], [1, 0], [-1, 0], [0, -1]] as const).find(([dx, dy]) => tileAt(tx + dx, ty + dy) === 'w');
+        if (isLilyPad(ch)) {
+          const side = ([[0, 1], [1, 0], [-1, 0], [0, -1]] as const).find(([dx, dy]) => isOpenWater(tileAt(tx + dx, ty + dy)));
           const cx = tx * TILE + 7, cy = ty * TILE + 11;
           if (side) this.pads.push({ at: [cx, cy], water: [cx + side[0] * 11, cy + side[1] * 8], lily: true });
         }
         // ...or on the lawn right at the water, facing it
-        if (!'.,'.includes(ch) || levelAt(tx, ty) !== 0) continue;
+        if (!isLawnOrTall(ch) || levelAt(tx, ty) !== 0) continue;
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
-          if (tileAt(tx + dx, ty + dy) === 'w') {
+          if (isOpenWater(tileAt(tx + dx, ty + dy))) {
             const cx = tx * TILE + 8 + dx * 5, cy = ty * TILE + 10 + dy * 4;
             this.shore.push({ at: [cx, cy], water: [cx + dx * 10, cy + dy * 9], lily: false });
           }

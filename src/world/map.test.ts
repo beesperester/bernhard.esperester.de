@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GRAVITY, JUMP_V } from '../game/state.ts';
+import { TILE_ART } from '../art/tiles.ts';
+import { LEGEND } from './legend.ts';
 import {
   FURNITURE, FURNITURE_SIZE, LANTERNS, LEVEL, MAP_H, MAP_W, TILE, WALL,
   furnished, groundAt, heightUnder, levelAt, spawnPoints, tileAt, treeTiles,
@@ -27,8 +29,18 @@ describe('the map', () => {
     expect(levelAt(-1, -1)).toBe(0);
   });
 
-  it('only uses known tile characters', () => {
-    for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) expect('Fg.,fpBwl#mTbroS').toContain(tileAt(x, y));
+  it('only uses tiles from the legend, and every tile kind has art', () => {
+    for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) expect(LEGEND).toHaveProperty([tileAt(x, y)]);
+    expect(Object.keys(TILE_ART).sort()).toEqual(Object.keys(LEGEND).sort());
+  });
+
+  it('draws wide things (the fountain) across all their tiles', () => {
+    for (let y = 0; y < MAP_H; y++)
+      for (let x = 0; x < MAP_W; x++) {
+        const span = LEGEND[tileAt(x, y)].span ?? 1;
+        if (span < 2 || tileAt(x - 1, y) === tileAt(x, y)) continue;
+        for (let i = 1; i < span; i++) expect(tileAt(x + i, y)).toBe(tileAt(x, y));
+      }
   });
 
   it('cannot be jumped out of, and cliffs and maze hedges are higher than a jump', () => {

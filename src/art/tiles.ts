@@ -1,6 +1,7 @@
 import { Raster, hex, hash2, mulberry32, type RGB } from './raster.ts';
 import { TILE, MAP_W, MAP_H, LEVEL, tileAt, levelAt, treeTiles, trunkBase } from '../world/map.ts';
 import { SEASON, type Season } from '../world/season.ts';
+import { LEGEND, isPath, isStairs, isWaterway } from '../world/legend.ts';
 
 const C = {
   g0: hex('#68b848'), g1: hex('#90d468'), g2: hex('#4c9a34'), g3: hex('#2e6e24'), g4: hex('#5aaa3e'), g5: hex('#78c454'),
@@ -19,8 +20,8 @@ const C = {
 const FLOWERS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f8f8f8'), hex('#f890c8'), hex('#9878e8'), hex('#58a0f8')];
 
 // the footbridge stands in the water, so shores don't form under it
-const isWaterCh = (ch: string) => ch === 'w' || ch === 'l' || ch === 'B';
-const isPathCh = (ch: string) => ch === 'p' || ch === 'B' || ch === 'g';
+const isWaterCh = isWaterway;
+const isPathCh = isPath;
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 export const bayer = (x: number, y: number) => BAYER[(y & 3) * 4 + (x & 3)];
@@ -245,7 +246,7 @@ function post(r: Raster, x: number, y: number): void {
 
 function gate(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
   path(r, ox, oy, tx, ty);
-  const left = tileAt(tx - 1, ty) !== 'g';
+  const left = tileAt(tx - 1, ty) !== tileAt(tx, ty);
   r.rect(ox, oy + 3, TILE, 12, C.t1);
   for (let x = 0; x < TILE; x += 3) r.rect(ox + x, oy + 3, 2, 12, C.t0);
   r.rect(ox, oy + 7, TILE, 1, C.t2);
@@ -311,43 +312,56 @@ function fountain(r: Raster, ox: number, oy: number): void {
   r.set(ox + 13, oy + 2, C.w1); r.set(ox + 18, oy + 2, C.w1);
 }
 
-/** Tiles whose look changes with the water's ripple phase. */
-const RIPPLING = 'wlB';
 
-/** Draw the ground of tile (tx, ty) with its top-left at (ox, oy) in `r`. */
-function drawTile(r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number): void {
-  switch (tileAt(tx, ty)) {
-    case ',': tallGrass(r, ox, oy, tx, ty); break;
-    case 'f': flowers(r, ox, oy, tx, ty); break;
-    case 'p': path(r, ox, oy, tx, ty); break;
-    case 'w': water(r, ox, oy, tx, ty, phase); break;
-    case 'l':
+/** Paints a tile's worth of ground at (ox, oy) in `r` for map tile (tx, ty). */
+type Painter = (r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number) => void;
+
+/**
+ * How each kind of tile (see world/legend.ts) is drawn: the ground (grass
+ * unless said otherwise), and anything standing up from it, which gets sunlit
+ * rims and is drawn once from its leftmost tile if it spans several. A new
+ * kind of tile needs an entry here.
+ */
+export const TILE_ART: Record<string, { ground?: Painter; upright?: Painter }> = {
+  '.': {},
+  T: {},
+  S: {},
+  ',': { ground: (r, ox, oy, tx, ty) => tallGrass(r, ox, oy, tx, ty) },
+  f: { ground: (r, ox, oy, tx, ty) => flowers(r, ox, oy, tx, ty) },
+  p: { ground: (r, ox, oy, tx, ty) => path(r, ox, oy, tx, ty) },
+  w: { ground: water },
+  l: {
+    ground: (r, ox, oy, tx, ty, phase) => {
       water(r, ox, oy, tx, ty, phase);
       r.paint(LILY, ox + 1, oy + 2, { o: C.h3, l: C.h1, d: C.h0, p: FLOWERS[3] });
-      break;
-    case '#': hedge(r, ox, oy, tx, ty); break;
-    case 'm': hedge(r, ox, oy, tx, ty, true); break;
-    case 'B': bridge(r, ox, oy, tx, ty, phase); break;
-    case 'F': fence(r, ox, oy, tx, ty); break;
-    case 'g': gate(r, ox, oy, tx, ty); break;
-    case 'b':
-      grass(r, ox, oy, tx, ty);
-      r.paint(BUSH, ox, oy, { o: C.h3, l: C.h1, d: C.h0, 2: C.h2 });
-      break;
-    case 'r':
-      grass(r, ox, oy, tx, ty);
-      r.paint(ROCK, ox, oy, { o: C.r3, l: C.r0, m: C.r1, d: C.r2, g: C.g2 });
-      break;
-    case 'o':
-      // the fountain spans two tiles: draw it once, from its left half
-      if (tileAt(tx - 1, ty) !== 'o') {
-        grass(r, ox, oy, tx, ty);
-        grass(r, ox + TILE, oy, tx + 1, ty);
-        fountain(r, ox, oy);
-      }
-      break;
-    default: grass(r, ox, oy, tx, ty);
-  }
+    },
+  },
+  B: { ground: bridge },
+  '#': { upright: (r, ox, oy, tx, ty) => hedge(r, ox, oy, tx, ty) },
+  m: { upright: (r, ox, oy, tx, ty) => hedge(r, ox, oy, tx, ty, true) },
+  F: { upright: (r, ox, oy, tx, ty) => fence(r, ox, oy, tx, ty) },
+  g: { ground: (r, ox, oy, tx, ty) => path(r, ox, oy, tx, ty), upright: (r, ox, oy, tx, ty) => gate(r, ox, oy, tx, ty) },
+  b: { upright: (r, ox, oy) => r.paint(BUSH, ox, oy, { o: C.h3, l: C.h1, d: C.h0, 2: C.h2 }) },
+  r: { upright: (r, ox, oy) => r.paint(ROCK, ox, oy, { o: C.r3, l: C.r0, m: C.r1, d: C.r2, g: C.g2 }) },
+  o: { upright: (r, ox, oy) => fountain(r, ox, oy) },
+};
+
+const lawn: Painter = (r, ox, oy, tx, ty) => grass(r, ox, oy, tx, ty);
+
+/** How many tiles wide the thing on (tx, ty) is, or 0 if it's the right part of one drawn from further left. */
+function spanAt(tx: number, ty: number): number {
+  const ch = tileAt(tx, ty);
+  const span = LEGEND[ch]?.span ?? 1;
+  return span > 1 && tileAt(tx - 1, ty) === ch ? 0 : span;
+}
+
+/** Draw tile (tx, ty) with its top-left at (ox, oy) in `r`. */
+function drawTile(r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number): void {
+  const span = spanAt(tx, ty);
+  if (!span) return;
+  const art = TILE_ART[tileAt(tx, ty)] ?? {};
+  for (let i = 0; i < span; i++) (art.ground ?? lawn)(r, ox + i * TILE, oy, tx + i, ty, phase);
+  art.upright?.(r, ox, oy, tx, ty, phase);
 }
 
 /** The static ground of the garden. `phase` alternates the water ripples (still while frozen). */
@@ -377,7 +391,7 @@ export function buildGrounds(season: Season = SEASON): [Raster, Raster] {
   const pair = new Raster(2 * TILE, TILE);
   for (let ty = 0; ty < MAP_H; ty++)
     for (let tx = 0; tx < MAP_W; tx++) {
-      if (!RIPPLING.includes(tileAt(tx, ty))) continue;
+      if (!isWaterway(tileAt(tx, ty))) continue;
       pair.data.fill(0);
       drawTile(pair, 0, 0, tx - 1, ty, 1);
       drawTile(pair, TILE, 0, tx, ty, 1);
@@ -489,23 +503,15 @@ export function buildUprightMask(): Raster {
   const m = new Raster(MAP_W * TILE, MAP_H * TILE);
   for (let ty = 0; ty < MAP_H; ty++)
     for (let tx = 0; tx < MAP_W; tx++) {
-      const ch = tileAt(tx, ty);
-      if (!'brF#mgo'.includes(ch) || (ch === 'o' && tileAt(tx - 1, ty) === 'o')) continue;
-      const w = ch === 'o' ? TILE * 2 : TILE;
-      const bare = new Raster(w, TILE), full = new Raster(w, TILE);
-      for (const r of [bare, full]) {
-        if (ch === 'g') path(r, 0, 0, tx, ty);
-        else { grass(r, 0, 0, tx, ty); if (ch === 'o') grass(r, TILE, 0, tx + 1, ty); }
-      }
-      switch (ch) {
-        case 'b': full.paint(BUSH, 0, 0, { o: C.h3, l: C.h1, d: C.h0, 2: C.h2 }); break;
-        case 'r': full.paint(ROCK, 0, 0, { o: C.r3, l: C.r0, m: C.r1, d: C.r2 }); break;
-        case '#': hedge(full, 0, 0, tx, ty); break;
-        case 'm': hedge(full, 0, 0, tx, ty, true); break;
-        case 'F': fence(full, 0, 0, tx, ty); break;
-        case 'g': gate(full, 0, 0, tx, ty); break;
-        case 'o': fountain(full, 0, 0); break;
-      }
+      const art = TILE_ART[tileAt(tx, ty)];
+      const span = spanAt(tx, ty);
+      if (!art?.upright || !span) continue;
+      const w = span * TILE;
+      const bare = new Raster(w, TILE);
+      for (let i = 0; i < span; i++) (art.ground ?? lawn)(bare, i * TILE, 0, tx + i, ty, 0);
+      const full = new Raster(w, TILE);
+      full.data.set(bare.data);
+      art.upright(full, 0, 0, tx, ty, 0);
       for (let i = 0; i < full.data.length; i += 4)
         if (full.data[i] !== bare.data[i] || full.data[i + 1] !== bare.data[i + 1] || full.data[i + 2] !== bare.data[i + 2]) {
           const px = (i / 4) % w, py = Math.floor(i / 4 / w);
@@ -515,15 +521,14 @@ export function buildUprightMask(): Raster {
   return m;
 }
 
-/** A soft dithered shadow on the ground at the foot of every cliff face. */
-/** Darken the ground at the foot of each cliff. `r` covers the world from (ox, oy). */
+/** A soft dithered shadow on the ground at the foot of every cliff face. `r` covers the world from (ox, oy). */
 function shadeUnderCliffs(r: Raster, ox = 0, oy = 0): void {
   const tx0 = Math.floor(ox / TILE), ty0 = Math.floor(oy / TILE);
   const tx1 = Math.ceil((ox + r.w) / TILE), ty1 = Math.ceil((oy + r.h) / TILE);
   for (let ty = Math.max(1, ty0); ty < Math.min(MAP_H, ty1); ty++)
     for (let tx = tx0; tx < Math.min(MAP_W, tx1); tx++) {
       const drop = levelAt(tx, ty - 1) - levelAt(tx, ty);
-      if (drop <= 0 || tileAt(tx, ty) === 'S') continue;
+      if (drop <= 0 || isStairs(tileAt(tx, ty))) continue;
       // the face above ends exactly at the top edge of this tile as it is drawn
       const y0 = ty * TILE;
       for (let y = 0; y < 5; y++)

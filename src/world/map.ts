@@ -1,146 +1,17 @@
-// The park, one character per 16x16 tile.
-//   F fence   g gate   . grass   , tall grass   f flowers   p path   B footbridge
-//   w water   l lily pad   # low hedge   m tall maze hedge   T tree (trunk)
-//   b bush    r rock    o fountain    S stone stairs (up to the north)
-//
-// A highland in the north-west (two levels) and a small mesa in the middle rise
-// above the lawns: you can drop off any edge, but the only ways up are stairs.
-// A spring at the foot of the hills feeds a stream that winds under footbridges
-// into the lake; the hedge labyrinth sits in the north-east.
+// Questions about the park's geometry: what is on a tile, how high the ground
+// is, where a cat can stand, where the water is. The park itself (map,
+// hills, furniture) is data in garden.ts; tile kinds are in legend.ts.
 
 import { hash2 } from '../art/raster.ts';
 import { SEASON } from './season.ts';
+import { ROWS, ELEV, FURNITURE } from './garden.ts';
+import { LEGEND, WALL, groundOf, isPond, isStairs, isTree, isWaterway } from './legend.ts';
 
 export const TILE = 16;
 /** Height of one terrain level in px: more than a jump (~14px), so cliffs can't be hopped up. */
 export const LEVEL = 16;
 
-const ROWS = [
-  'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
-  'F..............................................................................F',
-  'F..............................................................................F',
-  'F....................................................mmmmmmmmmmmmmmmmmmmmmmm...F',
-  'F...........b........................T...............m.m.........m...m.....m...F',
-  'F....T....................T....................b.....m.mmm.mmm.mmm.m.m.mmm.m...F',
-  'F...........................fff..............T.......m...m...m.....m.....m.m...F',
-  'F................T........,,fff......................mmm.m.mmmmmmmmmmmmmmm.m...F',
-  'F........fff.pppppppppp..,,,,,,.T......................m.m.....m.......m...m...F',
-  'F........fff.p..fff...T.,,.,.,,.....b...T............m.m.mmm.m.....mmm.m.mmm...F',
-  'F............p..fff.....,.pppppp................T....m.m.....m.........m...m...F',
-  'F........T...p...........,p,b,.p..........r..........m.mmmmmmm.foofmmmmmmm.m...F',
-  'F...T........p............p..r.p.....................m...m...........m.....m...F',
-  'F............S............p....p...........,,,.......m.m.m.m.m.....m.m.mmm.m...F',
-  'F.........,,.p,.........ppp....S..........ffff,......m.m...m.m.....m...m.m.m...F',
-  'F.......r,.,,p,.....T.....p....p..........ffff.......m.m.m.m.m.mmmmmmmmm.m.m...F',
-  'F........,.,,ppp..........p....p.............r.......m.m.m.m.m...m.........m...F',
-  'F........,,,,,.p..........p....p.....................m.m.m.m.mmmmm.mmmmmmmmm...F',
-  'F...........,,,p..........S...pp...........S.........m.m...m...............m...F',
-  'F.........T....p..........p...pwlww........ppppp.....mmmmmmmmmmm.mmmmmmmmmmm...F',
-  'F.....b........p..........p..Tpwwww............p................p..............F',
-  'F..............p..........p...p..w..T..........p.T..............p..............F',
-  'F.............SS..........p...p..w.............p..........b.r...p.........T....F',
-  'F....fff.......p..........p...pwww.............p................p..............F',
-  'F..............ppppppppppppppppw...............pppppppppppppppppp.fff..........F',
-  'F.............................pw.#############,p,,,,..............fff.wlw......F',
-  'F.....S.......................pw.#fffffffffff#.p,,....................www......F',
-  'F...,,p,,..T............T.....pw.#fff.....fff#,p,,,.........,,T,,............T.F',
-  'F..,.,p,,,....................pw.#fff.oo..fff#.p,,,.........,,,,,,.............F',
-  'F.,T,.p,,,,.www...r...........pw.#fff.....fff#.p..........,,,,,,.,,............F',
-  'F.,,..p,,,,.wlw.......fff.....pw.#fffffpfffff#.ppppppppppT,,.,.,.,,............F',
-  'F.,,..p,.,............fff.....pw.######p######.p........p.,,,,,,,,,...T........F',
-  'F..,,,p,,,....................pw.......p.......p........p..,.,,,,,.............F',
-  'F...ffp,,.......T...........T.pw.......p.......p..fff...p...,.,,,........b.....F',
-  'F...ffppppppp.................pwwwwwwwwBwwwwwwwBw.fff...p.......b..............F',
-  'F...........p.................p........p.......pw.......p......................F',
-  'F........T..p...,,,.b.....ppppppppppppppppppppppw.......p...#...........,,,.,..F',
-  'F...........p.,,,,,,,,.................p......T.w......rp...#..........,,.,,,,.F',
-  'F...........p.,,,,,,,,,........r......bp........w..pppppp...#...........,.,,,,.F',
-  'F...wlw.....p,,..,.,,.,,...............p........w...........#..........,,,.,,..F',
-  'F...www.....p.b,,,,,,.,,...............p........wwwwwwww....#....T......,,,,,..F',
-  'F...........p,,,,,,.,,,,....T..........p...............w.......................F',
-  'F.#######...p.,,,,,,.,,.............b..p...............w....wwwwwwwwwww........F',
-  'F...........p.,,.,,,,,,................p...............w.wwwwwwwwwwwwwwwww.....F',
-  'F...........pf...,,,,T......pppppppppppp......fff.......wwwwwwwwwwwwwwwwwww..T.F',
-  'F...T.......pf..............p,,.,......p......fff......wwwwwlwwwwwwwwwwwwwww...F',
-  'F...........pf......ww....b.p,,.,,.....pppppppppppp.b.wwwwwwwwwwwwwwwwwwwwwww..F',
-  'F...........p.......ww....,,p,,.,,,....p..........p..wwwwwwwwwwwlwwwwwwwlwwwww.F',
-  'F...........p.............,,p,,,,,,....p..........p..wwwwwwwwwwwwwwwwwwwwwwwww.F',
-  'F.......,,,.p.T...........,,p.,,,.,...wBw.....T...p..wwwwwwwwwwwwwwwwwwwwwwwww.F',
-  'F......,.,.,p,.............,p,,.,,....wBw.........p..wwwwwwwwwwwwwwwwwwwwwwwwwbF',
-  'F.....,,,,,.p.,.............p,,,......wBw.............wwwwlwwwwwwwwwwwwwwwwww..F',
-  'F.....,,,,,,ppppppppppppppppp.....T....p....#######....wwwwwwwwwwwwwlwwwwwww...F',
-  'F......,..,,.,..........fff............p................wwwwwwwwwwwwwwwwwww....F',
-  'F......,,,,,,...........fff............p.................wwwwwwwwwwwwwwwww.....F',
-  'F.......,,.,....r......................p....................wwwwwwwwwww.,,.....F',
-  'F.......T..........T...................p................fff........,,.,,,,.....F',
-  'F.......................b......T.......p...T........T..............,,,,,,...T..F',
-  'F......................................p............................,,.,,......F',
-  'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFggFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
-];
-
-/** Terrain level per tile (0 = lawn). Stairs sit on the lower level and climb to the next. */
-const ELEV = [
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00011111111111111111111111111111111000000000000000000000000000000000000000000000',
-  '00011111111111111111111111111111111000000000000000000000000000000000000000000000',
-  '00011112222222222222111111111111111000000000000000000000000000000000000000000000',
-  '00011112222222222222222211111111111000000000000000000000000000000000000000000000',
-  '00011112222222222222222211111111111000000000000000000000000000000000000000000000',
-  '00011112222222222222222211111111111000000000000000000000000000000000000000000000',
-  '00011112222222222222222211111111111000000000000000000000000000000000000000000000',
-  '00011112222222222222111111111111111000000000000000000000000000000000000000000000',
-  '00011112222222222222111111111111111000000000000000000000000000000000000000000000',
-  '00011111111111111111111111111111111000001111111100000000000000000000000000000000',
-  '00011111111111111111111111111110000000001111111100000000000000000000000000000000',
-  '00011111111111111111111111111110000000001111111100000000000000000000000000000000',
-  '00011111111111111111111111111110000000001111111100000000000000000000000000000000',
-  '00011111111111111111111111111110000000001111111100000000000000000000000000000000',
-  '00000111111111111111111000000000000000000000000000000000000000000000000000000000',
-  '00000111111111111111111000000000000000000000000000000000000000000000000000000000',
-  '00000111111111111111111000000000000000000000000000000000000000000000000000000000',
-  '00000111111111111111111000000000000000000000000000000000000000000000000000000000',
-  '00011111110000000000000000000000000000000000000000000000000000000000000000000000',
-  '00011111110000000000000000000000000000000000000000000000000000000000000000000000',
-  '00011111110000000000000000000000000000000000000000000000000000000000000000000000',
-  '00011111110000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-  '00000000000000000000000000000000000000000000000000000000000000000000000000000000',
-];
+export { WALL };
 
 export const MAP_W = ROWS[0].length;
 export const MAP_H = ROWS.length;
@@ -167,15 +38,12 @@ export const elevAt = (x: number, y: number): number => levelAt(Math.floor(x / T
 export const MAX_LEVEL = Math.max(...ELEV.map((r) => Math.max(...[...r].map(Number))));
 
 // ---- height map ----
-// Every tile has a surface height in pixels. Cats can walk onto surfaces no
-// higher than they currently are, so low obstacles can be reached by jumping.
-export const WALL = 99;
+// Every tile has a surface height in pixels: its terrain level, plus whatever
+// stands on it (see legend.ts). Cats can walk onto surfaces no higher than they
+// currently are, so low obstacles can be reached by jumping. Water is flat but
+// special: cats won't walk in, though they can jump in (see waterUnder).
 
-// water is flat but special: cats won't walk in, though they can jump in (see waterUnder)
-// maze hedges are taller than a jump (~14px), so the labyrinth can't be hopped over
-const HEIGHT: Record<string, number> = { F: WALL, g: WALL, m: 20, '#': 8, b: 7, o: 6, r: 5 };
-/** Footprint insets [left, top, right, bottom] for objects smaller than their tile. */
-const INSET: Record<string, [number, number, number, number]> = { b: [1, 2, 1, 1], r: [1, 4, 1, 2], o: [0, 1, 0, 1] };
+const NO_INSET: [number, number, number, number] = [0, 0, 0, 0];
 
 /** The cat's feet box, relative to its (x, y) = bottom centre. */
 export const FEET = { x0: -5, x1: 5, y0: -5, y1: 0 };
@@ -193,13 +61,14 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number): num
       const ch = tileAt(tx, ty);
       let base = levelAt(tx, ty) * LEVEL;
       // stairs rise one pixel per pixel northwards, up to the next level
-      if (ch === 'S') base += Math.max(0, Math.min(LEVEL, (ty + 1) * TILE - Math.max(y0, ty * TILE)));
+      if (isStairs(ch)) base += Math.max(0, Math.min(LEVEL, (ty + 1) * TILE - Math.max(y0, ty * TILE)));
       if (base > h) h = base;
-      const th = HEIGHT[ch];
-      if (!th || base + th <= h) continue;
-      const [l, t, r, b] = INSET[ch] ?? [0, 0, 0, 0];
+      const kind = LEGEND[ch];
+      const standing = kind?.height;
+      if (!standing || base + standing <= h) continue;
+      const [l, t, r, b] = kind.inset ?? NO_INSET;
       const fx0 = tx * TILE + l, fy0 = ty * TILE + t, fx1 = (tx + 1) * TILE - r, fy1 = (ty + 1) * TILE - b;
-      if (x1 > fx0 && x0 < fx1 && y1 > fy0 && y0 < fy1) h = base + th;
+      if (x1 > fx0 && x0 < fx1 && y1 > fy0 && y0 < fy1) h = base + standing;
     }
   for (const [ax, ay, bx, by] of TRUNKS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
   for (const [ax, ay, bx, by, sh] of SOLIDS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by && sh > h) h = sh;
@@ -210,7 +79,7 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number): num
 function pondUnder(x0: number, y0: number, x1: number, y1: number): boolean {
   const tx0 = Math.floor(x0 / TILE), tx1 = Math.floor((x1 - 0.01) / TILE);
   const ty0 = Math.floor(y0 / TILE), ty1 = Math.floor((y1 - 0.01) / TILE);
-  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if ('wl'.includes(tileAt(tx, ty))) return true;
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if (isPond(tileAt(tx, ty))) return true;
   return false;
 }
 
@@ -231,7 +100,7 @@ export const trunkBase = (tx: number, ty: number): [number, number] => [tx * TIL
 
 export function treeTiles(): [number, number][] {
   const out: [number, number][] = [];
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (ROWS[y][x] === 'T') out.push([x, y]);
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (isTree(ROWS[y][x])) out.push([x, y]);
   return out;
 }
 
@@ -240,7 +109,7 @@ export function spawnPoints(): [number, number][] {
   const out: [number, number][] = [];
   for (let y = 34; y <= 46; y++)
     for (let x = 30; x <= 48; x++)
-      if (tileAt(x, y) === 'p' && levelAt(x, y) === 0) out.push([x * TILE + TILE / 2, y * TILE + TILE - 2]);
+      if (groundOf(tileAt(x, y)) === 'path' && levelAt(x, y) === 0) out.push([x * TILE + TILE / 2, y * TILE + TILE - 2]);
   return out;
 }
 
@@ -256,7 +125,7 @@ export function terrainCover(x: number, y: number, z: number, w = 16, h = 16): {
   let c: { x0: number; y0: number; x1: number; y1: number } | null = null;
   for (let tx = Math.floor(left / TILE); tx <= Math.floor((right - 0.01) / TILE); tx++)
     for (let t = ty + 1; t <= ty + MAX_LEVEL + 1; t++) {
-      const e = levelAt(tx, t) + (tileAt(tx, t) === 'S' ? 1 : 0);
+      const e = levelAt(tx, t) + (isStairs(tileAt(tx, t)) ? 1 : 0);
       if (!e) continue;
       // the tile's lifted top plus the cliff face hanging below it
       const top = t * TILE - e * LEVEL;
@@ -285,7 +154,7 @@ export function waterBoxes(chunk = 8): { x: number; y: number; w: number; h: num
       let x0 = MAP_W, y0 = MAP_H, x1 = -1, y1 = -1;
       for (let y = cy; y < Math.min(MAP_H, cy + chunk); y++)
         for (let x = cx; x < Math.min(MAP_W, cx + chunk); x++)
-          if ('wlB'.includes(ROWS[y][x])) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+          if (isWaterway(ROWS[y][x])) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
       if (x1 >= 0) out.push({ x: x0 * TILE, y: y0 * TILE, w: (x1 - x0 + 1) * TILE, h: (y1 - y0 + 1) * TILE });
     }
   return out;
@@ -296,7 +165,7 @@ export function pondBounds(): { x: number; y: number; w: number; h: number } {
   let x0 = MAP_W, y0 = MAP_H, x1 = 0, y1 = 0;
   for (let y = 0; y < MAP_H; y++)
     for (let x = 0; x < MAP_W; x++)
-      if (ROWS[y][x] === 'w' || ROWS[y][x] === 'l') {
+      if (isPond(ROWS[y][x])) {
         x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
       }
   return { x: x0 * TILE, y: y0 * TILE, w: (x1 - x0 + 1) * TILE, h: (y1 - y0 + 1) * TILE };
@@ -319,15 +188,7 @@ export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
   shed: [3, 2], bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3], birdbath: [1, 1],
 };
 
-export const FURNITURE: { kind: FurnitureKind; tx: number; ty: number }[] = [
-  { kind: 'shed', tx: 40, ty: 40 },
-  { kind: 'bench', tx: 40, ty: 21 },
-  { kind: 'bench', tx: 25, ty: 38 },
-  { kind: 'picnic', tx: 17, ty: 49 },
-  { kind: 'bistro', tx: 66, ty: 33 },
-  { kind: 'blanket', tx: 52, ty: 25 },
-  { kind: 'birdbath', tx: 45, ty: 40 },
-];
+export { FURNITURE };
 
 /** True on tiles taken by furniture (nothing else grows or stands there). */
 export function furnished(tx: number, ty: number): boolean {
@@ -374,9 +235,10 @@ export function casterHeight(x: number, y: number): number {
   const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
   const ch = tileAt(tx, ty);
   let h = 0;
-  const th = ch === 'F' || ch === 'g' ? 14 : HEIGHT[ch];
+  const kind = LEGEND[ch];
+  const th = kind?.shadowHeight ?? kind?.height;
   if (th) {
-    const [l, t, r, b] = INSET[ch] ?? [0, 0, 0, 0];
+    const [l, t, r, b] = kind.inset ?? NO_INSET;
     const lx = x - tx * TILE, ly = y - ty * TILE;
     if (lx >= l && lx < TILE - r && ly >= t && ly < TILE - b) h = th;
   }
@@ -393,15 +255,20 @@ export function casterHeight(x: number, y: number): number {
 const LANTERN_SPACING = 7;
 
 function placeLanterns(): [number, number][] {
-  const near = (tx: number, ty: number, chars: string, r: number) => {
-    for (let y = ty - r; y <= ty + r; y++) for (let x = tx - r; x <= tx + r; x++) if (chars.includes(tileAt(x, y))) return true;
+  /** Water, stairs, a tree or a fence right next to the tile: no room for a lantern. */
+  const crowded = (tx: number, ty: number) => {
+    for (let y = ty - 1; y <= ty + 1; y++)
+      for (let x = tx - 1; x <= tx + 1; x++) {
+        const ch = tileAt(x, y);
+        if (isWaterway(ch) || isStairs(ch) || isTree(ch) || LEGEND[ch]?.height === WALL) return true;
+      }
     return false;
   };
   const spots: { tx: number; ty: number; dx: number; dy: number; k: number }[] = [];
   for (let ty = 1; ty < MAP_H - 1; ty++)
     for (let tx = 1; tx < MAP_W - 1; tx++) {
-      if (tileAt(tx, ty) !== '.' || near(tx, ty, 'wlBSTFg', 1) || [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => furnished(tx + dx, ty + dy))) continue;
-      const side = ([[0, 1], [0, -1], [1, 0], [-1, 0]] as const).find(([dx, dy]) => tileAt(tx + dx, ty + dy) === 'p' && levelAt(tx + dx, ty + dy) === levelAt(tx, ty));
+      if (groundOf(tileAt(tx, ty)) !== 'lawn' || crowded(tx, ty) || [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => furnished(tx + dx, ty + dy))) continue;
+      const side = ([[0, 1], [0, -1], [1, 0], [-1, 0]] as const).find(([dx, dy]) => groundOf(tileAt(tx + dx, ty + dy)) === 'path' && levelAt(tx + dx, ty + dy) === levelAt(tx, ty));
       if (side) spots.push({ tx, ty, dx: side[0], dy: side[1], k: hash2(tx, ty, 61) });
     }
   spots.sort((a, b) => a.k - b.k);
