@@ -32,6 +32,8 @@ const unlock = () => {
   sound.unlock();
 };
 window.addEventListener('keydown', (e) => {
+  // typing a name is not playing
+  if (e.target instanceof HTMLInputElement) return;
   const k = e.key.toLowerCase();
   if (k === 'm' || k === 's') {
     if (!e.repeat) (k === 'm' ? music : sound).toggle();

@@ -3,6 +3,7 @@
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
 import { Prey, type CatMsg } from '../game/state.ts';
+import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 
 // unversioned until the site is released; after that, version it when the protocol changes
 const APP_ID = 'bernhard.esperester.de/garden-of-cats';
@@ -17,6 +18,10 @@ export interface NetEvents {
   /** Another cat caught (or swiped at) the fish, butterfly or bee with this id. */
   onCatch: (peerId: string, kind: Prey, id: number) => void;
   onLeave: (peerId: string) => void;
+  /** Someone new in the garden. */
+  onJoin: (peerId: string) => void;
+  /** Scoreboard news from another cat. */
+  onBoard: (peerId: string, msg: BoardMsg) => void;
   onStatus: (garden: number, peers: number, settled: boolean) => void;
 }
 
@@ -24,6 +29,7 @@ export class Net {
   private room: Room | null = null;
   private send: ((msg: CatMsg, target?: string) => void) | null = null;
   private sendCatch: ((kind: Prey, id: number) => void) | null = null;
+  private sendBoard: ((msg: BoardMsg, target?: string) => void) | null = null;
   /** Peer clock minus our clock, in ms, measured once when a peer joins. */
   private offsets = new Map<string, number>();
   readonly id = selfId;
@@ -48,6 +54,10 @@ export class Net {
 
   catchPrey(kind: Prey, id: number): void {
     this.sendCatch?.(kind, id);
+  }
+
+  board(msg: BoardMsg, target?: string): void {
+    this.sendBoard?.(msg, target);
   }
 
   /**
@@ -87,6 +97,13 @@ export class Net {
       const [kind, id] = data;
       if (Object.values(Prey).includes(kind as Prey) && Number.isInteger(id)) this.ev.onCatch(peerId, kind as Prey, id);
     };
+    const board = room.makeAction<BoardMsg>('board');
+    this.sendBoard = (msg, target) => void board.send(msg, target ? { target } : undefined).catch(() => {});
+    board.onMessage = (data, { peerId }) => {
+      if (this.room !== room) return;
+      const msg = sanitizeBoard(data);
+      if (msg) this.ev.onBoard(peerId, msg);
+    };
     // clock sync: ask a new peer for its time, take the best of a few round trips
     const clock = room.makeAction<number, number>('clock', { kind: 'request', onRequest: () => Date.now() });
     const syncClock = async (peerId: string) => {
@@ -104,6 +121,7 @@ export class Net {
       if (this.room !== room) return;
       this.send?.(this.getState(), peerId);
       void syncClock(peerId);
+      this.ev.onJoin(peerId);
       this.status();
     };
     room.onPeerLeave = (peerId) => {
@@ -122,6 +140,7 @@ export class Net {
         this.room = null;
         this.send = null;
         this.sendCatch = null;
+        this.sendBoard = null;
         this.offsets.clear();
         void room.leave();
         this.enter(garden + 1);

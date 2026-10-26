@@ -26,8 +26,8 @@ export class Lanterns {
   }
 
   update(light: Light, time: number): void {
-    // on from a little before sunset until a little after sunrise
-    const on = Math.max(0, Math.min(1, (2 - light.elevation) / 5));
+    // only after dark: they come on once the sun is well below the horizon, and go off before sunrise
+    const on = Math.max(0, Math.min(1, (-2 - light.elevation) / 4));
     const t = time / 1000;
     if (on === 0 && this.lit === 0) return;
     this.lit = on;

@@ -26,6 +26,8 @@ import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
 import { touch, setupUI } from '../ui/ui.ts';
 import { setCatCount } from '../ui/favicon.ts';
+import { Board, NAME_AT } from './Board.ts';
+import { askName, renderBoard } from '../ui/board.ts';
 
 const SPEED = 64; // px per second
 const DASH_SPEED = 168;
@@ -99,6 +101,9 @@ export class GardenScene extends Phaser.Scene {
   private lanterns!: Lanterns;
   private nightWater!: NightWater;
   private nextClock = 0;
+  private board!: Board;
+  /** Offered a name of our own already (or the dialog is open). */
+  private naming = false;
   private camAnchor!: Phaser.GameObjects.Zone;
   /** Smoothed terrain height under the cat, so the view rises with the hills. */
   private camZ = 0;
@@ -195,6 +200,8 @@ export class GardenScene extends Phaser.Scene {
     this.ui = setupUI();
     this.ui.setStatus('looking for other cats…');
     setCatCount(1);
+    this.board = new Board((msg, target) => this.net.board(msg, target), () => renderBoard(this.board.ranking(), this.board.id));
+    renderBoard(this.board.ranking(), this.board.id);
     this.net = new Net(() => this.state(), {
       onState: (id, msg) => {
         const cat = this.remotes.get(id);
@@ -213,9 +220,14 @@ export class GardenScene extends Phaser.Scene {
       onLeave: (id) => {
         this.remotes.get(id)?.destroy();
         this.remotes.delete(id);
+        this.board.leave(id);
         this.updateStatus();
       },
+      onJoin: (id) => this.board.greet(id),
+      onBoard: (id, msg) => this.board.receive(id, msg),
       onStatus: (garden) => {
+        // every garden keeps its own scoreboard
+        if (garden !== this.garden) this.board.reset();
         this.garden = garden;
         this.updateStatus();
       },
@@ -446,6 +458,7 @@ export class GardenScene extends Phaser.Scene {
         me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
+        this.ate(prey.kind);
         this.catching = { swiped: true, got: Prey.Bird };
         this.dashing = false;
         this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, ((now - this.dashStart) / DASH_MS) * DASH_COOLDOWN_MS);
@@ -462,6 +475,7 @@ export class GardenScene extends Phaser.Scene {
         if (prey) {
           this.ambient.catchPrey(prey.kind, prey.id, me);
           this.net.catchPrey(prey.kind, prey.id);
+          this.ate(prey.kind);
           c.got = prey.kind;
         }
       }
@@ -537,6 +551,25 @@ export class GardenScene extends Phaser.Scene {
     if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS) me.setAct(Act.Sleep, now);
   }
 
+  /** Count a catch, and at NAME_AT snacks offer a name of our own. */
+  private ate(kind: Prey): void {
+    this.board.ate(kind);
+    const me = this.board.me;
+    if (me.score < NAME_AT || me.custom || this.naming || asked(this.board.id)) return;
+    this.naming = true;
+    // the keyboard belongs to the text field while the dialog is open
+    const kb = this.input.keyboard!;
+    kb.enabled = false;
+    kb.disableGlobalCapture();
+    askName(me.name, (name) => this.board.available(name), (name) => {
+      if (name) this.board.rename(name);
+      setAsked(this.board.id);
+      kb.enabled = true;
+      kb.enableGlobalCapture();
+      kb.resetKeys();
+    });
+  }
+
   /**
    * Move horizontally, but only onto surfaces no higher than the cat currently is.
    * Cats won't walk into the pond, but they can jump in.
@@ -582,4 +615,11 @@ export class GardenScene extends Phaser.Scene {
     const [x, y] = at(step);
     if (!hits(x, y)) { me.x = x; me.y = y; }
   }
+}
+
+function asked(id: string): boolean {
+  try { return localStorage.getItem(`named-${id}`) === '1'; } catch { return false; }
+}
+function setAsked(id: string): void {
+  try { localStorage.setItem(`named-${id}`, '1'); } catch { /* storage unavailable */ }
 }
