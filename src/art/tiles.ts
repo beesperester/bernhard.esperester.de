@@ -1,5 +1,5 @@
 import { Raster, hex, hash2, mulberry32, type RGB } from './raster.ts';
-import { TILE, MAP_W, MAP_H, tileAt, treeTiles, trunkBase } from '../world/map.ts';
+import { TILE, MAP_W, MAP_H, LEVEL, tileAt, levelAt, treeTiles, trunkBase } from '../world/map.ts';
 
 const C = {
   g0: hex('#68b848'), g1: hex('#90d468'), g2: hex('#4c9a34'), g3: hex('#2e6e24'), g4: hex('#5aaa3e'), g5: hex('#78c454'),
@@ -335,7 +335,26 @@ export function buildGround(phase: number): Raster {
       }
     }
   castTreeShadows(r);
+  shadeUnderCliffs(r);
   return r;
+}
+
+/** A soft dithered shadow on the ground at the foot of every cliff face. */
+function shadeUnderCliffs(r: Raster): void {
+  for (let ty = 1; ty < MAP_H; ty++)
+    for (let tx = 0; tx < MAP_W; tx++) {
+      const drop = levelAt(tx, ty - 1) - levelAt(tx, ty);
+      if (drop <= 0 || tileAt(tx, ty) === 'S') continue;
+      // the face above ends exactly at the top edge of this tile as it is drawn
+      const y0 = ty * TILE;
+      for (let y = 0; y < 5; y++)
+        for (let x = 0; x < TILE; x++) {
+          const px = tx * TILE + x, py = y0 + y;
+          if (py >= r.h || bayer(px, py) > 1 - y / 5) continue;
+          const k = (py * r.w + px) * 4;
+          r.data[k] *= 0.75; r.data[k + 1] *= 0.8; r.data[k + 2] *= 0.85;
+        }
+    }
 }
 
 /** Canopy shadows fall to the lower right, away from the sun in the top-left. */
@@ -500,18 +519,19 @@ export function buildProps(): Prop[] {
     const h = hash2(tx, ty, 55);
     const kind = h < 0.22 ? 2 : h < 0.36 ? 3 : h < 0.6 ? 1 : 0;
     const [bx, by] = trunkBase(tx, ty);
+    // trees on raised ground are drawn lifted with it
+    const lift = levelAt(tx, ty) * LEVEL;
     return {
       raster: tree(i + 1, kind),
       x: bx - TREE_W / 2,
-      y: by - (TREE_H - 1),
+      y: by - (TREE_H - 1) - lift,
       depthY: by,
     };
   });
 }
 
 /** Opaque where the pond shows open water (not shore, not lily pads). */
-export function buildWaterMask(): Raster {
-  const g0 = buildGround(0), g1 = buildGround(1);
+export function buildWaterMask(g0: Raster, g1: Raster): Raster {
   const m = new Raster(g0.w, g0.h);
   const isWater = (r: Raster, i: number) => {
     const c = [r.data[i], r.data[i + 1], r.data[i + 2]].join();

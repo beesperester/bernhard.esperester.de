@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
 import { buildCloud, type CloudShape } from '../art/clouds.ts';
 import type { Raster } from '../art/raster.ts';
-import { WORLD_H, WORLD_W } from '../world/map.ts';
+import { TILE, WORLD_H, WORLD_W } from '../world/map.ts';
 
-const COUNT = 6;
+/** About one cloud per 200 tiles of park. */
+const COUNT = Math.round((WORLD_W * WORLD_H) / (TILE * TILE * 200));
 /** Drift in world px per second, roughly with the wind (towards the lower right). */
 const VX = 5;
 const VY = 1.6;

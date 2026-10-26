@@ -5,6 +5,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { Raster, hex } from '../src/art/raster.ts';
 import { buildCatSheet, COATS, FRAMES, CAT } from '../src/art/cat.ts';
 import { buildGround, buildProps } from '../src/art/tiles.ts';
+import { buildTerrain } from '../src/art/terrain.ts';
 
 const out = process.argv[2] ?? 'preview';
 mkdirSync(out, { recursive: true });
@@ -66,9 +67,15 @@ COATS.forEach((_, ci) => {
 writeFileSync(`${out}/cats.png`, png(sheet, 4));
 
 const ground = buildGround(0);
-const props = buildProps();
-for (const p of props) ground.blit(p.raster, p.x, p.y);
-writeFileSync(`${out}/garden.png`, png(ground, 2));
+const scene = new Raster(ground.w, ground.h);
+scene.blit(ground, 0, 0);
+// raised terrain and trees, painted back to front like the game sorts them
+const layers = [
+  ...buildTerrain(ground).map((t) => ({ r: t.raster, x: t.x, y: t.y, d: t.depth })),
+  ...buildProps().map((p) => ({ r: p.raster, x: p.x, y: p.y, d: p.depthY })),
+].sort((a, b) => a.d - b.d);
+for (const l of layers) scene.blit(l.r, l.x, l.y);
+writeFileSync(`${out}/garden.png`, png(scene, 1));
 console.log('ok', out);
 
 // one coat, big, for detail checks

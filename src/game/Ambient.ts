@@ -3,7 +3,7 @@ import { mulberry32, type Raster } from '../art/raster.ts';
 import { BUTTERFLY_COLOURS, RIPPLE_FRAMES, Z_SIZES } from '../art/critters.ts';
 import { Act, Facing, Prey } from './state.ts';
 import type { CatView } from './CatView.ts';
-import { tileAt, wetAt, TILE } from '../world/map.ts';
+import { tileAt, wetAt, elevAt, TILE } from '../world/map.ts';
 
 // All fauna is a deterministic function of a shared garden clock and fixed
 // seeds, so every visitor sees the same fish, bees and butterflies without
@@ -143,6 +143,8 @@ export class Ambient {
     for (const p of this.prey) {
       const dx = p.x - cat.x, dy = p.y - (cat.y - (p.kind === Prey.Fish ? 3 : 0));
       if (Math.abs(dx) > TILE + 6 || Math.abs(dy) > TILE + 4) continue;
+      // out of reach from the top of a ledge, or from below it
+      if (p.h - cat.z < -4 || p.h - cat.z > REACH_H + 2) continue;
       const d = dx * dx + dy * dy;
       if (d < bd) { bd = d; best = p; }
     }
@@ -288,7 +290,7 @@ export class Ambient {
         const ang = (gt / 1000) * spin + b;
         const x = lerp(ax, bx, m) + Math.cos(ang) * 6;
         const y = lerp(ay, by, m) + Math.sin(ang) * 3;
-        const h = 7 + Math.sin(gt / 250 + b) * 2;
+        const h = 7 + Math.sin(gt / 250 + b) * 2 + lerp(elevAt(ax, ay), elevAt(bx, by), m);
         const alpha = Math.min(1, tau / 1000, (dur - tau) / 1000);
         this.pools.bee.get('bee', Math.floor(gt / 40) % 2)
           .setPosition(Math.round(x), Math.round(y - h)).setDepth(y)
@@ -345,13 +347,14 @@ export class Ambient {
     return [x0 + dir * speed * s + Math.sin(s * 6) * 1.7, y0 + vy * s, 3 + vh * climb + Math.sin(s * 9) * 0.5];
   }
 
-  private drawButterfly(id: number, colour: number, x: number, y: number, h: number, frame: number, alpha: number): void {
-    if (h < REACH_H && alpha > 0.5) this.prey.push({ kind: Prey.Fly, id, x, y, h, colour });
+  private drawButterfly(id: number, colour: number, x: number, y: number, h: number, frame: number, alpha: number, lift = 0): void {
+    if (h < REACH_H && alpha > 0.5) this.prey.push({ kind: Prey.Fly, id, x, y, h: h + lift, colour });
+    h += lift;
     this.pools.fly.get(`butterfly-${colour}`, frame)
       .setOrigin(0.5, 1).setPosition(Math.round(x), Math.round(y - h))
-      .setDepth(h > 14 ? 99000 + y : y).setAlpha(alpha);
-    this.pools.flyShadow.get().setScale(0.4, 0.5).setPosition(Math.round(x), Math.round(y)).setDepth(y - 1)
-      .setAlpha(Math.max(0, 0.18 - h * 0.004) * alpha);
+      .setDepth(h - lift > 14 ? 99000 + y : y).setAlpha(alpha);
+    this.pools.flyShadow.get().setScale(0.4, 0.5).setPosition(Math.round(x), Math.round(y - lift)).setDepth(y - 1)
+      .setAlpha(Math.max(0, 0.18 - (h - lift) * 0.004) * alpha);
   }
 
   private updateButterflies(gt: number, cats: CatView[]): void {
@@ -359,6 +362,7 @@ export class Ambient {
       const b = this.butterflyAt(k);
       if (!b || this.caught.has(preyKey(Prey.Fly, b.id))) continue;
       const [fx, fy] = b.flower;
+      const lift = elevAt(fx, fy);
       let off = this.takeoffs.get(b.id);
       if (!off && gt >= b.land) {
         // a walking cat startles it only up close, so you can sneak up and pounce; a dashing one from afar
@@ -371,14 +375,14 @@ export class Ambient {
       if (gt < b.land) {
         // fluttering down onto the flower
         const u = (gt - (b.land - 1200)) / 1200;
-        this.drawButterfly(b.id, b.colour, fx + Math.sin(u * 8) * 3 * (1 - u), fy, lerp(40, 3, smooth(u)), Math.floor(gt / 90) % 2, Math.min(1, u * 2));
+        this.drawButterfly(b.id, b.colour, fx + Math.sin(u * 8) * 3 * (1 - u), fy, lerp(40, 3, smooth(u)), Math.floor(gt / 90) % 2, Math.min(1, u * 2), lift);
       } else if (!off || gt < off.t) {
         // resting, wings slowly opening and closing
-        this.drawButterfly(b.id, b.colour, fx, fy, 3, hash2(b.id, Math.floor(gt / 1300), 910) < 0.5 ? 0 : 1, 1);
+        this.drawButterfly(b.id, b.colour, fx, fy, 3, hash2(b.id, Math.floor(gt / 1300), 910) < 0.5 ? 0 : 1, 1, lift);
       } else if (gt < off.t + FLIGHT_MS) {
         const tau = gt - off.t;
         const [x, y, h] = this.flight(b.id, tau, fx, fy, off.dir, false);
-        this.drawButterfly(b.id, b.colour, x, y, h, Math.floor(gt / 70) % 2, clamp01((FLIGHT_MS - tau) / 1500));
+        this.drawButterfly(b.id, b.colour, x, y, h, Math.floor(gt / 70) % 2, clamp01((FLIGHT_MS - tau) / 1500), lift);
       }
     }
 
@@ -392,7 +396,7 @@ export class Ambient {
         const tau = gt - u.t0 - r() * 150;
         if (tau < 0) continue;
         const [x, y, h] = this.flight(seed, tau, u.x + (r() - 0.5) * 14, u.y + (r() - 0.5) * 6, r() < 0.5 ? -1 : 1, true);
-        this.drawButterfly(seed, Math.floor(r() * BUTTERFLY_COLOURS.length), x, y, h, Math.floor(gt / 45 + i) % 2, clamp01((BURST_MS - tau) / 1000));
+        this.drawButterfly(seed, Math.floor(r() * BUTTERFLY_COLOURS.length), x, y, h, Math.floor(gt / 45 + i) % 2, clamp01((BURST_MS - tau) / 1000), elevAt(u.x, u.y));
       }
   }
 

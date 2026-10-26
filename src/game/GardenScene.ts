@@ -2,10 +2,11 @@ import Phaser from 'phaser';
 import { Raster } from '../art/raster.ts';
 import { buildCatSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
 import { buildGround, buildProps, buildWaterMask } from '../art/tiles.ts';
+import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildBee, buildButterfly, buildDust, buildFish, buildFishShadow, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
@@ -28,6 +29,8 @@ const DASH_COOLDOWN_MIN_MS = 2000;
 // a cat that lands in the pond hops straight back out to dry land
 const HOP_MS = 480;
 const HOP_HEIGHT = 16;
+/** Walking (not jumping) climbs small rises like stairs, but not a rock or a cliff. */
+const STEP_UP = 3;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
 const TICK_MS = 50;
 const SEND_MS = 100;
@@ -76,6 +79,8 @@ export class GardenScene extends Phaser.Scene {
   private trees!: Trees;
   private vignette!: Vignette;
   private camAnchor!: Phaser.GameObjects.Zone;
+  /** Smoothed terrain height under the cat, so the view rises with the hills. */
+  private camZ = 0;
   private vz = 0;
   private ambient!: Ambient;
   private dashStart = 0;
@@ -94,12 +99,14 @@ export class GardenScene extends Phaser.Scene {
 
     const grounds = [0, 1].map((p) => this.add.image(0, 0, `ground-${p}`).setOrigin(0).setDepth(-100000));
     grounds[1].setVisible(false);
+    // raised ground: each plateau row lifted by its height, sorted like everything else by ground y
+    canvases.terrain.forEach((t, i) => this.add.image(t.x, t.y, `terrain-${i}`).setOrigin(0).setDepth(t.depth));
     this.time.addEvent({ delay: 700, loop: true, callback: () => grounds.forEach((g) => g.setVisible(!g.visible)) });
 
     const props = buildProps();
     this.trees = new Trees(this, props, canvases.props);
     this.meadow = new Meadow(this);
-    const water = buildWaterMask();
+    const water = canvases.water;
     const reflect = {
       waterMask: toCanvas(water),
       catSheets: canvases.cats,
@@ -185,8 +192,12 @@ export class GardenScene extends Phaser.Scene {
       for (let f = 0; f < FRAME_NAMES.length * 2; f++) t.add(f, 0, f * CAT, 0, CAT, CAT);
       return canvas;
     });
-    tex.addCanvas('ground-0', toCanvas(buildGround(0)));
-    tex.addCanvas('ground-1', toCanvas(buildGround(1)));
+    const grounds = [buildGround(0), buildGround(1)];
+    grounds.forEach((g, i) => tex.addCanvas(`ground-${i}`, toCanvas(g)));
+    const terrain = buildTerrain(grounds[0]).map((t, i) => {
+      tex.addCanvas(`terrain-${i}`, toCanvas(t.raster));
+      return t;
+    });
     const props = buildProps().map((p) => toCanvas(p.raster));
     const flora = addFloraTextures(this, (i) => toCanvas(buildFloraSheet(FLORA[i])));
     for (const [k, make] of Object.entries(ICONS)) tex.addCanvas(k, toCanvas(make()));
@@ -205,7 +216,7 @@ export class GardenScene extends Phaser.Scene {
     const drop = new Raster(1, 1);
     drop.set(0, 0, [232, 244, 255]);
     tex.addCanvas('drop', toCanvas(drop));
-    return { cats, props, flora };
+    return { cats, props, flora, terrain, water: buildWaterMask(grounds[0], grounds[1]) };
   }
 
   private fitZoom(): void {
@@ -255,15 +266,17 @@ export class GardenScene extends Phaser.Scene {
     }
     this.me.render(time);
 
-    this.camAnchor.setPosition(this.me.x, this.me.y);
+    // follow the cat's feet on the terrain (not mid-jump), so the view climbs the hills smoothly
+    this.camZ += (elevAt(this.me.x, this.me.y) - this.camZ) * Math.min(1, dt * 6);
+    this.camAnchor.setPosition(this.me.x, this.me.y - this.camZ);
 
     const cats: CatView[] = [this.me, ...this.remotes.values()];
     this.trees.update(cats);
     // the garden clock is shared by all visitors, so wind and fauna line up
     const gt = this.net.now();
-    this.meadow.update(gt, cats);
-    // only redraw reflections on water that is on screen
+    // only animate plants and redraw reflections that are on screen
     const view = this.cameras.main.worldView;
+    this.meadow.update(gt, cats, view);
     for (const pond of this.ponds) {
       const b = pond.box;
       if (b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y) pond.update(time, cats);
@@ -433,11 +446,17 @@ export class GardenScene extends Phaser.Scene {
   private move(mx: number, my: number): void {
     const me = this.me;
     const airborne = me.act === Act.Jump;
+    const climb = airborne ? 0.5 : STEP_UP;
     const hits = (x: number, y: number) => {
       const [x0, y0, x1, y1] = [x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1];
-      return heightUnder(x0, y0, x1, y1) > me.z + 0.5 || (!airborne && waterUnder(x0, y0, x1, y1));
+      return heightUnder(x0, y0, x1, y1) > me.z + climb || (!airborne && waterUnder(x0, y0, x1, y1));
     };
-    if (mx && !hits(me.x + mx, me.y)) me.x += mx;
-    if (my && !hits(me.x, me.y + my)) me.y += my;
+    // small steps, so walking up stairs can't skip past the step-up limit at low frame rates
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my))));
+    for (let i = 0; i < n; i++) {
+      if (mx && !hits(me.x + mx / n, me.y)) me.x += mx / n;
+      if (my && !hits(me.x, me.y + my / n)) me.y += my / n;
+      if (!airborne) me.z = Math.max(me.z, groundAt(me.x, me.y));
+    }
   }
 }
