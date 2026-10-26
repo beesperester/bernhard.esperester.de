@@ -236,21 +236,26 @@ export function spawnPoints(): [number, number][] {
 
 /**
  * Raised ground is drawn shifted up by its height, so a cat standing just
- * north of a cliff can end up behind it. True if raised terrain covers the
- * cat's body on screen (used to show its outline through the hill).
+ * north of a cliff can end up behind it. Returns the part of the screen (in
+ * world px) where terrain in front covers a body of `w`×`h` px standing at
+ * (x, y) with height z, or null if nothing does.
  */
-export function hiddenByTerrain(x: number, y: number, z: number): boolean {
-  const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
-  const feet = y - z, head = feet - 12;
-  for (let t = ty + 1; t <= ty + MAX_LEVEL + 1; t++) {
-    const e = levelAt(tx, t) + (tileAt(tx, t) === 'S' ? 1 : 0);
-    if (!e) continue;
-    const top = t * TILE - e * LEVEL;
-    const below = levelAt(tx, t + 1);
-    const bottom = (t + 1) * TILE - below * LEVEL;
-    if (top < feet && bottom > head) return true;
-  }
-  return false;
+export function terrainCover(x: number, y: number, z: number, w = 16, h = 16): { x0: number; y0: number; x1: number; y1: number } | null {
+  const ty = Math.floor(y / TILE);
+  const feet = y - z, head = feet - h, left = x - w / 2, right = x + w / 2;
+  let c: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  for (let tx = Math.floor(left / TILE); tx <= Math.floor((right - 0.01) / TILE); tx++)
+    for (let t = ty + 1; t <= ty + MAX_LEVEL + 1; t++) {
+      const e = levelAt(tx, t) + (tileAt(tx, t) === 'S' ? 1 : 0);
+      if (!e) continue;
+      // the tile's lifted top plus the cliff face hanging below it
+      const top = t * TILE - e * LEVEL;
+      const bottom = (t + 1) * TILE - levelAt(tx, t + 1) * LEVEL;
+      if (top >= feet || bottom <= head) continue;
+      const r = { x0: Math.max(left, tx * TILE), y0: Math.max(head, top), x1: Math.min(right, (tx + 1) * TILE), y1: Math.min(feet, bottom) };
+      c = c ? { x0: Math.min(c.x0, r.x0), y0: Math.min(c.y0, r.y0), x1: Math.max(c.x1, r.x1), y1: Math.max(c.y1, r.y1) } : r;
+    }
+  return c;
 }
 
 /**

@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
 import { Act, ACT_MAX, EAT_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
-import { COATS } from '../art/cat.ts';
-import { WORLD_W, WORLD_H, groundAt, hiddenByTerrain } from '../world/map.ts';
+import { CAT, COATS } from '../art/cat.ts';
+
+/** Colour of a cat hidden behind a hill. */
+const SILHOUETTE = 0x5ee86a;
+import { WORLD_W, WORLD_H, groundAt, terrainCover } from '../world/map.ts';
 
 /** Draws one cat (local or remote): shadow, sprite and emote bubble. */
 export class CatView {
@@ -26,7 +29,7 @@ export class CatView {
   private readonly sprite: Phaser.GameObjects.Sprite;
   private readonly bubble: Phaser.GameObjects.Image;
   private readonly held: Phaser.GameObjects.Image;
-  /** A faint copy drawn over everything when the cat is behind a hill. */
+  /** A solid green silhouette, drawn over the hill where it hides the cat. */
   private readonly ghost: Phaser.GameObjects.Sprite;
 
   constructor(scene: Phaser.Scene, x: number, y: number, coat: number) {
@@ -37,7 +40,8 @@ export class CatView {
     this.sprite = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1);
     this.bubble = scene.add.image(x, y, 'bubble-hiss').setOrigin(0.5, 1).setVisible(false);
     this.held = scene.add.image(x, y, 'held-fish', 0).setVisible(false);
-    this.ghost = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setAlpha(0.45).setDepth(98000).setVisible(false);
+    this.ghost = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(98000).setVisible(false)
+      .setTint(SILHOUETTE).setTintMode(Phaser.TintModes.FILL);
   }
 
   setAct(act: Act, now: number): void {
@@ -60,9 +64,14 @@ export class CatView {
     this.sprite.setPosition(x, y - Math.round(z)).setDepth(y);
     this.frame = frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
-    const hidden = hiddenByTerrain(this.x, this.y, z);
-    this.ghost.setVisible(hidden);
-    if (hidden) this.ghost.setPosition(x, y - Math.round(z)).setFrame(this.frame);
+    // only the covered part shows as a silhouette; the rest of the cat is drawn as usual
+    const cover = terrainCover(x, y, Math.round(z), CAT, CAT);
+    this.ghost.setVisible(!!cover);
+    if (cover) {
+      const left = x - CAT / 2, top = y - Math.round(z) - CAT;
+      this.ghost.setPosition(x, y - Math.round(z)).setFrame(this.frame)
+        .setCrop(cover.x0 - left, cover.y0 - top, cover.x1 - cover.x0, cover.y1 - cover.y0);
+    }
 
     // a fish in the mouth while eating: whole, half, bones
     const eating = this.act === Act.Eat && ms < EAT_MS - 400;
