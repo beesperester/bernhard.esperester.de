@@ -2,7 +2,8 @@
 // (Trystero's default strategy); after that all traffic flows browser-to-browser
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
-import { Prey, type CatMsg } from '../game/state.ts';
+import type { Prey, CatMsg } from '../game/state.ts';
+import { sanitizeCat, sanitizeCatch } from './protocol.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 
 // unversioned until the site is released; after that, version it when the protocol changes
@@ -87,15 +88,14 @@ export class Net {
     this.send = (msg, target) => void action.send(msg, target ? { target } : undefined).catch(() => {});
     action.onMessage = (data, { peerId }) => {
       if (this.room !== room) return;
-      const msg = sanitize(data);
+      const msg = sanitizeCat(data);
       if (msg) this.ev.onState(peerId, msg);
     };
     const prey = room.makeAction<[number, number]>('catch');
     this.sendCatch = (kind, id) => void prey.send([kind, id]).catch(() => {});
     prey.onMessage = (data, { peerId }) => {
-      if (this.room !== room || !Array.isArray(data) || data.length !== 2) return;
-      const [kind, id] = data;
-      if (Object.values(Prey).includes(kind as Prey) && Number.isInteger(id)) this.ev.onCatch(peerId, kind as Prey, id);
+      const caught = this.room === room ? sanitizeCatch(data) : null;
+      if (caught) this.ev.onCatch(peerId, ...caught);
     };
     const board = room.makeAction<BoardMsg>('board');
     this.sendBoard = (msg, target) => void board.send(msg, target ? { target } : undefined).catch(() => {});
@@ -152,9 +152,3 @@ export class Net {
   }
 }
 
-/** Peers are untrusted: accept only a well-formed state tuple. */
-function sanitize(d: unknown): CatMsg | null {
-  if (!Array.isArray(d) || d.length !== 7 || !d.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
-  const [x, y, z, facing, act, seq, coat] = d as number[];
-  return [x, y, z, facing | 0, act | 0, seq | 0, coat | 0];
-}
