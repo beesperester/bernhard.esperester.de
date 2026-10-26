@@ -222,3 +222,52 @@ export function buildLantern(): Raster {
   r.paint(rows, LANTERN_W, 0, { ...base, l: hex('#fff0a0') });
   return r;
 }
+
+// bat, 11x5, seen from below as it flits about: frame 0 wings up, 1 level, 2 down
+export const BAT_W = 11;
+export const BAT_H = 5;
+const BAT = [
+  ['w.........w', 'ww..o.o..ww', '.wwwooowww.', '....ooo....', '.....o.....'],
+  ['...........', '....o.o....', 'wwwwooowwww', '.ww.ooo.ww.', '.....o.....'],
+  ['...........', '....o.o....', '...wooow...', '.wwwooowww.', 'ww...o...ww'],
+];
+export function buildBat(): Raster {
+  const r = new Raster(BAT_W * BAT.length, BAT_H);
+  BAT.forEach((rows, f) => r.paint(rows, f * BAT_W, 0, { o: hex('#2e2634'), w: hex('#54465c') }));
+  return r;
+}
+
+/** A bat hanging upside down under a branch, 11x7: frame 0 wrapped in its wings, 1 stretching them. */
+export function buildHangingBat(): Raster {
+  const r = new Raster(BAT_W * 2, 7);
+  const pal = { o: hex('#2e2634'), w: hex('#54465c') };
+  r.paint(['....o.o....', '....www....', '...wwwww...', '...wwoww...', '....wow....', '....ooo....', '....o.o....'], 0, 0, pal);
+  r.paint(['....o.o....', '.w..www..w.', 'ww.wwwww.ww', 'wwwwwowwwww', '.ww.wow.ww.', '....ooo....', '....o.o....'], BAT_W, 0, pal);
+  return r;
+}
+
+// tawny owl, 15x11, facing the viewer:
+//   frame 0 sitting, 1 blinking, 2 looking to the side (flip for the other side), 3 flying wings up, 4 wings down
+//   o outline  b back  l breast  f face  e eye  k beak and talons  w wing
+export const OWL_W = 15;
+export const OWL_H = 11;
+const sit = (rows: string[]) => rows.map((r) => `...${r}...`);
+const OWL = [
+  sit(['.oo...oo.', 'obbooobbo', 'offfbfffo', 'ofefkfefo', 'obfffffbo', 'obblllbbo', 'owblllbwo', 'owblblbwo', 'owbllbbwo', '.owbbbwo.', '..kk.kk..']),
+  sit(['.oo...oo.', 'obbooobbo', 'offfbfffo', 'ofbfkfbfo', 'obfffffbo', 'obblllbbo', 'owblllbwo', 'owblblbwo', 'owbllbbwo', '.owbbbwo.', '..kk.kk..']),
+  sit(['.oo...oo.', 'obboooobo', 'offfbbbbo', 'oefkfebbo', 'offffbbbo', 'obblllbbo', 'owblllbwo', 'owblblbwo', 'owbllbbwo', '.owbbbwo.', '..kk.kk..']),
+  ['ww...........ww', '.ww..oo.oo..ww.', '.wwwobbbbbowww.', '..wwofekefoww..', '...wobllbbow...', '.....oblbo.....', '......obo......', '.......o.......', '...............', '...............', '...............'],
+  ['...............', '.....oo.oo.....', '....obbbbbo....', '.wwwofekefowww.', 'ww.wobllbbow.ww', 'w....oblbo....w', '......obo......', '.......o.......', '...............', '...............', '...............'],
+];
+const OWL_PAL = { o: hex('#2a1a10'), b: hex('#9a6638'), l: hex('#d8a868'), f: hex('#ecd0a0'), e: hex('#181008'), k: hex('#e8b040'), w: hex('#6a4020') };
+export function buildOwl(): Raster {
+  const r = new Raster(OWL_W * OWL.length, OWL_H);
+  OWL.forEach((rows, f) => r.paint(rows, f * OWL_W, 0, OWL_PAL));
+  return r;
+}
+/** Just the owl's eyes, frame for frame, to shine through the dark. */
+export function buildOwlEyes(): Raster {
+  const r = new Raster(OWL_W * OWL.length, OWL_H);
+  OWL.forEach((rows, f) => r.paint(rows.map((row) => row.replace(/[^e]/g, '.')), f * OWL_W, 0, { e: hex('#ffd848') }));
+  return r;
+}

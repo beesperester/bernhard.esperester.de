@@ -5,6 +5,7 @@ import { BUTTERFLY_COLOURS, RIPPLE_FRAMES, Z_SIZES } from '../art/critters.ts';
 import type { Prop } from '../art/tiles.ts';
 import { Birds } from './Birds.ts';
 import { NightLife } from './NightLife.ts';
+import { NightFlyers } from './NightFlyers.ts';
 import { DEPTH } from './Daylight.ts';
 import { lightAt } from '../world/sky.ts';
 import { Act, Facing, Prey, SWIPE_AT_MS } from './state.ts';
@@ -95,6 +96,7 @@ export class Ambient {
   private prey: PreyRef[] = [];
   private readonly birds: Birds;
   private readonly night: NightLife;
+  private readonly flyers: NightFlyers;
 
   private readonly pools: Record<'fish' | 'shadow' | 'bee' | 'fly' | 'flyShadow', Pool>;
 
@@ -118,6 +120,7 @@ export class Ambient {
       splash: (x, y, dir) => this.splash(x, y, dir),
       splashSound: (x, y, v, r) => this.splashSound(x, y, v, r),
     });
+    this.flyers = new NightFlyers(scene, opts.trees);
     this.wary = new Wary(scene);
     this.flowers = opts.flowers;
     this.water = opts.water;
@@ -158,6 +161,7 @@ export class Ambient {
     this.updateButterflies(gt, cats);
     this.birds.update(gt, this.scene.time.now, cats, this.prey);
     this.night.update(gt, this.scene.time.now, cats, this.prey, view);
+    this.flyers.update(gt, cats, view);
     this.updateCats(gt, cats);
     this.updateParticles(dt);
     for (const p of Object.values(this.pools)) p.end();
