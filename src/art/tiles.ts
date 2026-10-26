@@ -296,50 +296,86 @@ function fountain(r: Raster, ox: number, oy: number): void {
   r.set(ox + 13, oy + 2, C.w1); r.set(ox + 18, oy + 2, C.w1);
 }
 
+/** Tiles whose look changes with the water's ripple phase. */
+const RIPPLING = 'wlB';
+
+/** Draw the ground of tile (tx, ty) with its top-left at (ox, oy) in `r`. */
+function drawTile(r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number): void {
+  switch (tileAt(tx, ty)) {
+    case ',': tallGrass(r, ox, oy, tx, ty); break;
+    case 'f': flowers(r, ox, oy, tx, ty); break;
+    case 'p': path(r, ox, oy, tx, ty); break;
+    case 'w': water(r, ox, oy, tx, ty, phase); break;
+    case 'l':
+      water(r, ox, oy, tx, ty, phase);
+      r.paint(LILY, ox + 1, oy + 2, { o: C.h3, l: C.h1, d: C.h0, p: FLOWERS[3] });
+      break;
+    case '#': hedge(r, ox, oy, tx, ty); break;
+    case 'm': hedge(r, ox, oy, tx, ty, true); break;
+    case 'B': bridge(r, ox, oy, tx, ty, phase); break;
+    case 'F': fence(r, ox, oy, tx, ty); break;
+    case 'g': gate(r, ox, oy, tx, ty); break;
+    case 'b':
+      grass(r, ox, oy, tx, ty);
+      r.paint(BUSH, ox, oy, { o: C.h3, l: C.h1, d: C.h0, 2: C.h2 });
+      break;
+    case 'r':
+      grass(r, ox, oy, tx, ty);
+      r.paint(ROCK, ox, oy, { o: C.r3, l: C.r0, m: C.r1, d: C.r2, g: C.g2 });
+      break;
+    case 'o':
+      // the fountain spans two tiles: draw it once, from its left half
+      if (tileAt(tx - 1, ty) !== 'o') {
+        grass(r, ox, oy, tx, ty);
+        grass(r, ox + TILE, oy, tx + 1, ty);
+        fountain(r, ox, oy);
+      }
+      break;
+    default: grass(r, ox, oy, tx, ty);
+  }
+}
+
 /** The static ground of the garden. `phase` alternates the water ripples (still while frozen). */
 export function buildGround(phase: number, season: Season = SEASON): Raster {
   if (season.frozen) phase = 0;
   const r = new Raster(MAP_W * TILE, MAP_H * TILE);
-  for (let ty = 0; ty < MAP_H; ty++)
-    for (let tx = 0; tx < MAP_W; tx++) {
-      const ox = tx * TILE, oy = ty * TILE;
-      const ch = tileAt(tx, ty);
-      switch (ch) {
-        case ',': tallGrass(r, ox, oy, tx, ty); break;
-        case 'f': flowers(r, ox, oy, tx, ty); break;
-        case 'p': path(r, ox, oy, tx, ty); break;
-        case 'w': water(r, ox, oy, tx, ty, phase); break;
-        case 'l':
-          water(r, ox, oy, tx, ty, phase);
-          r.paint(LILY, ox + 1, oy + 2, { o: C.h3, l: C.h1, d: C.h0, p: FLOWERS[3] });
-          break;
-        case '#': hedge(r, ox, oy, tx, ty); break;
-        case 'm': hedge(r, ox, oy, tx, ty, true); break;
-        case 'B': bridge(r, ox, oy, tx, ty, phase); break;
-        case 'F': fence(r, ox, oy, tx, ty); break;
-        case 'g': gate(r, ox, oy, tx, ty); break;
-        case 'b':
-          grass(r, ox, oy, tx, ty);
-          r.paint(BUSH, ox, oy, { o: C.h3, l: C.h1, d: C.h0, 2: C.h2 });
-          break;
-        case 'r':
-          grass(r, ox, oy, tx, ty);
-          r.paint(ROCK, ox, oy, { o: C.r3, l: C.r0, m: C.r1, d: C.r2, g: C.g2 });
-          break;
-        case 'o':
-          if (tileAt(tx - 1, ty) !== 'o') {
-            grass(r, ox, oy, tx, ty);
-            grass(r, ox + TILE, oy, tx + 1, ty);
-            fountain(r, ox, oy);
-          }
-          break;
-        default: grass(r, ox, oy, tx, ty);
-      }
-    }
+  for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) drawTile(r, tx * TILE, ty * TILE, tx, ty, phase);
   shadeUnderCliffs(r);
   applySeason(r, 0, 0, season);
   scatterLitter(r, season);
   return r;
+}
+
+/**
+ * Both ripple phases of the ground. The second differs only on the water, so
+ * rather than drawing the whole park twice (the slowest part of starting up)
+ * it is a copy of the first with just the water tiles redrawn.
+ */
+export function buildGrounds(season: Season = SEASON): [Raster, Raster] {
+  const still = buildGround(0, season);
+  // frozen ponds don't ripple
+  if (season.frozen) return [still, still];
+  const rippled = new Raster(still.w, still.h);
+  rippled.data.set(still.data);
+  // each water tile is drawn together with its left neighbour, whose fallen
+  // leaves can reach a pixel over the edge, then finished exactly like the whole map
+  const pair = new Raster(2 * TILE, TILE);
+  for (let ty = 0; ty < MAP_H; ty++)
+    for (let tx = 0; tx < MAP_W; tx++) {
+      if (!RIPPLING.includes(tileAt(tx, ty))) continue;
+      pair.data.fill(0);
+      drawTile(pair, 0, 0, tx - 1, ty, 1);
+      drawTile(pair, TILE, 0, tx, ty, 1);
+      const ox = (tx - 1) * TILE, oy = ty * TILE;
+      shadeUnderCliffs(pair, ox, oy);
+      applySeason(pair, ox, oy, season);
+      scatterLitter(pair, season, ox, oy);
+      for (let y = 0; y < TILE; y++) {
+        const from = (y * pair.w + TILE) * 4, to = ((ty * TILE + y) * rippled.w + tx * TILE) * 4;
+        rippled.data.set(pair.data.subarray(from, from + TILE * 4), to);
+      }
+    }
+  return [still, rippled];
 }
 
 // ---------------------------------------------------------------- seasons
@@ -403,27 +439,29 @@ export function applySeason(r: Raster, ox: number, oy: number, s: Season = SEASO
 const LEAF_COLOURS: RGB[] = ['#e8b030', '#e07828', '#c84828', '#a85a28', '#f0d058'].map(hex);
 
 /** Fallen leaves on the grass, thickest under the trees. */
-function scatterLitter(r: Raster, s: Season): void {
+function scatterLitter(r: Raster, s: Season, ox = 0, oy = 0): void {
   if (s.litter <= 0 || s.snow >= 0.6) return;
   const amount = s.litter * (1 - s.snow);
   const grassy = new Set([...GREENS].map((c) => key(drabFor(c, s.drab))));
   const trees = treeTiles().map(([tx, ty]) => trunkBase(tx, ty));
   for (let y = 0; y < r.h; y += 1)
     for (let x = 0; x < r.w; x += 1) {
-      const h = hash2(x, y, 1206);
+      // (hashed by world position, so a piece drawn on its own gets the same leaves)
+      const wx = x + ox, wy = y + oy;
+      const h = hash2(wx, wy, 1206);
       if (h > 0.05) continue;
       let p = amount * 0.06;
       for (const [bx, by] of trees) {
-        const dx = (x - bx) / 34, dy = (y - by) / 16;
+        const dx = (wx - bx) / 34, dy = (wy - by) / 16;
         const d = dx * dx + dy * dy;
         if (d < 1) p += amount * 0.9 * (1 - d);
       }
       if (h > p * 0.05) continue;
       const i = (y * r.w + x) * 4;
       if (!grassy.has((r.data[i] << 16) | (r.data[i + 1] << 8) | r.data[i + 2])) continue;
-      const c = LEAF_COLOURS[Math.floor(hash2(x, y, 1207) * LEAF_COLOURS.length)];
+      const c = LEAF_COLOURS[Math.floor(hash2(wx, wy, 1207) * LEAF_COLOURS.length)];
       r.set(x, y, c);
-      if (hash2(x, y, 1208) < 0.6) r.set(x + 1, y, c);
+      if (hash2(wx, wy, 1208) < 0.6) r.set(x + 1, y, c);
     }
 }
 
@@ -463,17 +501,21 @@ export function buildUprightMask(): Raster {
 }
 
 /** A soft dithered shadow on the ground at the foot of every cliff face. */
-function shadeUnderCliffs(r: Raster): void {
-  for (let ty = 1; ty < MAP_H; ty++)
-    for (let tx = 0; tx < MAP_W; tx++) {
+/** Darken the ground at the foot of each cliff. `r` covers the world from (ox, oy). */
+function shadeUnderCliffs(r: Raster, ox = 0, oy = 0): void {
+  const tx0 = Math.floor(ox / TILE), ty0 = Math.floor(oy / TILE);
+  const tx1 = Math.ceil((ox + r.w) / TILE), ty1 = Math.ceil((oy + r.h) / TILE);
+  for (let ty = Math.max(1, ty0); ty < Math.min(MAP_H, ty1); ty++)
+    for (let tx = tx0; tx < Math.min(MAP_W, tx1); tx++) {
       const drop = levelAt(tx, ty - 1) - levelAt(tx, ty);
       if (drop <= 0 || tileAt(tx, ty) === 'S') continue;
       // the face above ends exactly at the top edge of this tile as it is drawn
       const y0 = ty * TILE;
       for (let y = 0; y < 5; y++)
         for (let x = 0; x < TILE; x++) {
-          const px = tx * TILE + x, py = y0 + y;
-          if (py >= r.h || bayer(px, py) > 1 - y / 5) continue;
+          const wx = tx * TILE + x, wy = y0 + y;
+          const px = wx - ox, py = wy - oy;
+          if (px < 0 || py < 0 || px >= r.w || py >= r.h || bayer(wx, wy) > 1 - y / 5) continue;
           const k = (py * r.w + px) * 4;
           r.data[k] *= 0.75; r.data[k + 1] *= 0.8; r.data[k + 2] *= 0.85;
         }
@@ -673,10 +715,8 @@ export function buildProps(season: Season = SEASON): Prop[] {
 /** Opaque where the pond shows open water (not shore, not lily pads). */
 export function buildWaterMask(g0: Raster, g1: Raster): Raster {
   const m = new Raster(g0.w, g0.h);
-  const isWater = (r: Raster, i: number) => {
-    const c = [r.data[i], r.data[i + 1], r.data[i + 2]].join();
-    return c === C.w0.join() || c === C.w1.join();
-  };
+  const open = new Set([key(C.w0), key(C.w1)]);
+  const isWater = (r: Raster, i: number) => open.has((r.data[i] << 16) | (r.data[i + 1] << 8) | r.data[i + 2]);
   for (let y = 0; y < m.h; y++)
     for (let x = 0; x < m.w; x++) {
       const i = (y * m.w + x) * 4;

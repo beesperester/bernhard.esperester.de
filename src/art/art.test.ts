@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as critters from './critters.ts';
 import * as furniture from './furniture.ts';
 import { COATS, buildCatSheet, buildEyeSheet } from './cat.ts';
-import { buildGround, buildProps, buildWaterMask } from './tiles.ts';
+import { buildGround, buildGrounds, buildProps, buildWaterMask } from './tiles.ts';
 import { buildTerrain } from './terrain.ts';
 import { placeFlora } from './flora.ts';
 import { seasonAt } from '../world/season.ts';
@@ -57,6 +57,12 @@ describe('the garden through the seasons', () => {
     expect(opaque(buildWaterMask(frozen, frozen))).toBe(0);
     const summer = seasonAt(dates.summer);
     expect(opaque(buildWaterMask(buildGround(0, summer), buildGround(1, summer)))).toBeGreaterThan(1000);
+  });
+
+  it.each(['summer', 'autumn'] as const)('copies the still ground and redraws only the water for the ripple in %s', (when) => {
+    const season = seasonAt(dates[when]);
+    const [, rippled] = buildGrounds(season);
+    expect(Buffer.from(rippled.data).equals(Buffer.from(buildGround(1, season).data))).toBe(true);
   });
 
   it('raises the plateaus and scatters the flora', () => {
