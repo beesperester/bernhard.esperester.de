@@ -2,9 +2,21 @@ import Phaser from 'phaser';
 import { Act, ACT_MAX, EAT_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { CAT, COATS } from '../art/cat.ts';
 import { WORLD_W, WORLD_H, groundAt, terrainCover } from '../world/map.ts';
+import { DEPTH } from './Daylight.ts';
 
 /** Colour of a cat hidden behind a hill. */
 const SILHOUETTE = 0x5ee86a;
+
+/** Light shared by all cats, set by the scene every frame. */
+export const catLight = {
+  /** Sunlit rim strength (0 = none) and colour. */
+  rim: 0,
+  rimColour: 0xffffff,
+  /** 0 by day, 1 at night: how much eyes glow. */
+  night: 0,
+  /** True if something stands in front of world point (x, y) for a cat whose feet are at feetY. */
+  occluded: (_x: number, _y: number, _feetY: number): boolean => false,
+};
 
 /** Draws one cat (local or remote): shadow, sprite and emote bubble. */
 export class CatView {
@@ -21,11 +33,13 @@ export class CatView {
   z = 0;
   /** Last rendered sheet frame, for reflections. */
   frame = 0;
-  /** Colour of the bird this cat caught last, to show in its mouth. */
-  heldBird = 0;
   /** Smoothed ground speed in px/s (dashing cats kick up dust). */
   speed = 0;
   private last = { x: 0, y: 0, t: -1 };
+  /** Our own cat: shown through trees and hills. Others hide behind them like anything else. */
+  readonly local: boolean;
+  /** What is in its mouth while eating (fish, bird or frog). */
+  heldKey = 'held-fish';
 
   readonly shadow: Phaser.GameObjects.Image;
   private readonly sprite: Phaser.GameObjects.Sprite;
@@ -33,10 +47,13 @@ export class CatView {
   private readonly held: Phaser.GameObjects.Image;
   /** A solid green silhouette, drawn over the hill where it hides the cat. */
   private readonly ghost: Phaser.GameObjects.Sprite;
+  private readonly rim: Phaser.GameObjects.Sprite;
+  private readonly eyes: Phaser.GameObjects.Sprite;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, coat: number) {
+  constructor(scene: Phaser.Scene, x: number, y: number, coat: number, local = false) {
     this.x = x;
     this.y = y;
+    this.local = local;
     this.coat = ((coat % COATS.length) + COATS.length) % COATS.length;
     this.shadow = scene.add.image(x, y, 'shadow').setOrigin(0.5, 0.5).setAlpha(0.22);
     this.sprite = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1);
@@ -44,6 +61,9 @@ export class CatView {
     this.held = scene.add.image(x, y, 'held-fish', 0).setVisible(false);
     this.ghost = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(98000).setVisible(false)
       .setTint(SILHOUETTE).setTintMode(Phaser.TintModes.FILL);
+    this.rim = scene.add.sprite(x, y, 'cat-rim', 0).setOrigin(0.5, 1).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+    this.eyes = scene.add.sprite(x, y, `cat-eyes-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(DEPTH.glow)
+      .setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
   }
 
   setAct(act: Act, now: number): void {
@@ -66,8 +86,15 @@ export class CatView {
     this.sprite.setPosition(x, y - Math.round(z)).setDepth(y);
     this.frame = frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
-    // only the covered part shows as a silhouette; the rest of the cat is drawn as usual
-    const cover = terrainCover(x, y, Math.round(z), CAT, CAT);
+    const top = y - Math.round(z);
+    this.rim.setVisible(catLight.rim > 0);
+    if (catLight.rim > 0) this.rim.setPosition(x, top).setDepth(y + 0.002).setFrame(this.frame).setAlpha(catLight.rim).setTint(catLight.rimColour);
+    // eyes shine in the dark, unless something stands in front of this cat
+    const glow = catLight.night > 0.05 && (this.local || !catLight.occluded(x, top - 9, y));
+    this.eyes.setVisible(glow);
+    if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * (this.act === Act.Sleep ? 0 : 0.9));
+    // our own cat, where a hill hides it: the covered part shows as a silhouette
+    const cover = this.local ? terrainCover(x, y, Math.round(z), CAT, CAT) : null;
     this.ghost.setVisible(!!cover);
     if (cover) {
       const left = x - CAT / 2, top = y - Math.round(z) - CAT;
@@ -82,7 +109,7 @@ export class CatView {
       const right = this.facing === Facing.Right;
       // the art faces left with the head at x=0; the head goes in the mouth, tail sticking out
       this.held
-        .setTexture(this.act === Act.Feast ? `held-bird-${this.heldBird}` : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2)
+        .setTexture(this.act === Act.Feast ? this.heldKey : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2)
         .setFlipX(!right)
         .setOrigin(right ? 0 : 1, 0.5)
         .setPosition(x + (right ? 5 : -5), y - 6 - Math.round(z))
@@ -105,6 +132,8 @@ export class CatView {
     this.bubble.destroy();
     this.held.destroy();
     this.ghost.destroy();
+    this.rim.destroy();
+    this.eyes.destroy();
   }
 }
 

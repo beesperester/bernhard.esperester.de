@@ -45,6 +45,11 @@ export class Clouds {
     }
   }
 
+  /** Cloud shadows need sunshine: they fade away at dusk. */
+  setDaylight(day: number): void {
+    for (const c of this.clouds) c.img.setAlpha(day);
+  }
+
   /** How shaded a world point is, 0 (full sun) to 1 (deep in a cloud's shadow). */
   coverAt(px: number, py: number): number {
     let cover = 0;

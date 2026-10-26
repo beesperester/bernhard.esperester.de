@@ -339,6 +339,41 @@ export function buildGround(phase: number): Raster {
   return r;
 }
 
+/**
+ * Which pixels of the ground art belong to things standing up from it (bushes,
+ * rocks, hedges, fences, the gate, the fountain): drawn with and without the
+ * object, the pixels that differ. Used to put sunlit rims on them.
+ */
+export function buildUprightMask(): Raster {
+  const m = new Raster(MAP_W * TILE, MAP_H * TILE);
+  for (let ty = 0; ty < MAP_H; ty++)
+    for (let tx = 0; tx < MAP_W; tx++) {
+      const ch = tileAt(tx, ty);
+      if (!'brF#mgo'.includes(ch) || (ch === 'o' && tileAt(tx - 1, ty) === 'o')) continue;
+      const w = ch === 'o' ? TILE * 2 : TILE;
+      const bare = new Raster(w, TILE), full = new Raster(w, TILE);
+      for (const r of [bare, full]) {
+        if (ch === 'g') path(r, 0, 0, tx, ty);
+        else { grass(r, 0, 0, tx, ty); if (ch === 'o') grass(r, TILE, 0, tx + 1, ty); }
+      }
+      switch (ch) {
+        case 'b': full.paint(BUSH, 0, 0, { o: C.h3, l: C.h1, d: C.h0, 2: C.h2 }); break;
+        case 'r': full.paint(ROCK, 0, 0, { o: C.r3, l: C.r0, m: C.r1, d: C.r2 }); break;
+        case '#': hedge(full, 0, 0, tx, ty); break;
+        case 'm': hedge(full, 0, 0, tx, ty, true); break;
+        case 'F': fence(full, 0, 0, tx, ty); break;
+        case 'g': gate(full, 0, 0, tx, ty); break;
+        case 'o': fountain(full, 0, 0); break;
+      }
+      for (let i = 0; i < full.data.length; i += 4)
+        if (full.data[i] !== bare.data[i] || full.data[i + 1] !== bare.data[i + 1] || full.data[i + 2] !== bare.data[i + 2]) {
+          const px = (i / 4) % w, py = Math.floor(i / 4 / w);
+          m.set(tx * TILE + px, ty * TILE + py, [255, 255, 255]);
+        }
+    }
+  return m;
+}
+
 /** A soft dithered shadow on the ground at the foot of every cliff face. */
 function shadeUnderCliffs(r: Raster): void {
   for (let ty = 1; ty < MAP_H; ty++)

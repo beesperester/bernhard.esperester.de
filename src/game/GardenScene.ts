@@ -1,20 +1,25 @@
 import Phaser from 'phaser';
 import { Raster } from '../art/raster.ts';
-import { buildCatSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
-import { buildGround, buildProps, buildWaterMask, TREE_W } from '../art/tiles.ts';
+import { buildCatSheet, buildEyeSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
+import { buildGround, buildProps, buildUprightMask, buildWaterMask, TREE_W } from '../art/tiles.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
-import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
+import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
-import { CatView, RemoteCat } from './CatView.ts';
+import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
 import { Sunlight } from './Sunlight.ts';
 import { Clouds } from './Clouds.ts';
 import { PondReflection } from './PondReflection.ts';
 import { Trees } from './Trees.ts';
 import { Vignette } from './Vignette.ts';
+import { Daylight } from './Daylight.ts';
+import { RimLight } from './RimLight.ts';
+import { Lanterns } from './Lanterns.ts';
+import { NightWater } from './NightWater.ts';
+import { berlinClock } from '../world/sky.ts';
 import { Ambient } from './Ambient.ts';
 import { Net } from '../net/net.ts';
 import { sound } from '../audio/sound.ts';
@@ -89,6 +94,11 @@ export class GardenScene extends Phaser.Scene {
   private readonly catSounds = new CatSounds();
   private trees!: Trees;
   private vignette!: Vignette;
+  private daylight!: Daylight;
+  private rims!: RimLight;
+  private lanterns!: Lanterns;
+  private nightWater!: NightWater;
+  private nextClock = 0;
   private camAnchor!: Phaser.GameObjects.Zone;
   /** Smoothed terrain height under the cat, so the view rises with the hills. */
   private camZ = 0;
@@ -119,6 +129,8 @@ export class GardenScene extends Phaser.Scene {
     // birds sing from a tree somewhere near you, preferably one with a bird in it
     sound.setSource('birds', () => {
       const { x, y } = sound.listener;
+      // birds sleep at night
+      if (this.daylight && this.daylight.light.night > 0.5) return null;
       const bird = this.ambient?.perchedBird(x, y, 220);
       if (bird) return bird;
       const near = props.filter((p) => Math.hypot(p.x + TREE_W / 2 - x, p.depthY - 40 - y) < 220);
@@ -140,6 +152,15 @@ export class GardenScene extends Phaser.Scene {
     // soft glow: bright areas (path, blossom, sunlight, white fur) bleed light into their surroundings
     Phaser.Actions.AddEffectBloom(this.cameras.main, { threshold: 0.55, blurRadius: 3, blurSteps: 4, blurQuality: 0, blendAmount: 0.35 });
     this.vignette = new Vignette(this);
+    // time of day: tint, sunlit rims, lanterns, and stars and moon in the water
+    this.daylight = new Daylight(this, Date.now());
+    this.rims = new RimLight(this, {
+      trees: reflect.props, upright: buildUprightMask(), terrain: canvases.terrain,
+      catSheet: canvases.cats[0], catFrames: FRAME_NAMES.length * 2, catSize: CAT,
+    });
+    this.lanterns = new Lanterns(this);
+    this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask);
+    catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)
       for (let tx = 0; tx < MAP_W; tx++) if (tileAt(tx, ty) === 'f') flowers.push([tx * TILE + 8, ty * TILE + 8]);
@@ -148,7 +169,7 @@ export class GardenScene extends Phaser.Scene {
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
     const now = this.time.now;
-    this.me = new CatView(this, sx, sy, loadCoat());
+    this.me = new CatView(this, sx, sy, loadCoat(), true);
     this.lastDry = { x: sx, y: sy };
     this.lastInput = now;
 
@@ -229,6 +250,15 @@ export class GardenScene extends Phaser.Scene {
     BUTTERFLY_COLOURS.forEach((_, i) => sheet(`butterfly-${i}`, buildButterfly(i), 7, 5));
     sheet('bee', buildBee(), 4, 3);
     tex.addCanvas('alert', toCanvas(buildAlert()));
+    COATS.forEach((_, c) => sheet(`cat-eyes-${c}`, buildEyeSheet(c), CAT, CAT));
+    tex.addCanvas('firefly', toCanvas(buildFirefly()));
+    tex.addCanvas('glow-firefly', toCanvas(buildGlow(9, 9, [200, 255, 120])));
+    tex.addCanvas('glow-puff', toCanvas(buildGlow(15, 15, [220, 255, 150])));
+    tex.addCanvas('glow-lamp', toCanvas(buildGlow(11, 11, [255, 220, 130])));
+    tex.addCanvas('glow-lantern', toCanvas(buildGlow(76, 40, [255, 190, 100], 6)));
+    sheet('frog', buildFrog(), FROG_W, FROG_H);
+    sheet('held-frog', buildHeldFrog(), HELD_W, 5);
+    sheet('lantern', buildLantern(), LANTERN_W, LANTERN_H);
     BIRD_COLOURS.forEach((_, i) => {
       sheet(`bird-${i}`, buildBird(i), BIRD_W, BIRD_H);
       sheet(`held-bird-${i}`, buildHeldBird(i), HELD_W, 5);
@@ -252,6 +282,7 @@ export class GardenScene extends Phaser.Scene {
     this.cameras.main.setZoom(zoom);
     this.sun?.resize();
     this.vignette?.resize();
+    this.daylight?.resize();
   }
 
   private state(): CatMsg {
@@ -274,7 +305,7 @@ export class GardenScene extends Phaser.Scene {
   private updateStatus(): void {
     const n = this.remotes.size;
     const others = n === 0 ? 'just you so far' : n === 1 ? '1 other cat' : `${n} other cats`;
-    this.ui.setStatus(`garden ${this.garden} · ${others}`);
+    this.ui.setStatus(`garden ${this.garden} · ${others} · ${berlinClock(this.net.now())}`);
     setCatCount(n + 1);
   }
 
@@ -301,7 +332,8 @@ export class GardenScene extends Phaser.Scene {
     sound.setListener({ x: this.me.x, y: this.me.y });
 
     const cats: CatView[] = [this.me, ...this.remotes.values()];
-    this.trees.update(cats);
+    // only your own cat shows through the trees; the others are simply behind them
+    this.trees.update([this.me]);
     this.catSounds.update(cats, time);
     // the garden clock is shared by all visitors, so wind and fauna line up
     const gt = this.net.now();
@@ -312,9 +344,23 @@ export class GardenScene extends Phaser.Scene {
       const b = pond.box;
       if (b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y) pond.update(time, cats);
     }
-    this.ambient.update(gt, dt, cats);
+    this.daylight.update(gt);
+    const light = this.daylight.light;
+    this.rims.update(light);
+    catLight.rim = this.rims.strength;
+    catLight.rimColour = this.rims.colour;
+    catLight.night = light.night;
+    this.ambient.update(gt, dt, cats, view);
     this.clouds.update(gt);
-    this.sun.update(time, dt, this.clouds.coverAt(view.centerX, view.centerY));
+    this.clouds.setDaylight(light.day);
+    this.sun.update(time, dt, this.clouds.coverAt(view.centerX, view.centerY), light.day);
+    this.lanterns.update(light, time);
+    this.nightWater.update(light, time, view);
+    // keep the clock in the status line current
+    if (time >= this.nextClock) {
+      this.nextClock = time + 10000;
+      this.updateStatus();
+    }
     if (this.youMarker.active) {
       const bob = Math.floor(time / 300) % 2;
       this.youMarker.setPosition(Math.round(this.me.x), Math.round(this.me.y - this.me.z) - 18 - bob).setVisible(Math.floor(time / 300) % 4 !== 3);
@@ -421,7 +467,8 @@ export class GardenScene extends Phaser.Scene {
       }
       if (elapsed >= CATCH_MS) {
         if (c.got === Prey.Fish) begin(Act.Eat);
-        else if (c.got === Prey.Bird) begin(Act.Feast);
+        else if (c.got === Prey.Bird || c.got === Prey.Frog) begin(Act.Feast);
+        else if (c.got === Prey.Firefly) begin(Act.Munch);
         else if (c.got === Prey.Fly) begin(Act.Munch);
         else if (c.got === Prey.Bee) begin(Act.Hiss); // ouch, it stung
         else me.setAct(Act.Idle, now);

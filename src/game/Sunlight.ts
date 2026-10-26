@@ -57,8 +57,8 @@ export class Sunlight {
     }
   }
 
-  /** `shade` is the cloud cover over the view, 0 (clear) to 1 (overcast). */
-  update(time: number, dt: number, shade = 0): void {
+  /** `shade` is the cloud cover over the view, 0 (clear) to 1 (overcast); `day` 0 at night to 1. */
+  update(time: number, dt: number, shade = 0, day = 1): void {
     const cam = this.scene.cameras.main;
     const t = time / 1000;
     this.sun += (1 - 0.85 * shade - this.sun) * Math.min(1, dt * 1.2);
@@ -67,7 +67,7 @@ export class Sunlight {
     // ...while cross-fading between two layouts. (They must not move: shifting a
     // dithered layer by a pixel visibly pops the whole screen.)
     const f = 0.5 + 0.5 * Math.sin(t * 0.45);
-    const glow = this.sun * breathe;
+    const glow = this.sun * breathe * day;
     this.layers[0]?.setAlpha(glow * (0.35 + 0.65 * f));
     this.layers[1]?.setAlpha(glow * (0.35 + 0.65 * (1 - f)));
 
@@ -83,7 +83,7 @@ export class Sunlight {
       m.img
         // scroll-factor-0 objects are still zoomed around the camera centre
         .setPosition(cam.width / 2 + px - w / 2, cam.height / 2 + py - h / 2)
-        .setAlpha(Math.min(1, light * 1.4) * twinkle * this.sun);
+        .setAlpha(Math.min(1, light * 1.4) * twinkle * this.sun * day);
     }
   }
 }

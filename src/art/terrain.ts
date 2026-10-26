@@ -15,6 +15,10 @@ export interface TerrainPiece {
   y: number;
   /** Depth for sorting against cats and props (ground-plane y of the row). */
   depth: number;
+  /** Terrain level of its top (stairs count as the level they lead up to). */
+  level: number;
+  /** Stairs rather than a plateau row. */
+  stairs: boolean;
 }
 
 const isStair = (tx: number, ty: number) => tileAt(tx, ty) === 'S';
@@ -105,14 +109,14 @@ export function buildTerrain(ground: Raster): TerrainPiece[] {
           face(r, ox, TILE, fh, tx, ty, openL, openR);
         }
       }
-      out.push({ raster: r, x: x0 * TILE, y: ty * TILE - e * LEVEL, depth: ty * TILE });
+      out.push({ raster: r, x: x0 * TILE, y: ty * TILE - e * LEVEL, depth: ty * TILE, level: e, stairs: false });
     }
     for (let tx = 0; tx < MAP_W; tx++)
       if (isStair(tx, ty)) {
         const L = levelAt(tx, ty);
         const r = new Raster(TILE, TILE * 2);
         stairs(r, tx, ty);
-        out.push({ raster: r, x: tx * TILE, y: (ty - 1 - L) * TILE, depth: ty * TILE - 0.5 });
+        out.push({ raster: r, x: tx * TILE, y: (ty - 1 - L) * TILE, depth: ty * TILE - 0.5, level: L + 1, stairs: true });
       }
   }
   return out;

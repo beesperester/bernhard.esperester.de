@@ -4,6 +4,9 @@ import { Pool, seedRng, hash2, lerp, smooth, clamp01 } from './fauna.ts';
 import { BUTTERFLY_COLOURS, RIPPLE_FRAMES, Z_SIZES } from '../art/critters.ts';
 import type { Prop } from '../art/tiles.ts';
 import { Birds } from './Birds.ts';
+import { NightLife } from './NightLife.ts';
+import { DEPTH } from './Daylight.ts';
+import { lightAt } from '../world/sky.ts';
 import { Act, Facing, Prey } from './state.ts';
 import type { CatView } from './CatView.ts';
 import { tileAt, wetAt, elevAt, TILE } from '../world/map.ts';
@@ -40,7 +43,7 @@ interface Takeoff { t: number; dir: number }
 interface Burst { t0: number; x: number; y: number; seed: number; n: number }
 
 interface Particle {
-  img: Img; kind: 'ripple' | 'drop' | 'z' | 'dust' | 'leap' | 'feather';
+  img: Img; kind: 'ripple' | 'drop' | 'z' | 'dust' | 'leap' | 'feather' | 'puff';
   x: number; y: number; z: number; vx: number; vy: number; vz: number;
   t: number; life: number; delay: number; cat?: CatView;
 }
@@ -73,6 +76,7 @@ export class Ambient {
   private lastGt = -1;
   private prey: PreyRef[] = [];
   private readonly birds: Birds;
+  private readonly night: NightLife;
 
   private readonly pools: Record<'fish' | 'shadow' | 'bee' | 'fly' | 'flyShadow', Pool>;
 
@@ -82,6 +86,11 @@ export class Ambient {
   ) {
     this.scene = scene;
     this.birds = new Birds(scene, opts.trees, (id) => this.caught.has(preyKey(Prey.Bird, id)));
+    this.night = new NightLife(scene, (kind, id) => this.caught.has(preyKey(kind, id)), {
+      ripple: (x, y, d) => this.ripple(x, y, d),
+      splash: (x, y, dir) => this.splash(x, y, dir),
+      splashSound: (x, y, v, r) => this.splashSound(x, y, v, r),
+    });
     this.flowers = opts.flowers;
     this.water = opts.water;
     this.neighbours = this.flowers.map(([x, y], i) =>
@@ -109,7 +118,7 @@ export class Ambient {
 
   // ---------------------------------------------------------------- public
 
-  update(gt: number, dt: number, cats: CatView[]): void {
+  update(gt: number, dt: number, cats: CatView[], view: Phaser.Geom.Rectangle): void {
     if (this.lastGt < 0 || Math.abs(gt - this.lastGt) > 5000) this.lastGt = gt; // first frame or clock jump
     for (const p of Object.values(this.pools)) p.begin();
     this.prey = [];
@@ -118,6 +127,7 @@ export class Ambient {
     this.updateBees(gt);
     this.updateButterflies(gt, cats);
     this.birds.update(gt, this.scene.time.now, cats, this.prey);
+    this.night.update(gt, this.scene.time.now, cats, this.prey, view);
     this.updateCats(gt, cats);
     this.updateParticles(dt);
     for (const p of Object.values(this.pools)) p.end();
@@ -129,7 +139,7 @@ export class Ambient {
     return this.birds.perchedNear(x, y, range);
   }
 
-  /** The nearest catchable fish, butterfly, bee or bird within a tile of this cat, if any. */
+  /** The nearest catchable fish, butterfly, bee, bird, firefly or frog within a tile of this cat, if any. */
   preyNear(cat: CatView): PreyRef | null {
     let best: PreyRef | null = null, bd = Infinity;
     for (const p of this.prey) {
@@ -145,7 +155,8 @@ export class Ambient {
 
   /**
    * A cat got it: a fish leaps into its mouth, a butterfly flutters into it,
-   * a bird is snatched in a puff of feathers, and a bee stings and zooms off.
+   * a bird is snatched in a puff of feathers, a firefly goes out in a puff of
+   * light, a frog is grabbed off the shore, and a bee stings and zooms off.
    */
   catchPrey(kind: Prey, id: number, cat: CatView): void {
     const key = preyKey(kind, id);
@@ -165,7 +176,7 @@ export class Ambient {
       this.ripple(p.x, p.y, 0.25);
     }
     if (kind === Prey.Bird) {
-      cat.heldBird = p.colour;
+      cat.heldKey = `held-bird-${p.colour}`;
       for (let i = 0; i < 6; i++)
         this.particles.push({
           img: this.scene.add.image(p.x, p.y, `feather-${p.colour}`).setDepth(100000), kind: 'feather',
@@ -173,7 +184,14 @@ export class Ambient {
           t: 0, life: 1.4 + Math.random() * 0.8, delay: 0,
         });
     }
+    if (kind === Prey.Firefly) {
+      const img = this.scene.add.image(p.x, p.y - p.h, 'glow-puff').setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD);
+      this.particles.push({ img, kind: 'puff', x: p.x, y: p.y - p.h, z: 0, vx: 0, vy: 0, vz: 0, t: 0, life: 0.7, delay: 0 });
+      return;
+    }
+    if (kind === Prey.Frog) cat.heldKey = 'held-frog';
     const img = kind === Prey.Fish ? this.scene.add.image(p.x, p.y, 'fish')
+      : kind === Prey.Frog ? this.scene.add.image(p.x, p.y - p.h, 'frog', 0).setOrigin(0.5, 1)
       : kind === Prey.Bird ? this.scene.add.image(p.x, p.y - p.h, `bird-${p.colour}`, 2).setOrigin(0.5, 1)
       : this.scene.add.image(p.x, p.y - p.h, `butterfly-${p.colour}`, 1).setOrigin(0.5, 1);
     this.particles.push({ img: img.setDepth(100000), kind: 'leap', x: p.x, y: p.y - p.h, z: 0, vx: 0, vy: 0, vz: 0, t: 0, life: kind === Prey.Fish ? 0.3 : 0.18, delay: 0, cat });
@@ -283,7 +301,7 @@ export class Ambient {
         const dur = 22000 + hash2(b, e, 905) * 10000;
         const tau = gt - start;
         const id = e * BEES + b;
-        if (tau < 0 || tau > dur || this.caught.has(preyKey(Prey.Bee, id))) continue;
+        if (tau < 0 || tau > dur || this.caught.has(preyKey(Prey.Bee, id)) || lightAt(start).day < 0.5) continue;
         const i = Math.floor(tau / BEE_HOP), frac = (tau - i * BEE_HOP) / 1000;
         const route = this.beeRoute(b, e, i + 1);
         const [ax, ay] = this.flowers[route[i]], [bx, by] = this.flowers[route[i + 1]];
@@ -319,7 +337,8 @@ export class Ambient {
   private butterflyAt(k: number): Butterfly | null {
     if (!this.butterflies.has(k)) {
       let b: Butterfly | null = null;
-      if (hash2(k, 4, 908) < FLY_P && this.flowers.length) {
+      // butterflies only come out in daylight
+      if (hash2(k, 4, 908) < FLY_P && this.flowers.length && lightAt(k * FLY_SLOT).day > 0.5) {
         const r = seedRng(k, 4);
         b = {
           id: k, flower: this.flowers[Math.floor(r() * this.flowers.length)],
@@ -441,7 +460,7 @@ export class Ambient {
           this.burstKeys.add(key);
           if (this.burstKeys.size > 64) this.burstKeys.delete(this.burstKeys.values().next().value!);
           const seed = strHash(key);
-          this.bursts.push({ t0: gt, x: c.x, y: c.y, seed, n: 4 + (seed % 4) });
+          if (lightAt(gt).day > 0.5) this.bursts.push({ t0: gt, x: c.x, y: c.y, seed, n: 4 + (seed % 4) });
         }
       }
     }
@@ -499,6 +518,10 @@ export class Ambient {
           p.x += p.vx * dt;
           p.y += p.vy * dt;
           p.img.setFrame(Math.min(2, Math.floor(u * 3))).setPosition(Math.round(p.x), Math.round(p.y)).setAlpha(1 - u * 0.5);
+          break;
+        case 'puff':
+          // a caught firefly's light swells and fades
+          p.img.setScale(1 + u * 1.5).setAlpha(1 - u);
           break;
         case 'feather':
           // burst up, then sway down slowly

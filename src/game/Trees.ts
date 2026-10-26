@@ -33,6 +33,18 @@ export class Trees {
     });
   }
 
+  /** True if a tree's crown is drawn over world point (x, y) for something whose feet are at feetY. */
+  covers(x: number, y: number, feetY: number): boolean {
+    for (const { p, orig } of this.trees) {
+      if (feetY >= p.depthY) continue;
+      const lx = Math.round(x) - p.x, ly = Math.round(y) - p.y;
+      if (lx < 0 || ly < 0 || lx >= orig.width || ly >= orig.height) continue;
+      if (orig.data[(ly * orig.width + lx) * 4 + 3] > 0) return true;
+    }
+    return false;
+  }
+
+  /** Open a see-through hole wherever one of these cats is behind a tree. */
   update(cats: CatView[]): void {
     for (const t of this.trees) {
       const { p, orig } = t;

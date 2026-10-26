@@ -6,6 +6,7 @@ import type { CatView } from './CatView.ts';
 import type { PreyRef } from './Ambient.ts';
 import { TILE, tileAt, levelAt, elevAt } from '../world/map.ts';
 import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
+import { lightAt } from '../world/sky.ts';
 import { sound } from '../audio/sound.ts';
 
 // Birds drop in on a tree, sit in its crown, sometimes flutter down to peck
@@ -34,7 +35,7 @@ const DASH_SPEED = 110;
 type Pt3 = [number, number, number];
 /** A place a bird sits: x, ground line y and height h above it (crowns are high, the lawn is not). */
 interface Stop { x: number; y: number; h: number; perch: boolean; depth: number; t0: number; t1: number }
-interface Visit { id: number; colour: number; from: Pt3; to: Pt3; stops: Stop[]; start: number; end: number }
+interface Visit { id: number; colour: number; from: Pt3; to: Pt3; stops: Stop[]; start: number; end: number; asleep: boolean }
 interface Flee { t: number; x: number; y: number; h: number; dir: number }
 interface Spot { x: number; y: number; h: number; depth: number; perch: boolean }
 
@@ -93,9 +94,11 @@ export class Birds {
         const perches = this.perches[tree], lawns = this.lawns[tree];
         const perch = (): Spot | null => (perches.length ? perches[Math.floor(r() * perches.length)] : null);
         const lawn = (): Spot | null => (lawns.length ? lawns[Math.floor(r() * lawns.length)] : null);
-        // sit in the tree; peck on the lawn; or come down for a bit and go back up
+        // sit in the tree; peck on the lawn; or come down for a bit and go back up; at night, just sleep up there
         const u = r();
-        const plan: [Spot | null, number][] = u < 0.35 ? [[perch(), 15000 + r() * 30000]]
+        const asleep = lightAt(k * SLOT).night >= 0.5;
+        const plan: [Spot | null, number][] = asleep ? [[perch(), 60000 + r() * 50000]]
+          : u < 0.35 ? [[perch(), 15000 + r() * 30000]]
           : u < 0.65 ? [[lawn(), 15000 + r() * 25000]]
           : [[perch(), 6000 + r() * 14000], [lawn(), 12000 + r() * 20000], [perch(), 5000 + r() * 12000]];
         const spots = plan.filter((s): s is [Spot, number] => !!s[0]);
@@ -110,7 +113,7 @@ export class Birds {
           const first = stops[0], last = stops[stops.length - 1];
           const din = r() < 0.5 ? -1 : 1, dout = r() < 0.5 ? -1 : 1;
           v = {
-            id: k, colour: Math.floor(r() * BIRD_COLOURS.length), stops, start, end: last.t1 + LEAVE_MS,
+            id: k, colour: Math.floor(r() * BIRD_COLOURS.length), stops, start, end: last.t1 + LEAVE_MS, asleep,
             from: [first.x + din * 160, first.y - 20, first.h + 90],
             to: [last.x + dout * 180, last.y - 30, last.h + 100],
           };
@@ -157,6 +160,14 @@ export class Birds {
     const { stops } = v;
     const first = stops[0], last = stops[stops.length - 1];
     const wing = Math.floor(gt / 80) % 2 ? 2 : 3;
+    // sleeping birds are simply there in the dark, fading in and out instead of flying
+    if (v.asleep) {
+      const s = first, alpha = clamp01(Math.min((gt - v.start) / 3000, (v.end - gt) / 3000));
+      for (const c of cats)
+        if (c.act === Act.Hiss && Math.hypot(c.x - s.x, c.y - s.y) < 40) return this.scare(v, [s.x, s.y, s.h], c, gt);
+      this.draw(v, [s.x, s.y, s.h], 4, hash2(v.id, 926) < 0.5, alpha, s.depth);
+      return;
+    }
     // flying in, fading in on the way
     if (gt < first.t0) {
       const u = (gt - v.start) / ARRIVE_MS, e = 1 - (1 - u) ** 2;

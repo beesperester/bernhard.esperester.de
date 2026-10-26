@@ -8,6 +8,8 @@
 // A spring at the foot of the hills feeds a stream that winds under footbridges
 // into the lake; the hedge labyrinth sits in the north-east.
 
+import { hash2 } from '../art/raster.ts';
+
 export const TILE = 16;
 /** Height of one terrain level in px: more than a jump (~14px), so cliffs can't be hopped up. */
 export const LEVEL = 16;
@@ -290,3 +292,35 @@ for (const [tx, ty] of treeTiles()) {
   const [x, y] = trunkBase(tx, ty);
   TRUNKS.push([x - 6, y - 5, x + 6, y + 1]);
 }
+
+// ---- lanterns ----
+// Small lanterns on the grass beside the paths, a good few tiles apart.
+const LANTERN_SPACING = 7;
+
+function placeLanterns(): [number, number][] {
+  const near = (tx: number, ty: number, chars: string, r: number) => {
+    for (let y = ty - r; y <= ty + r; y++) for (let x = tx - r; x <= tx + r; x++) if (chars.includes(tileAt(x, y))) return true;
+    return false;
+  };
+  const spots: { tx: number; ty: number; dx: number; dy: number; k: number }[] = [];
+  for (let ty = 1; ty < MAP_H - 1; ty++)
+    for (let tx = 1; tx < MAP_W - 1; tx++) {
+      if (tileAt(tx, ty) !== '.' || near(tx, ty, 'wlBSTFg', 1)) continue;
+      const side = ([[0, 1], [0, -1], [1, 0], [-1, 0]] as const).find(([dx, dy]) => tileAt(tx + dx, ty + dy) === 'p' && levelAt(tx + dx, ty + dy) === levelAt(tx, ty));
+      if (side) spots.push({ tx, ty, dx: side[0], dy: side[1], k: hash2(tx, ty, 61) });
+    }
+  spots.sort((a, b) => a.k - b.k);
+  const out: [number, number][] = [];
+  const taken: [number, number][] = [];
+  for (const s of spots) {
+    if (taken.some(([x, y]) => Math.max(Math.abs(x - s.tx), Math.abs(y - s.ty)) < LANTERN_SPACING)) continue;
+    taken.push([s.tx, s.ty]);
+    // stand close to the path edge
+    out.push([s.tx * TILE + 8 + s.dx * 5, s.ty * TILE + 10 + s.dy * 4]);
+  }
+  return out;
+}
+
+/** Lantern posts (bottom centre), the same for every visitor. */
+export const LANTERNS = placeLanterns();
+for (const [x, y] of LANTERNS) TRUNKS.push([x - 2, y - 3, x + 2, y + 1]);

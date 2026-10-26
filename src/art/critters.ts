@@ -1,4 +1,5 @@
-// Small ambient creatures and effects: butterflies, bees, koi, birds, ripples, sleep Zs, dust.
+// Small ambient creatures and effects: butterflies, bees, koi, birds, frogs,
+// fireflies, lanterns, glows, ripples, sleep Zs, dust.
 import { Raster, hex, type RGB } from './raster.ts';
 
 const OUTLINE = hex('#202020');
@@ -114,7 +115,7 @@ export function buildHeldFish(): Raster {
 }
 
 // little garden birds, 9x7, facing left:
-//   frame 0 standing, 1 pecking, 2 wings up, 3 wings down
+//   frame 0 standing, 1 pecking, 2 wings up, 3 wings down, 4 asleep (puffed up, head tucked in)
 //   h head  b back  l breast  w wing  t tail  k beak  e eye  f feet
 export const BIRD_W = 9;
 export const BIRD_H = 7;
@@ -123,6 +124,7 @@ const BIRD = [
   ['.........', '....oooo.', '...obwwto', '.oobbwwo.', 'ohhblbo..', 'kehllo...', '...f.f...'],
   ['...ooo...', '..owwo...', '.ooowooo.', 'kehbbbbto', '.olllbbo.', '..ooooo..', '.........'],
   ['.........', '.oo......', 'kehoooooo', 'olbbbbbto', '.oowwoo..', '...owo...', '....o....'],
+  ['.........', '..ooooo..', '.obbbbbo.', 'ohbbwwwto', 'ohllbwwo.', '.oooooo..', '...f.f...'],
 ];
 /** [head, back, breast, wing, beak] for a sparrow, a robin, a blue tit and a blackbird. */
 export const BIRD_COLOURS: [string, string, string, string, string][] = [
@@ -163,5 +165,60 @@ export function buildFeather(i: number): Raster {
 export function buildAlert(): Raster {
   const r = new Raster(3, 6);
   r.paint(['ooo', 'owo', 'owo', 'ooo', 'owo', 'ooo'], 0, 0, { o: OUTLINE, w: hex('#f8f8f0') });
+  return r;
+}
+
+// frog, 10x7, facing left: frame 0 sitting, 1 croaking (throat puffed out)
+export const FROG_W = 10;
+export const FROG_H = 7;
+export function buildFrog(): Raster {
+  const pal = { o: hex('#1c3010'), g: hex('#58a838'), d: hex('#3c7828'), y: hex('#d8e8a0'), e: hex('#101008') };
+  const r = new Raster(FROG_W * 2, FROG_H);
+  r.paint(['..ooo.....', '.oeegoooo.', 'oggggggggo', 'oyyggggggo', '.oyyggdggo', '.oggoodggo', 'oooo.oooo.'], 0, 0, pal);
+  r.paint(['..ooo.....', '.oeegoooo.', 'oggggggggo', 'yyyggggggo', 'yyyyggdggo', '.yygoodggo', 'oooo.oooo.'], FROG_W, 0, pal);
+  return r;
+}
+
+/** A frog in the mouth, facing left: whole, half, a pair of legs. */
+export function buildHeldFrog(): Raster {
+  const pal = { o: hex('#1c3010'), g: hex('#58a838'), d: hex('#3c7828'), y: hex('#d8e8a0') };
+  const r = new Raster(HELD_W * 3, 5);
+  r.paint(['..oooo..', '.ogggdoo', 'ogggggdo', '.oyyoodo', '..oo..oo'], 0, 0, pal);
+  r.paint(['..oo....', '.oggo...', 'ogggo...', '.oyo....', '..o.....'], HELD_W, 0, pal);
+  r.paint(['........', '........', '...dd...', '..o.o...', '........'], HELD_W * 2, 0, pal);
+  return r;
+}
+
+/** A firefly's body (1x2: dark back, glowing tail); the glow itself is a separate light. */
+export function buildFirefly(): Raster {
+  const r = new Raster(1, 2);
+  r.set(0, 0, hex('#403820'));
+  r.set(0, 1, hex('#f0ff90'));
+  return r;
+}
+
+/** A round light, brightest in the middle, stepped in a few bands like the rest of the art. */
+export function buildGlow(w: number, h: number, colour: RGB, bands = 5): Raster {
+  const r = new Raster(w, h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const dx = (x + 0.5 - w / 2) / (w / 2), dy = (y + 0.5 - h / 2) / (h / 2);
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= 1) continue;
+      const a = Math.ceil((1 - d) ** 1.6 * bands) / bands;
+      r.set(x, y, colour, Math.round(a * 255));
+    }
+  return r;
+}
+
+// garden lantern, 6x16: frame 0 unlit, 1 lit
+export const LANTERN_W = 6;
+export const LANTERN_H = 16;
+export function buildLantern(): Raster {
+  const rows = ['.oooo.', 'oooooo', 'ogllgo', 'ogllgo', 'oooooo', '..oo..', '..om..', '..om..', '..om..', '..om..', '..om..', '..om..', '..om..', '..om..', '.oooo.', 'oooooo'];
+  const r = new Raster(LANTERN_W * 2, LANTERN_H);
+  const base = { o: hex('#26262c'), m: hex('#4a4a54'), g: hex('#3c3c44') };
+  r.paint(rows, 0, 0, { ...base, l: hex('#707060') });
+  r.paint(rows, LANTERN_W, 0, { ...base, l: hex('#fff0a0') });
   return r;
 }

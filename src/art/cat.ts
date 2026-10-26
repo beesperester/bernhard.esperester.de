@@ -395,3 +395,17 @@ function calicoize(rows: readonly string[]): string[] {
 function siamesize(rows: readonly string[]): string[] {
   return rows.map((r, y) => [...r].map((ch) => (ch === 'b' && (y < 6 || y > 12) ? 'd' : ch)).join(''));
 }
+
+/** Just the eyes of every frame (in the coat's eye colour, brightened), to make them glow at night. */
+export function buildEyeSheet(coatIndex: number): Raster {
+  const coat = COATS[((coatIndex % COATS.length) + COATS.length) % COATS.length];
+  const [r, g, b] = hex(coat.e);
+  const glow: RGB = [Math.min(255, r * 0.6 + 110), Math.min(255, g * 0.6 + 110), Math.min(255, b * 0.6 + 90)];
+  const n = FRAME_NAMES.length;
+  const sheet = new Raster(CAT * n * 2, CAT);
+  FRAME_NAMES.forEach((name, i) => {
+    sheet.paint(FRAMES[name], i * CAT, 0, { e: glow });
+    sheet.paint(FRAMES[name], (i + n) * CAT, 0, { e: glow }, true);
+  });
+  return sheet;
+}

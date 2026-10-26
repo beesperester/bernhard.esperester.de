@@ -22,7 +22,7 @@ export const EAT_MS = 2600;
 export const MUNCH_MS = 1500;
 
 /** Things a cat can swipe at. */
-export const Prey = { Fish: 0, Fly: 1, Bee: 2, Bird: 3 } as const;
+export const Prey = { Fish: 0, Fly: 1, Bee: 2, Bird: 3, Firefly: 4, Frog: 5 } as const;
 export type Prey = (typeof Prey)[keyof typeof Prey];
 
 /** Everything other visitors need to draw a cat: [x, y, z, facing, act, seq, coat]. */
