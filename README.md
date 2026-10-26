@@ -10,6 +10,7 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 - Idle cats sit down after a few seconds and lick their paws now and then; after 30 s they curl up and sleep (zzZZzz)
 - Jump onto low obstacles — hedges, bushes, rocks, the fountain rim — and walk along them. Jump into the pond and you splash and scramble straight back out
 - The park (80×60 tiles): narrow winding paths, a two-level highland and a little mesa ringed by stone walls — drop off any edge, but you have to find the stairs to get up — a spring feeding a stream that runs under footbridges into the lake, small lily ponds, a walled rose garden, and a hedge labyrinth (too tall to jump) with a fountain at its heart
+- Background music starts with your first key press or tap; **M** or the ♪ button (top right) mutes it, and it pauses while the tab is hidden
 - On touch devices an on-screen D-pad and buttons appear
 
 ## How it works
@@ -24,6 +25,14 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 - **Fauna and clouds are synced without traffic**: peers agree on a shared garden clock (a few request/response pings to the lowest peer id), and every butterfly, bee, fish and cloud is a pure function of that clock and a seed. The only fauna message is "fish/butterfly/bee N was caught".
 - Each cat broadcasts `[x, y, z, facing, act, seq, coat]` ~10×/s while something changes (20×/s mid-jump), otherwise once per second.
 - A garden holds 20 cats; later visitors are moved into `garden-2`, `garden-3`, …
+
+## Music
+
+Every `.mp3`/`.ogg`/`.m4a` in `src/music/` is part of the playlist (the file name is the title). Songs play in random order, never the same one twice in a row; with a single song it loops. Convert masters before adding them, e.g.
+
+```sh
+ffmpeg -i "Song.wav" -c:a libmp3lame -q:a 2 "src/music/Song.mp3"
+```
 
 ## Development
 
