@@ -26,6 +26,7 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 
 - **Phaser 4 + TypeScript + Vite**, built to static files.
 - **All art is drawn in code** (`src/art/`): sprites are character maps, recoloured per coat; the garden ground is generated from `src/world/map.ts`.
+- **The UI is pixel art too** (`src/ui/pixel.ts`): text boxes, buttons, the d-pad and the music and sound icons are drawn in code and handed to the CSS as image variables. The text is set in [Pixelify Sans](https://fontsource.org/fonts/pixelify-sans) (SIL Open Font License), bundled with the site rather than loaded from Google Fonts.
 - **Height map** (`src/world/map.ts`): every tile has a terrain level (16px each, more than a jump) plus whatever stands on it; cats only move onto surfaces no higher than they are, so jumping (real gravity) gets them onto hedges but not up a cliff. Walking climbs up to 3px, which is what makes stairs work. Tree trunks block only at their base.
 - **Terrain** (`src/art/terrain.ts`): each row of raised ground is cut from the ground image and drawn lifted by its height, with a stone retaining wall below and depth-sorted like everything else; a cat that ends up behind a hill shows through as a solid green silhouette where the hill covers it.
 - **Trees** (`src/game/Trees.ts`): big procedural crowns; a cat behind one is shown through a round dithered window in the foliage.

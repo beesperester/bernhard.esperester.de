@@ -1,4 +1,5 @@
 // DOM overlay: status line, key help, and Game Boy style touch controls.
+import { dpadURL } from './pixel.ts';
 
 export type Button = 'jump' | 'hiss' | 'roll' | 'dash' | 'catch' | 'sneak' | 'mew';
 
@@ -71,6 +72,12 @@ export function setupUI(): UI {
 
 function setupDpad(el: HTMLElement): void {
   let active: number | null = null;
+  // the pixel-art pad with the pressed arms pushed in, drawn once per combination
+  const art = new Map<string, string>();
+  const show = (dir: string) => {
+    if (!art.has(dir)) art.set(dir, `url(${dpadURL(dir)})`);
+    el.style.backgroundImage = art.get(dir)!;
+  };
   const set = (e: PointerEvent | null) => {
     touch.up = touch.down = touch.left = touch.right = false;
     if (!e) return;
@@ -78,7 +85,7 @@ function setupDpad(el: HTMLElement): void {
     const dx = e.clientX - (r.left + r.width / 2);
     const dy = e.clientY - (r.top + r.height / 2);
     const dead = r.width * 0.12;
-    if (Math.hypot(dx, dy) < dead) return;
+    if (Math.hypot(dx, dy) < dead) return show('');
     // 8-way: allow diagonals within a 30° band around 45°
     const a = Math.atan2(dy, dx);
     const oct = Math.round(a / (Math.PI / 4));
@@ -86,7 +93,7 @@ function setupDpad(el: HTMLElement): void {
     touch.left = Math.abs(oct) === 4 || oct === 3 || oct === -3;
     touch.down = oct === 1 || oct === 2 || oct === 3;
     touch.up = oct === -1 || oct === -2 || oct === -3;
-    el.dataset.dir = `${touch.up ? 'u' : ''}${touch.down ? 'd' : ''}${touch.left ? 'l' : ''}${touch.right ? 'r' : ''}`;
+    show(`${touch.up ? 'u' : ''}${touch.down ? 'd' : ''}${touch.left ? 'l' : ''}${touch.right ? 'r' : ''}`);
   };
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -99,7 +106,7 @@ function setupDpad(el: HTMLElement): void {
     if (e.pointerId !== active) return;
     active = null;
     set(null);
-    el.dataset.dir = '';
+    show('');
   };
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { PIXEL_FONT } from '../ui/pixel.ts';
 import { Act, ACT_MAX, EAT_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { CAT, COATS } from '../art/cat.ts';
 import { WORLD_W, WORLD_H, groundAt, terrainCover } from '../world/map.ts';
@@ -8,7 +9,7 @@ import { DEPTH } from './Daylight.ts';
 const SILHOUETTE = 0x5ee86a;
 
 /** Names float over everything but the emotes, the same size at any zoom. */
-const LABEL_DEPTH = 99999.6, LABEL_PX = 10;
+const LABEL_DEPTH = 99999.6, LABEL_PX = 12;
 /** How long the name takes to fade out when a cat crouches (and back in). */
 const LABEL_FADE_MS = 400;
 
@@ -80,7 +81,7 @@ export class CatView {
       .setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     // drawn at screen resolution and shrunk by the zoom, so the letters stay sharp
     this.label = scene.add.text(x, y, '', {
-      fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+      fontFamily: PIXEL_FONT,
       fontSize: `${LABEL_PX}px`,
       fontStyle: 'bold',
       color: local ? '#ffe890' : '#fff4dc',

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { PIXEL_FONT } from '../ui/pixel.ts';
 import { Raster } from '../art/raster.ts';
 import { buildCatSheet, buildEyeSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
 import { buildGround, buildProps, buildUprightMask, buildWaterMask, TREE_W, type Prop } from '../art/tiles.ts';
@@ -628,7 +629,7 @@ export class GardenScene extends Phaser.Scene {
     const me = this.me;
     const zoom = this.cameras.main.zoom;
     const t = this.add.text(Math.round(me.x), Math.round(me.y - me.z) - 20, points > 0 ? `+${points}` : String(points), {
-      fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+      fontFamily: PIXEL_FONT,
       fontSize: '12px',
       fontStyle: 'bold',
       color: points > 0 ? '#ffe890' : '#ff8080',
