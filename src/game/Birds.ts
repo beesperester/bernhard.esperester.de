@@ -21,7 +21,14 @@ const ARRIVE_MS = 2200, FLIT_MS = 900, LEAVE_MS = 2600, FLEE_MS = 2400;
 /** On the ground a bird hops to a new spot this often. */
 const HOP_EVERY = 2200, HOP_MS = 180;
 /** How close a cat may get before a bird pecking on the ground takes off. */
-const SCARE = { sneaking: 10, walking: 40, jumping: 48, hissing: 64, dashing: 80 };
+const SCARE = { walking: 40, jumping: 48, hissing: 64, dashing: 80 };
+/**
+ * Even a crouching cat gets noticed this close. The bird looks up and takes
+ * off after REACT_MS: only a dash (a pounce) gets there in time.
+ */
+const NOTICE = 32, REACT_MS = 650;
+/** Time to freeze once spotted; creeping on after that scares the bird off. */
+const FREEZE_MS = 300;
 const DASH_SPEED = 110;
 
 type Pt3 = [number, number, number];
@@ -36,6 +43,9 @@ export class Birds {
   private readonly lawns: Spot[][];
   private readonly visits = new Map<number, Visit | null>();
   private readonly fled = new Map<number, Flee>();
+  /** Birds that spotted a crouching cat: when, and where the cat was. */
+  private readonly alert = new Map<number, { t: number; x: number; y: number }>();
+  private readonly marks: Pool;
   private readonly birds: Pool;
   private readonly shadows: Pool;
   private readonly isCaught: (id: number) => boolean;
@@ -46,6 +56,7 @@ export class Birds {
     this.isCaught = isCaught;
     this.birds = new Pool(scene, 'bird-0');
     this.shadows = new Pool(scene, 'shadow');
+    this.marks = new Pool(scene, 'alert');
     // perches: the top edge of each crown
     this.perches = trees.map(({ p, canvas }) => {
       const { width: w, height: h } = canvas;
@@ -110,6 +121,7 @@ export class Birds {
         const old = this.visits.keys().next().value!;
         this.visits.delete(old);
         this.fled.delete(old);
+        this.alert.delete(old);
       }
     }
     return this.visits.get(k)!;
@@ -124,6 +136,7 @@ export class Birds {
   update(gt: number, now: number, cats: CatView[], prey: PreyRef[]): void {
     this.birds.begin();
     this.shadows.begin();
+    this.marks.begin();
     this.perched = [];
     for (let k = Math.floor((gt - MAX_VISIT) / SLOT); k <= Math.floor(gt / SLOT); k++) {
       const v = this.visitAt(k);
@@ -137,6 +150,7 @@ export class Birds {
     }
     this.birds.end();
     this.shadows.end();
+    this.marks.end();
   }
 
   private updateVisit(v: Visit, gt: number, now: number, cats: CatView[], prey: PreyRef[]): void {
@@ -197,27 +211,42 @@ export class Birds {
     const u = clamp01((tau - j * HOP_EVERY) / HOP_MS);
     const x = s.x + lerp(ax, bx, u), y = s.y + lerp(ay, by, u);
     const hop = u < 1 ? 2 * 4 * u * (1 - u) : 0;
-    const right = bx === ax ? hash2(v.id, j, 924) < 0.5 : bx > ax;
+    let right = bx === ax ? hash2(v.id, j, 924) < 0.5 : bx > ax;
     const pos: Pt3 = [x, y, s.h];
 
+    let alert = this.alert.get(v.id);
     for (const c of cats) {
       if (Math.abs(c.z - s.h) > 20) continue; // a cat up on a ledge is out of the way
       const d = Math.hypot(c.x - x, c.y - y);
-      const low = c.act === Act.Crouch || c.act === Act.Sneak;
-      // a swipe only startles a bird once it has missed
-      const r = c.act === Act.Catch ? 0
-        : low ? (c.speed > 5 ? SCARE.sneaking : 0)
-        : c.act === Act.Hiss ? SCARE.hissing
+      // a swipe that missed
+      if (c.act === Act.Catch && now - c.actStart > SWIPE_AT_MS + 80 && d < 32) return this.scare(v, pos, c, gt);
+      if (c.act === Act.Crouch || c.act === Act.Sneak) {
+        if (d < NOTICE && !alert) this.alert.set(v.id, (alert = { t: gt, x: c.x, y: c.y }));
+        // spotted: freeze, or it's gone
+        else if (alert && d < NOTICE && c.speed > 5 && gt - alert.t > FREEZE_MS) return this.scare(v, pos, c, gt);
+        continue;
+      }
+      // once it has spotted a cat it is about to go anyway; the pounce has to beat that
+      if (alert || c.act === Act.Catch) continue;
+      const r = c.act === Act.Hiss ? SCARE.hissing
         : c.act === Act.Jump ? SCARE.jumping
         : c.speed > DASH_SPEED ? SCARE.dashing
         : c.speed > 5 ? SCARE.walking : 0;
-      // a swipe that missed
-      const missed = c.act === Act.Catch && now - c.actStart > SWIPE_AT_MS + 80 && d < 32;
-      if (d < r || missed) return this.scare(v, pos, c, gt);
+      if (d < r) return this.scare(v, pos, c, gt);
+    }
+    if (alert) {
+      if (gt - alert.t >= REACT_MS) {
+        this.fled.set(v.id, { t: gt, x, y, h: s.h, dir: Math.sign(x - alert.x) || 1 });
+        void sound.play('rustle', { at: { x, y }, volume: 0.3, rate: 1.7 + Math.random() * 0.2 });
+        return this.drawFlee(v, this.fled.get(v.id)!, gt);
+      }
+      // head up, eyeing the cat
+      right = alert.x > x;
+      this.marks.get().setOrigin(0.5, 1).setPosition(Math.round(x), Math.round(y - s.h) - 9).setDepth(100000);
     }
 
-    const pecking = u >= 1 && hash2(v.id, Math.floor(gt / 280), 925) < 0.4;
-    this.draw(v, [x, y, s.h + hop], u < 1 ? 2 : pecking ? 1 : 0, right, 1, y);
+    const pecking = !alert && u >= 1 && hash2(v.id, Math.floor(gt / 280), 925) < 0.4;
+    this.draw(v, [x, y, s.h + (alert ? 0 : hop)], u < 1 && !alert ? 2 : pecking ? 1 : 0, right, 1, y);
     prey.push({ kind: Prey.Bird, id: v.id, x, y, h: s.h, colour: v.colour });
   }
 

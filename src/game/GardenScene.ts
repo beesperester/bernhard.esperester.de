@@ -4,7 +4,7 @@ import { buildCatSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
 import { buildGround, buildProps, buildWaterMask, TREE_W } from '../art/tiles.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
-import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildBee, buildBird, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
+import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
@@ -35,6 +35,11 @@ const HOP_MS = 480;
 const HOP_HEIGHT = 16;
 /** Walking (not jumping) climbs small rises like stairs, but not a rock or a cliff. */
 const STEP_UP = 3;
+/**
+ * Corner slip: walking straight into an edge with an opening at most this many px
+ * to the side slides the cat over into it, so one-tile gaps (the maze) are easy to enter.
+ */
+const SLIP = 8;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
 const TICK_MS = 50;
 const SEND_MS = 100;
@@ -221,6 +226,7 @@ export class GardenScene extends Phaser.Scene {
     };
     BUTTERFLY_COLOURS.forEach((_, i) => sheet(`butterfly-${i}`, buildButterfly(i), 7, 5));
     sheet('bee', buildBee(), 4, 3);
+    tex.addCanvas('alert', toCanvas(buildAlert()));
     BIRD_COLOURS.forEach((_, i) => {
       sheet(`bird-${i}`, buildBird(i), BIRD_W, BIRD_H);
       sheet(`held-bird-${i}`, buildHeldBird(i), HELD_W, 5);
@@ -361,11 +367,11 @@ export class GardenScene extends Phaser.Scene {
     }
 
     // dash runs while the key is held (up to DASH_MS), then needs a long rest
-    if (dash && !sneakHeld && !this.dashing && now >= this.dashReadyAt) {
+    if (dash && !this.dashing && now >= this.dashReadyAt) {
       this.dashing = true;
       this.dashStart = now;
     }
-    if (this.dashing && (!dashHeld || sneakHeld || now - this.dashStart >= DASH_MS)) {
+    if (this.dashing && (!dashHeld || now - this.dashStart >= DASH_MS)) {
       this.dashing = false;
       const used = Math.min(1, (now - this.dashStart) / DASH_MS);
       this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, used * DASH_COOLDOWN_MS);
@@ -383,6 +389,20 @@ export class GardenScene extends Phaser.Scene {
       this.catching = { swiped: false, got: null };
       begin(Act.Catch);
       return;
+    }
+    // pounce: dashing into a bird on the ground grabs it, no swipe needed
+    if (this.dashing && !busy) {
+      const prey = this.ambient.preyNear(me);
+      if (prey?.kind === Prey.Bird) {
+        me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
+        this.ambient.catchPrey(prey.kind, prey.id, me);
+        this.net.catchPrey(prey.kind, prey.id);
+        this.catching = { swiped: true, got: Prey.Bird };
+        this.dashing = false;
+        this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, ((now - this.dashStart) / DASH_MS) * DASH_COOLDOWN_MS);
+        begin(Act.Catch);
+        return;
+      }
     }
     if (me.act === Act.Catch && this.catching) {
       const c = this.catching;
@@ -414,8 +434,8 @@ export class GardenScene extends Phaser.Scene {
       this.vz = JUMP_V;
     }
 
-    // holding sneak: belly to the ground, creeping slowly (and quietly)
-    const low = sneakHeld && me.act !== Act.Jump;
+    // holding sneak: belly to the ground, creeping slowly (and quietly); dashing from it is a pounce
+    const low = sneakHeld && me.act !== Act.Jump && !this.dashing;
     const to = (act: Act) => { if (me.act !== act) me.setAct(act, now); };
     const afoot = (act: Act) => act === Act.Idle || act === Act.Walk || act === Act.Crouch || act === Act.Sneak;
     if (moving) {
@@ -481,10 +501,35 @@ export class GardenScene extends Phaser.Scene {
     };
     // small steps, so walking up stairs can't skip past the step-up limit at low frame rates
     const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my))));
+    let moved = false;
     for (let i = 0; i < n; i++) {
-      if (mx && !hits(me.x + mx / n, me.y)) me.x += mx / n;
-      if (my && !hits(me.x, me.y + my / n)) me.y += my / n;
+      if (mx && !hits(me.x + mx / n, me.y)) { me.x += mx / n; moved = true; }
+      if (my && !hits(me.x, me.y + my / n)) { me.y += my / n; moved = true; }
       if (!airborne) me.z = Math.max(me.z, groundAt(me.x, me.y));
     }
+    if (moved || (mx !== 0) === (my !== 0)) return;
+
+    // blocked going straight: look for an opening just to either side, the nearest one wins
+    const fx = Math.sign(mx), fy = Math.sign(my);
+    const at = (d: number): [number, number] => (fx ? [me.x, me.y + d] : [me.x + d, me.y]);
+    const opens = (side: number, d: number) => {
+      for (let k = 1; k <= d; k++) {
+        const [x, y] = at(side * k);
+        if (hits(x, y)) return false;
+      }
+      const [x, y] = at(side * d);
+      return !hits(x + fx, y + fy);
+    };
+    let slip = 0;
+    for (let d = 1; d <= SLIP; d++) {
+      const l = opens(-1, d), r = opens(1, d);
+      // equally close openings on both sides (dead centre on a post): don't guess
+      if (l && r) return;
+      if (l || r) { slip = l ? -d : d; break; }
+    }
+    if (!slip) return;
+    const step = Math.sign(slip) * Math.min(Math.abs(mx || my), Math.abs(slip));
+    const [x, y] = at(step);
+    if (!hits(x, y)) { me.x = x; me.y = y; }
   }
 }

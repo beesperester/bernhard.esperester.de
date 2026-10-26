@@ -158,3 +158,10 @@ export function buildFeather(i: number): Raster {
   r.paint(['bl.', '.lb'], 0, 0, { b, l });
   return r;
 }
+
+/** A little "!" over a bird that has spotted a cat, 3x6. */
+export function buildAlert(): Raster {
+  const r = new Raster(3, 6);
+  r.paint(['ooo', 'owo', 'owo', 'ooo', 'owo', 'ooo'], 0, 0, { o: OUTLINE, w: hex('#f8f8f0') });
+  return r;
+}
