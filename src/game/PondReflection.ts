@@ -2,18 +2,20 @@ import Phaser from 'phaser';
 import { CAT } from '../art/cat.ts';
 import { FLORA } from '../art/flora.ts';
 import type { Prop } from '../art/tiles.ts';
-import { pondBounds } from '../world/map.ts';
 import type { CatView } from './CatView.ts';
 import type { LivePlant } from './Meadow.ts';
 
 const MARGIN = 48; // how far above the pond objects may stand and still reflect
 
+type Box = { x: number; y: number; w: number; h: number };
+let count = 0;
+
 /**
- * Fakes reflections on the pond: anything standing near the water is drawn
+ * Fakes reflections on one patch of water: anything standing near it is drawn
  * upside down below its base line, rippled, tinted and clipped to open water.
  */
 export class PondReflection {
-  private readonly box = pondBounds();
+  readonly box: Box;
   private readonly raw: CanvasRenderingContext2D;
   private readonly tex: Phaser.Textures.CanvasTexture;
   private readonly out: CanvasRenderingContext2D;
@@ -25,6 +27,7 @@ export class PondReflection {
 
   constructor(
     scene: Phaser.Scene,
+    box: Box,
     opts: {
       waterMask: HTMLCanvasElement;
       catSheets: HTMLCanvasElement[];
@@ -33,18 +36,20 @@ export class PondReflection {
       plants: LivePlant[];
     },
   ) {
-    const { x, y, w, h } = this.box;
+    this.box = box;
+    const { x, y, w, h } = box;
+    const key = `reflection-${count++}`;
     const raw = document.createElement('canvas');
     raw.width = w;
     raw.height = h;
     this.raw = raw.getContext('2d')!;
-    this.tex = scene.textures.createCanvas('reflection', w, h)!;
+    this.tex = scene.textures.createCanvas(key, w, h)!;
     this.out = this.tex.getContext();
     this.mask = document.createElement('canvas');
     this.mask.width = w;
     this.mask.height = h;
     this.mask.getContext('2d')!.drawImage(opts.waterMask, x, y, w, h, 0, 0, w, h);
-    scene.add.image(x, y, 'reflection').setOrigin(0).setDepth(-99990).setAlpha(0.65);
+    scene.add.image(x, y, key).setOrigin(0).setDepth(-99990).setAlpha(0.65);
 
     this.catSheets = opts.catSheets;
     this.floraSheets = opts.floraSheets;

@@ -1,42 +1,45 @@
 // The garden, one character per 16x16 tile.
-//   F fence   g gate   . grass   , tall grass   f flowers   p path
-//   w water   l lily pad   # hedge   T tree (trunk)   b bush   r rock   o fountain
+//   F fence   g gate   . grass   , tall grass   f flowers   p path   B footbridge
+//   w water   l lily pad   # low hedge   m tall maze hedge   T tree (trunk)
+//   b bush   r rock   o fountain
+//
+// A spring in the top-left feeds a stream that winds down into the big pond;
+// the path from the gate crosses it on a little footbridge. Top-right is a
+// hedge labyrinth with a fountain at its heart.
 
 export const TILE = 16;
 
-const L = (a: string, m: string, r: string) => 'F' + a + m + r + 'F';
-
 const ROWS = [
-  'F'.repeat(40),
-  L('..,,,..b..,,', ',,,,,....,,,,,', ',,..b...,,,.'),
-  L('.T...T....T.', '##############', '.T...T...T..'),
-  L('............', '#ffffffffffff#', '............'),
-  L(',,,.ff...,,.', '#ffffffffffff#', '.,,...ff.,,,'),
-  L(',,,..bb..,,.', '#ffff....ffff#', '.,,..bb..,,,'),
-  L('.,,.......,.', '#ffff.oo.ffff#', '.,..........'),
-  L('..T..r....T.', '#ffff....ffff#', '.T....r..T..'),
-  L('.......ff...', '######..######', '...ff.......'),
-  L(',,...b......', '..ff..pp..ff..', '......b..,,.'),
-  L('...b....T...', '..ff..pp..ff..', '..T.....b...'),
-  L('.,,.........', '.f.pppppppp.f.', '.........,,.'),
-  L('.r..ff......', '...pppppppp...', '......ff..r.'),
-  L('.ppppppppppp', 'pppppppppppppp', 'ppppppppppp.'),
-  L('.ppppppppppp', 'pppppppppppppp', 'ppppppppppp.'),
-  L('..,,.bff....', '...pppppppp...', '....ffb.....'),
-  L('.,,,..T....T', '.f.pppppppp.f.', '..T...T...,.'),
-  L('.,,.........', '..ff..pp..ff..', '...........,'),
-  L('..#########.', '......pp......', '...wwwwww...'),
-  L('..#fffffff#.', '..,...pp......', '.wwwwwwwwww.'),
-  L('..#fffffff#.', '.,,...pp..wwww', 'wwwwwwwwwww.'),
-  L('..#fffffff#.', ',,,...pp.wwwww', 'wwwlwwwwwww.'),
-  L('..#fffffff#.', '.,....pp.wwwww', 'wwwwwwwlww..'),
-  L('..#ff...ff#.', '......pp..wwww', 'wlwwwwwwww,.'),
-  L('..###...###.', '..b...pp...www', 'wwwwwwwww.,.'),
-  L('.,..ff..,...', '.f....pp....ww', 'wwwwwww..,,.'),
-  L('.T....b...T.', '..T...pp..T...', '.r..bb...T..'),
-  L('..,,,,..ff..', '..f...pp...f..', '..ff....,,,.'),
-  L('.,,,,,,..b..', '......pp......', '.......,,,,.'),
-  'F'.repeat(19) + 'gg' + 'F'.repeat(19),
+  'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
+  'F................#######.mmmmmmmmmmmmm.F',
+  'F..wlww..b...T...#fffff#.m.m.........m.F',
+  'F..wwwwr.........#fffpf#.m.mmm.mmmmm.m.F',
+  'F....w..p..fff...#fffpf#...m...m...m.m.F',
+  'F.,,,w,.p..fff...####p##.m.m.......m.m.F',
+  'F,T,,w,,p............p...m.m.foof....m.F',
+  'F,,.,w,,pppppppppppppp...m.mm.....mmmm.F',
+  'F,..,w,,,.....Tp.........m.....m.....m.F',
+  'F,..,wwwwww....p.b....ff.mmmmmmmmmmm.m.F',
+  'F,,,,,,,..w..,,p,.....ff.m...........m.F',
+  'F.fff,,...w.,T,p,........mmmmm.mmmmmmm.F',
+  'F.fff..T..w,,,.p,,....T,,.....p......b.F',
+  'F....,,,,,w,,,,p,,..r.,,b,ppppp.....ff.F',
+  'F...,,,.,,w.r,,p,....,,,..p.....wlw,,.,F',
+  'F....,,.,,w....p......,,.,p,...rwww,,,,F',
+  'F...,,,,,,w..T.pppppppppppp..T...,,,,,,F',
+  'F.#####,,,w........p.............,.,,,,F',
+  'F.........wwwwwwwwwBwwwwwww.......,,,T,F',
+  'F..www..T...fff....p......wwwwwwww.....F',
+  'F..wlw......fff....p.b...wwwwwwwwwww...F',
+  'F...........#####..p....wwwlwwwwwwwww..F',
+  'F.......pppppppppppp...wwwwwwwwwwwwlww.F',
+  'F.....ffp.......r..p...wwwwwwwwwwwwwww.F',
+  'F.....ffp..www.....p...wwwwwwwwwwlwwww.F',
+  'F.,,,b..p..wlw.,ff.ppppwwwwwwwwwwwwwww.F',
+  'F,,pppppp.,,,,,,ff.p....wwwwwwlwwwwww..F',
+  'F,T,,,,...b.,,,,T..p..T...wwwwwwwww..T.F',
+  'F.,,.,....,,,,,,...p...................F',
+  'FFFFFFFFFFFFFFFFFFFggFFFFFFFFFFFFFFFFFFF',
 ];
 
 export const MAP_W = ROWS[0].length;
@@ -57,7 +60,8 @@ export function tileAt(tx: number, ty: number): string {
 export const WALL = 99;
 
 // water is flat but special: cats won't walk in, though they can jump in (see waterUnder)
-const HEIGHT: Record<string, number> = { F: WALL, g: WALL, '#': 8, b: 7, o: 6, r: 5 };
+// maze hedges are taller than a jump (~14px), so the labyrinth can't be hopped over
+const HEIGHT: Record<string, number> = { F: WALL, g: WALL, m: 20, '#': 8, b: 7, o: 6, r: 5 };
 /** Footprint insets [left, top, right, bottom] for objects smaller than their tile. */
 const INSET: Record<string, [number, number, number, number]> = { b: [1, 2, 1, 1], r: [1, 4, 1, 2], o: [0, 1, 0, 1] };
 
@@ -108,15 +112,32 @@ export function treeTiles(): [number, number][] {
   return out;
 }
 
-/** Walkable spawn points around the central plaza. */
+/** Walkable spawn points on the paths in the middle of the garden. */
 export function spawnPoints(): [number, number][] {
   const out: [number, number][] = [];
-  for (let y = 11; y <= 16; y++)
-    for (let x = 16; x <= 23; x++) if (tileAt(x, y) === 'p') out.push([x * TILE + TILE / 2, y * TILE + TILE - 2]);
+  for (let y = 12; y <= 17; y++)
+    for (let x = 14; x <= 27; x++) if (tileAt(x, y) === 'p') out.push([x * TILE + TILE / 2, y * TILE + TILE - 2]);
   return out;
 }
 
-/** Bounding box of the pond in world pixels. */
+/**
+ * Bounding boxes of the water, split into chunks so each one can be reflected
+ * (and skipped when off screen) on its own instead of one map-sized canvas.
+ */
+export function waterBoxes(chunk = 8): { x: number; y: number; w: number; h: number }[] {
+  const out: { x: number; y: number; w: number; h: number }[] = [];
+  for (let cy = 0; cy < MAP_H; cy += chunk)
+    for (let cx = 0; cx < MAP_W; cx += chunk) {
+      let x0 = MAP_W, y0 = MAP_H, x1 = -1, y1 = -1;
+      for (let y = cy; y < Math.min(MAP_H, cy + chunk); y++)
+        for (let x = cx; x < Math.min(MAP_W, cx + chunk); x++)
+          if ('wlB'.includes(ROWS[y][x])) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      if (x1 >= 0) out.push({ x: x0 * TILE, y: y0 * TILE, w: (x1 - x0 + 1) * TILE, h: (y1 - y0 + 1) * TILE });
+    }
+  return out;
+}
+
+/** Bounding box of all the water in world pixels. */
 export function pondBounds(): { x: number; y: number; w: number; h: number } {
   let x0 = MAP_W, y0 = MAP_H, x1 = 0, y1 = 0;
   for (let y = 0; y < MAP_H; y++)

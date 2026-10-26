@@ -7,6 +7,7 @@ const C = {
   p0: hex('#ecd8a0'), p1: hex('#d4b878'), p2: hex('#a88a52'),
   w0: hex('#4a8ce0'), w1: hex('#8cc4f8'), w2: hex('#2a5cb0'), w3: hex('#d8ecff'),
   h0: hex('#3c8c3a'), h1: hex('#5cac48'), h2: hex('#256a2a'), h3: hex('#163c1a'),
+  m0: hex('#1e5424'),
   f0: hex('#f8f0d8'), f1: hex('#d0a870'), f2: hex('#7a5530'),
   r0: hex('#d8d8d0'), r1: hex('#b0b0a8'), r2: hex('#848480'), r3: hex('#4a4a48'),
   t0: hex('#a06a38'), t1: hex('#6a4220'), t2: hex('#3a2410'),
@@ -16,7 +17,9 @@ const C = {
 
 const FLOWERS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f8f8f8'), hex('#f890c8'), hex('#9878e8'), hex('#58a0f8')];
 
-const isWaterCh = (ch: string) => ch === 'w' || ch === 'l';
+// the footbridge stands in the water, so shores don't form under it
+const isWaterCh = (ch: string) => ch === 'w' || ch === 'l' || ch === 'B';
+const isPathCh = (ch: string) => ch === 'p' || ch === 'B' || ch === 'g';
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 export const bayer = (x: number, y: number) => BAYER[(y & 3) * 4 + (x & 3)];
@@ -87,8 +90,8 @@ function path(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
       if (h < 0.06) r.set(ox + x, oy + y, C.p1);
       else if (h < 0.075) r.set(ox + x, oy + y, C.p2);
     }
-  const n = tileAt(tx, ty - 1) !== 'p', s = tileAt(tx, ty + 1) !== 'p';
-  const w = tileAt(tx - 1, ty) !== 'p', e = tileAt(tx + 1, ty) !== 'p';
+  const n = !isPathCh(tileAt(tx, ty - 1)), s = !isPathCh(tileAt(tx, ty + 1));
+  const w = !isPathCh(tileAt(tx - 1, ty)), e = !isPathCh(tileAt(tx + 1, ty));
   for (let i = 0; i < TILE; i++) {
     const wob = hash2(tx * TILE + i, ty, 6) < 0.3 ? 1 : 0;
     if (n) { r.set(ox + i, oy, C.g0); r.set(ox + i, oy + wob, C.g0); r.set(ox + i, oy + 1 + wob, C.p1); }
@@ -140,22 +143,54 @@ const LILY = [
   '....ooooo.......',
 ];
 
-function hedge(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
-  r.rect(ox, oy, TILE, TILE, C.h0);
+function hedge(r: Raster, ox: number, oy: number, tx: number, ty: number, tall = false): void {
+  // maze hedges are a deeper green with a taller front face so they read as walls
+  const [top, lit, face, line] = tall ? [C.h2, C.h0, C.m0, C.h3] : [C.h0, C.h1, C.h2, C.h3];
+  const me = tileAt(tx, ty);
+  r.rect(ox, oy, TILE, TILE, top);
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
       const h = hash2(tx * TILE + x, ty * TILE + y, 7);
-      if ((x + (y % 4 < 2 ? 0 : 2)) % 4 === 0 && y % 2 === 0) r.set(ox + x, oy + y, C.h1);
-      else if (h < 0.12) r.set(ox + x, oy + y, C.h2);
+      if ((x + (y % 4 < 2 ? 0 : 2)) % 4 === 0 && y % 2 === 0) r.set(ox + x, oy + y, lit);
+      else if (h < 0.12) r.set(ox + x, oy + y, tall ? C.h3 : C.h2);
     }
-  const isH = (x: number, y: number) => tileAt(x, y) === '#';
+  const isH = (x: number, y: number) => tileAt(x, y) === me;
   const n = !isH(tx, ty - 1), s = !isH(tx, ty + 1), w = !isH(tx - 1, ty), e = !isH(tx + 1, ty);
+  const faceTop = tall ? 6 : 10;
   for (let i = 0; i < TILE; i++) {
-    if (n) { r.set(ox + i, oy, C.h3); r.set(ox + i, oy + 1, C.h1); }
-    if (s) { for (let k = 10; k < 15; k++) r.set(ox + i, oy + k, (i + k) % 3 === 0 ? C.h3 : C.h2); r.set(ox + i, oy + 15, C.h3); }
-    if (w) r.set(ox, oy + i, C.h3);
-    if (e) r.set(ox + 15, oy + i, C.h3);
+    if (n) { r.set(ox + i, oy, line); r.set(ox + i, oy + 1, tall ? C.h1 : C.h1); }
+    if (s) {
+      for (let k = faceTop; k < 15; k++) r.set(ox + i, oy + k, (i + k) % 3 === 0 ? line : face);
+      if (tall) for (let k = faceTop; k < 15; k += 3) if (hash2(tx * TILE + i, ty + k, 8) < 0.3) r.set(ox + i, oy + k, C.h2);
+      r.set(ox + i, oy + faceTop - 1, line);
+      r.set(ox + i, oy + 15, line);
+    }
+    if (w) r.set(ox, oy + i, line);
+    if (e) r.set(ox + 15, oy + i, line);
   }
+}
+
+/** Wooden footbridge over the stream: boards across the walking direction, rails along it. */
+function bridge(r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number): void {
+  water(r, ox, oy, tx, ty, phase);
+  const vertical = isPathCh(tileAt(tx, ty - 1)) || isPathCh(tileAt(tx, ty + 1));
+  for (let a = 0; a < TILE; a++)
+    for (let b = 2; b < 14; b++) {
+      // a: along the walking direction, b: across it
+      const board = a % 4 === 3 ? C.t2 : hash2(tx * TILE + a, ty * TILE + b, 9) < 0.12 ? C.t1 : a % 4 === 0 ? C.f1 : C.t0;
+      const [x, y] = vertical ? [b, a] : [a, b];
+      r.set(ox + x, oy + y, b === 2 || b === 13 ? C.t2 : board);
+    }
+  // rails with posts at both ends, along each side
+  for (const side of [0, 14])
+    for (let a = 0; a < TILE; a++) {
+      const post = a < 2 || a > 13;
+      for (let k = 0; k < 2; k++) {
+        const c = k === 0 ? C.t0 : C.t2;
+        const [x, y] = vertical ? [side + k, a] : [a, side + k];
+        r.set(ox + x, oy + y, post ? C.t2 : c);
+      }
+    }
 }
 
 function fence(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
@@ -277,6 +312,8 @@ export function buildGround(phase: number): Raster {
           r.paint(LILY, ox + 1, oy + 2, { o: C.h3, l: C.h1, d: C.h0, p: FLOWERS[3] });
           break;
         case '#': hedge(r, ox, oy, tx, ty); break;
+        case 'm': hedge(r, ox, oy, tx, ty, true); break;
+        case 'B': bridge(r, ox, oy, tx, ty, phase); break;
         case 'F': fence(r, ox, oy, tx, ty); break;
         case 'g': gate(r, ox, oy, tx, ty); break;
         case 'b':

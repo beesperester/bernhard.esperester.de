@@ -5,7 +5,7 @@ import { buildGround, buildProps, buildWaterMask } from '../art/tiles.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildBee, buildButterfly, buildDust, buildFish, buildFishShadow, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
@@ -72,7 +72,7 @@ export class GardenScene extends Phaser.Scene {
   private meadow!: Meadow;
   private sun!: Sunlight;
   private clouds!: Clouds;
-  private pond!: PondReflection;
+  private ponds: PondReflection[] = [];
   private trees!: Trees;
   private vignette!: Vignette;
   private camAnchor!: Phaser.GameObjects.Zone;
@@ -99,13 +99,15 @@ export class GardenScene extends Phaser.Scene {
     const props = buildProps();
     this.trees = new Trees(this, props, canvases.props);
     this.meadow = new Meadow(this);
-    this.pond = new PondReflection(this, {
-      waterMask: toCanvas(buildWaterMask()),
+    const water = buildWaterMask();
+    const reflect = {
+      waterMask: toCanvas(water),
       catSheets: canvases.cats,
       floraSheets: canvases.flora,
       props: props.map((p, i) => ({ p, canvas: canvases.props[i] })),
       plants: this.meadow.plants,
-    });
+    };
+    this.ponds = waterBoxes().map((box) => new PondReflection(this, box, reflect));
     this.clouds = new Clouds(this, toCanvas);
     this.sun = new Sunlight(this, toCanvas);
     // soft glow: bright areas (path, blossom, sunlight, white fur) bleed light into their surroundings
@@ -114,7 +116,7 @@ export class GardenScene extends Phaser.Scene {
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)
       for (let tx = 0; tx < MAP_W; tx++) if (tileAt(tx, ty) === 'f') flowers.push([tx * TILE + 8, ty * TILE + 8]);
-    this.ambient = new Ambient(this, { flowers, water: buildWaterMask(), pond: pondBounds() });
+    this.ambient = new Ambient(this, { flowers, water, pond: pondBounds() });
 
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
@@ -260,10 +262,14 @@ export class GardenScene extends Phaser.Scene {
     // the garden clock is shared by all visitors, so wind and fauna line up
     const gt = this.net.now();
     this.meadow.update(gt, cats);
-    this.pond.update(time, cats);
+    // only redraw reflections on water that is on screen
+    const view = this.cameras.main.worldView;
+    for (const pond of this.ponds) {
+      const b = pond.box;
+      if (b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y) pond.update(time, cats);
+    }
     this.ambient.update(gt, dt, cats);
     this.clouds.update(gt);
-    const view = this.cameras.main.worldView;
     this.sun.update(time, dt, this.clouds.coverAt(view.centerX, view.centerY));
     if (this.youMarker.active) {
       const bob = Math.floor(time / 300) % 2;
