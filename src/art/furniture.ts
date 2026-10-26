@@ -223,3 +223,27 @@ export function buildShed(): Raster {
   outline(r, ROOF.o);
   return r;
 }
+
+/** A stone bird bath: a shallow basin of water on a pedestal. 16×20, the foot on the bottom row. */
+export function buildBirdBath(): Raster {
+  const r = new Raster(16, 20);
+  const STONE = { o: hex('#3a3a40'), d: hex('#8a8a88'), b: hex('#b8b8b0'), l: hex('#dcdcd4') };
+  // the bowl: a wide rim around the water, its underside tapering into the stem
+  for (let y = 1; y < 8; y++)
+    for (let x = 1; x < 15; x++) {
+      const dx = (x + 0.5 - 8) / 7, dy = (y + 0.5 - 4) / 3;
+      const d = dx * dx + dy * dy;
+      if (y < 5 && d > 1) continue;
+      if (y >= 5 && Math.abs(x + 0.5 - 8) > 7 - (y - 5) * 2) continue;
+      const water = y < 5 && d <= 0.55;
+      r.set(x, y, water ? (d < 0.2 && dx < 0 ? GLASS.l : hex('#4a8ce0')) : y >= 5 ? (y === 5 ? STONE.b : STONE.d) : dy < 0 ? STONE.l : STONE.b);
+    }
+  // the stem and the foot
+  for (let y = 8; y < 17; y++) { r.rect(6, y, 4, 1, STONE.b); r.set(6, y, STONE.l); r.set(9, y, STONE.d); }
+  r.rect(4, 16, 8, 1, STONE.l);
+  r.rect(3, 17, 10, 1, STONE.b);
+  r.rect(3, 18, 10, 1, STONE.d);
+  for (let x = 1; x < 15; x++) if (hash2(x, 1, 75) < 0.2 && r.isSet(x, 5)) r.set(x, 5, STONE.d);
+  outline(r, STONE.o);
+  return r;
+}

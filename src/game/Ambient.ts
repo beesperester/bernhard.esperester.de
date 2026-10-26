@@ -58,6 +58,8 @@ interface Particle {
   img: Img; kind: 'ripple' | 'drop' | 'z' | 'dust' | 'leap' | 'feather' | 'puff';
   x: number; y: number; z: number; vx: number; vy: number; vz: number;
   t: number; life: number; delay: number; cat?: CatView;
+  /** Draw order, if not by its own ground position. */
+  depth?: number;
 }
 
 /** Something catchable this frame. `y` is the ground point under it, `h` its height. */
@@ -101,7 +103,16 @@ export class Ambient {
     opts: { flowers: Pt[]; water: Raster; pond: { x: number; y: number; w: number; h: number }; trees: { p: Prop; canvas: HTMLCanvasElement }[] },
   ) {
     this.scene = scene;
-    this.birds = new Birds(scene, opts.trees, (id) => this.caught.has(preyKey(Prey.Bird, id)));
+    this.birds = new Birds(scene, opts.trees, (id) => this.caught.has(preyKey(Prey.Bird, id)), (x, y, depth, loud) => {
+      // a bird splashing in the bath: a few drops, now and then a little splish
+      for (let i = 0; i < 3; i++)
+        this.particles.push({
+          img: this.scene.add.image(x, y, 'drop'), kind: 'drop',
+          x: x + Math.random() * 4 - 2, y, z: 1, vx: Math.random() * 30 - 15, vy: 0, vz: 20 + Math.random() * 20,
+          t: 0, life: 1, delay: 0, depth,
+        });
+      if (loud) this.splashSound(x, y, 0.12, 1.9);
+    });
     this.night = new NightLife(scene, (kind, id) => this.caught.has(preyKey(kind, id)), {
       ripple: (x, y, d) => this.ripple(x, y, d),
       splash: (x, y, dir) => this.splash(x, y, dir),
@@ -593,7 +604,7 @@ export class Ambient {
           p.x += p.vx * dt;
           p.y += p.vy * dt;
           if (p.z <= 0) dead = true;
-          p.img.setPosition(Math.round(p.x), Math.round(p.y - p.z)).setDepth(p.y + 1);
+          p.img.setPosition(Math.round(p.x), Math.round(p.y - p.z)).setDepth(p.depth ?? p.y + 1);
           break;
         case 'z': {
           // drifts up from the cat, growing as it goes, then fades

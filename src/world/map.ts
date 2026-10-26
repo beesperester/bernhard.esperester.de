@@ -302,14 +302,14 @@ for (const [tx, ty] of treeTiles()) {
 
 // ---- garden furniture ----
 // Things people left in the park: a shed, benches, a picnic table, a bistro
-// set and a picnic blanket. Each stands on a patch of plain lawn (`tx`, `ty`
-// is its top-left tile); low ones can be jumped onto, the shed can't.
+// set, a picnic blanket and a bird bath. Each stands on a patch of plain lawn
+// (`tx`, `ty` is its top-left tile); low ones can be jumped onto, the shed can't.
 
-export type FurnitureKind = 'shed' | 'bench' | 'picnic' | 'bistro' | 'blanket';
+export type FurnitureKind = 'shed' | 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath';
 
 /** Tiles each kind takes up. */
 export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
-  shed: [3, 2], bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3],
+  shed: [3, 2], bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3], birdbath: [1, 1],
 };
 
 export const FURNITURE: { kind: FurnitureKind; tx: number; ty: number }[] = [
@@ -319,6 +319,7 @@ export const FURNITURE: { kind: FurnitureKind; tx: number; ty: number }[] = [
   { kind: 'picnic', tx: 17, ty: 49 },
   { kind: 'bistro', tx: 66, ty: 33 },
   { kind: 'blanket', tx: 52, ty: 25 },
+  { kind: 'birdbath', tx: 45, ty: 40 },
 ];
 
 /** True on tiles taken by furniture (nothing else grows or stands there). */
@@ -328,6 +329,9 @@ export function furnished(tx: number, ty: number): boolean {
     return tx >= f.tx && tx < f.tx + w && ty >= f.ty && ty < f.ty + h;
   });
 }
+
+/** Height of the bird bath's rim. */
+export const BATH_H = 13;
 
 /** Solid parts of the furniture in world px, relative to the spot's top-left corner, with their height. */
 const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, number][]> = {
@@ -339,6 +343,7 @@ const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, n
   bistro: [[6, 15, 14, 22, 5], [18, 14, 30, 22, 9], [34, 15, 42, 22, 5]],
   // the basket (the blanket itself is flat)
   blanket: [[39, 26, 51, 31, 6]],
+  birdbath: [[3, 7, 13, 14, BATH_H]],
 };
 
 const SOLIDS: [number, number, number, number, number][] = FURNITURE.flatMap((f) =>

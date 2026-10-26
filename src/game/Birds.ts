@@ -4,7 +4,7 @@ import type { Prop } from '../art/tiles.ts';
 import { Act, Prey, SWIPE_AT_MS } from './state.ts';
 import type { CatView } from './CatView.ts';
 import type { PreyRef } from './Ambient.ts';
-import { TILE, tileAt, levelAt, elevAt, furnished } from '../world/map.ts';
+import { BATH_H, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../world/map.ts';
 import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
 import { lightAt } from '../world/sky.ts';
 import { sound } from '../audio/sound.ts';
@@ -16,6 +16,10 @@ import { sound } from '../audio/sound.ts';
 
 /** A new visit may start every SLOT ms with probability P. */
 const SLOT = 4000, P = 0.6;
+/** Share of daytime visits that go to a bird bath rather than a tree: birds love them. */
+const BATH_P = 0.4;
+/** How often a bird at the bath may have a splash about, and for how long. */
+const BATHE_EVERY = 1800, BATHE_P = 0.35;
 /** Longest possible visit, so we know how far back to look for birds still around. */
 const MAX_VISIT = 120000;
 const ARRIVE_MS = 2200, FLIT_MS = 900, LEAVE_MS = 2600, FLEE_MS = 2400;
@@ -34,10 +38,10 @@ const DASH_SPEED = 110;
 
 type Pt3 = [number, number, number];
 /** A place a bird sits: x, ground line y and height h above it (crowns are high, the lawn is not). */
-interface Stop { x: number; y: number; h: number; perch: boolean; depth: number; t0: number; t1: number }
+interface Stop extends Spot { t0: number; t1: number }
 interface Visit { id: number; colour: number; from: Pt3; to: Pt3; stops: Stop[]; start: number; end: number; asleep: boolean }
 interface Flee { t: number; x: number; y: number; h: number; dir: number }
-interface Spot { x: number; y: number; h: number; depth: number; perch: boolean }
+interface Spot { x: number; y: number; h: number; depth: number; perch: boolean; bath?: boolean }
 
 export class Birds {
   private readonly perches: Spot[][];
@@ -50,11 +54,19 @@ export class Birds {
   private readonly birds: Pool;
   private readonly shadows: Pool;
   private readonly isCaught: (id: number) => boolean;
+  /** Bird baths: places on the rim, and lawn around each. */
+  private readonly baths: { rim: Spot[]; lawn: Spot[] }[];
+  private readonly splash: (x: number, y: number, depth: number, loud: boolean) => void;
+  private readonly splashed = new Map<number, number>();
   /** Birds sitting in a tree right now, for birdsong. */
   private perched: { x: number; y: number }[] = [];
 
-  constructor(scene: Phaser.Scene, trees: { p: Prop; canvas: HTMLCanvasElement }[], isCaught: (id: number) => boolean) {
+  constructor(
+    scene: Phaser.Scene, trees: { p: Prop; canvas: HTMLCanvasElement }[], isCaught: (id: number) => boolean,
+    splash: (x: number, y: number, depth: number, loud: boolean) => void,
+  ) {
     this.isCaught = isCaught;
+    this.splash = splash;
     this.birds = new Pool(scene, 'bird-0');
     this.shadows = new Pool(scene, 'shadow');
     this.marks = new Pool(scene, 'alert');
@@ -71,18 +83,28 @@ export class Birds {
       return out;
     });
     // lawns: open grass or path a few steps from the trunk, at the tree's level
-    this.lawns = trees.map(({ p }) => {
-      const tx = Math.floor((p.x + 32) / TILE), ty = Math.floor(p.depthY / TILE);
-      const out: Spot[] = [];
-      for (let y = ty - 3; y <= ty + 3; y++)
-        for (let x = tx - 3; x <= tx + 3; x++) {
-          if ((x === tx && y === ty) || !'.,p'.includes(tileAt(x, y)) || levelAt(x, y) !== levelAt(tx, ty) || furnished(x, y)) continue;
-          if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !'.,pf'.includes(tileAt(x + dx, y + dy)))) continue;
-          const cx = x * TILE + 8, cy = y * TILE + 10;
-          out.push({ x: cx, y: cy, h: elevAt(cx, cy), depth: cy, perch: false });
-        }
-      return out;
+    this.lawns = trees.map(({ p }) => this.lawnAround(Math.floor((p.x + 32) / TILE), Math.floor(p.depthY / TILE)));
+    // bird baths: on the rim at the front of the basin, and the lawn around
+    this.baths = FURNITURE.filter((f) => f.kind === 'birdbath').map((f) => {
+      const cx = f.tx * TILE + 8, y = f.ty * TILE + 10;
+      return {
+        rim: [-4, -1, 2, 5].map((dx) => ({ x: cx + dx, y, h: BATH_H, depth: y, perch: false, bath: true })),
+        lawn: this.lawnAround(f.tx, f.ty),
+      };
     });
+  }
+
+  /** Open grass or path a few steps from tile (tx, ty), at its level. */
+  private lawnAround(tx: number, ty: number): Spot[] {
+    const out: Spot[] = [];
+    for (let y = ty - 3; y <= ty + 3; y++)
+      for (let x = tx - 3; x <= tx + 3; x++) {
+        if ((x === tx && y === ty) || !'.,p'.includes(tileAt(x, y)) || levelAt(x, y) !== levelAt(tx, ty) || furnished(x, y)) continue;
+        if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !'.,pf'.includes(tileAt(x + dx, y + dy)))) continue;
+        const cx = x * TILE + 8, cy = y * TILE + 10;
+        out.push({ x: cx, y: cy, h: elevAt(cx, cy), depth: cy, perch: false });
+      }
+    return out;
   }
 
   private visitAt(k: number): Visit | null {
@@ -91,13 +113,17 @@ export class Birds {
       if (hash2(k, 11, 920) < P && this.perches.length) {
         const r = seedRng(k, 11);
         const tree = Math.floor(r() * this.perches.length);
-        const perches = this.perches[tree], lawns = this.lawns[tree];
+        const asleep = lightAt(k * SLOT).night >= 0.5;
+        // by day many go to a bird bath instead
+        const bath = !asleep && this.baths.length && r() < BATH_P ? this.baths[Math.floor(r() * this.baths.length)] : null;
+        const perches = bath ? bath.rim : this.perches[tree], lawns = bath ? bath.lawn : this.lawns[tree];
         const perch = (): Spot | null => (perches.length ? perches[Math.floor(r() * perches.length)] : null);
         const lawn = (): Spot | null => (lawns.length ? lawns[Math.floor(r() * lawns.length)] : null);
         // sit in the tree; peck on the lawn; or come down for a bit and go back up; at night, just sleep up there
+        // (at the bath: drink and splash on the rim, maybe hop down onto the grass first)
         const u = r();
-        const asleep = lightAt(k * SLOT).night >= 0.5;
-        const plan: [Spot | null, number][] = asleep ? [[perch(), 60000 + r() * 50000]]
+        const plan: [Spot | null, number][] = bath ? (u < 0.6 ? [[perch(), 15000 + r() * 25000]] : [[lawn(), 8000 + r() * 12000], [perch(), 12000 + r() * 20000]])
+          : asleep ? [[perch(), 60000 + r() * 50000]]
           : u < 0.35 ? [[perch(), 15000 + r() * 30000]]
           : u < 0.65 ? [[lawn(), 15000 + r() * 25000]]
           : [[perch(), 6000 + r() * 14000], [lawn(), 12000 + r() * 20000], [perch(), 5000 + r() * 12000]];
@@ -217,7 +243,9 @@ export class Birds {
   private peck(v: Visit, s: Stop, gt: number, now: number, cats: CatView[], prey: PreyRef[]): void {
     const tau = gt - s.t0;
     const j = Math.floor(tau / HOP_EVERY);
-    const spot = (n: number): [number, number] => (n <= 0 ? [0, 0] : [(hash2(v.id, n, 922) - 0.5) * 10, (hash2(v.id, n, 923) - 0.5) * 6]);
+    // little shuffles along the rim of a bath, bigger hops on the lawn
+    const room = s.bath ? 0.4 : 1;
+    const spot = (n: number): [number, number] => (n <= 0 ? [0, 0] : [(hash2(v.id, n, 922) - 0.5) * 10 * room, (hash2(v.id, n, 923) - 0.5) * 6 * room * room]);
     const [ax, ay] = spot(j - 1), [bx, by] = spot(j);
     const u = clamp01((tau - j * HOP_EVERY) / HOP_MS);
     const x = s.x + lerp(ax, bx, u), y = s.y + lerp(ay, by, u);
@@ -257,7 +285,17 @@ export class Birds {
     }
 
     const pecking = !alert && u >= 1 && hash2(v.id, Math.floor(gt / 280), 925) < 0.4;
-    this.draw(v, [x, y, s.h + (alert ? 0 : hop)], u < 1 && !alert ? 2 : pecking ? 1 : 0, right, 1, y);
+    // at the bath, every now and then a good splash: wings whirring, drops flying
+    const bathing = s.bath && !alert && u >= 1 && hash2(v.id, Math.floor(gt / BATHE_EVERY), 927) < BATHE_P;
+    if (bathing) {
+      const last = this.splashed.get(v.id) ?? -1e9;
+      if (gt - last > 260 || gt < last) {
+        this.splashed.set(v.id, gt);
+        if (this.splashed.size > 32) this.splashed.delete(this.splashed.keys().next().value!);
+        this.splash(x, y - s.h + 1, y + 0.6, gt - last > BATHE_EVERY);
+      }
+    }
+    this.draw(v, [x, y, s.h + (alert ? 0 : hop)], bathing ? (Math.floor(gt / 60) % 2 ? 2 : 3) : u < 1 && !alert ? 2 : pecking ? 1 : 0, right, 1, y);
     prey.push({ kind: Prey.Bird, id: v.id, x, y, h: s.h, colour: v.colour });
   }
 

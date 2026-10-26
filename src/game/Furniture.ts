@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { Raster } from '../art/raster.ts';
-import { buildBasket, buildBench, buildBistroTable, buildBlanket, buildChair, buildPicnicTable, buildShed } from '../art/furniture.ts';
+import { buildBasket, buildBench, buildBirdBath, buildBistroTable, buildBlanket, buildChair, buildPicnicTable, buildShed } from '../art/furniture.ts';
 import { FURNITURE, TILE } from '../world/map.ts';
 
 /** Blankets lie flat on the grass, under everything that stands. */
@@ -37,6 +37,7 @@ export class Furniture {
           sprite('chair', buildChair, ox + 5, oy + 6, oy + 15);
           sprite('chair', buildChair, ox + 33, oy + 6, oy + 15, true);
           break;
+        case 'birdbath': sprite('birdbath', buildBirdBath, ox, oy - 5, oy + 7); break;
         case 'blanket':
           sprite('blanket', buildBlanket, ox + 11, oy + 12, FLAT);
           sprite('basket', buildBasket, ox + 38, oy + 19, oy + 26);
