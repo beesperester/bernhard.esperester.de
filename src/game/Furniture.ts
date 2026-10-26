@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { Raster } from '../art/raster.ts';
 import { buildBasket, buildBench, buildBirdBath, buildBistroTable, buildBlanket, buildChair, buildPicnicTable, buildShed, dressForSeason } from '../art/furniture.ts';
 import { FURNITURE, TILE } from '../world/map.ts';
+import { cullerFor } from './Culler.ts';
 
 /** Blankets lie flat on the grass, under everything that stands. */
 const FLAT = -99994;
@@ -25,7 +26,7 @@ export class Furniture {
         art.set(key, (canvas = toCanvas(r)));
         scene.textures.addCanvas(`furniture-${key}`, canvas);
       }
-      scene.add.image(x, y, `furniture-${key}`).setOrigin(0).setDepth(depth).setFlipX(flip);
+      cullerFor(scene).add(scene.add.image(x, y, `furniture-${key}`).setOrigin(0).setDepth(depth).setFlipX(flip));
       if (depth !== FLAT) this.pieces.push({ p: { x, y, depthY: depth }, canvas: flip ? mirrored(canvas) : canvas });
     };
     for (const f of FURNITURE) {

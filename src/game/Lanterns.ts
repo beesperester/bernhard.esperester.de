@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { LANTERNS, elevAt } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
 import { DEPTH } from './Daylight.ts';
+import { cullerFor } from './Culler.ts';
 
 /** Something drawn in front of whatever is behind its depth: its picture and where it is. */
 export interface Occluder { canvas: CanvasImageSource; x: number; y: number; w: number; h: number; depth: number }
@@ -29,10 +30,10 @@ export class Lanterns {
         for (const o of occluders)
           if (o.depth > y && o.x < left + w && o.x + o.w > left && o.y < up + h && o.y + o.h > up) g.drawImage(o.canvas, o.x - left, o.y - up);
         tex.refresh();
-        return scene.add.image(left, up, `${key}-${i}`).setOrigin(0).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+        return cullerFor(scene).add(scene.add.image(left, up, `${key}-${i}`).setOrigin(0).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
       };
       return {
-        post: scene.add.image(x, top, 'lantern', 0).setOrigin(0.5, 1).setDepth(y),
+        post: cullerFor(scene).add(scene.add.image(x, top, 'lantern', 0).setOrigin(0.5, 1).setDepth(y)),
         glass: add('glow-lamp', x, top - 13),
         pool: add('glow-lantern', x, top - 2),
         seed: i * 1.7,

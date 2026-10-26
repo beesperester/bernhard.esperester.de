@@ -4,6 +4,7 @@ import { FLORA } from '../art/flora.ts';
 import type { Prop } from '../art/tiles.ts';
 import type { CatView } from './CatView.ts';
 import type { LivePlant } from './Meadow.ts';
+import { cullerFor } from './Culler.ts';
 
 type Box = { x: number; y: number; w: number; h: number };
 let count = 0;
@@ -47,7 +48,7 @@ export class PondReflection {
     this.mask.width = w;
     this.mask.height = h;
     this.mask.getContext('2d')!.drawImage(opts.waterMask, x, y, w, h, 0, 0, w, h);
-    scene.add.image(x, y, key).setOrigin(0).setDepth(-99990).setAlpha(0.65);
+    cullerFor(scene).add(scene.add.image(x, y, key).setOrigin(0).setDepth(-99990).setAlpha(0.65));
 
     this.catSheets = opts.catSheets;
     this.floraSheets = opts.floraSheets;

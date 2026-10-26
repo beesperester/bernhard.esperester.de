@@ -4,6 +4,7 @@ import type { TerrainPiece } from '../art/terrain.ts';
 import type { CatView } from './CatView.ts';
 import { LEVEL, TILE, WORLD_H, WORLD_W, casterHeight, elevAt, levelAt } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
+import { cullerFor } from './Culler.ts';
 
 // Shadows that follow the sun. By day they are cast for real:
 //  - terrain, hedges, bushes, rocks, fences and the shed form a height map of the
@@ -99,7 +100,7 @@ export class Shadows {
     for (const [i, t] of opts.terrain.entries()) {
       if (t.stairs) continue;
       const tex = scene.textures.createCanvas(`sun-shadows-${i}`, t.raster.w, TILE)!;
-      this.overlays.push({ t, tex, img: scene.add.image(t.x, t.y, `sun-shadows-${i}`).setOrigin(0).setDepth(t.depth + 0.001).setVisible(false) });
+      this.overlays.push({ t, tex, img: cullerFor(scene).add(scene.add.image(t.x, t.y, `sun-shadows-${i}`).setOrigin(0).setDepth(t.depth + 0.001).setVisible(false)) });
     }
 
     // the cats' outlines (all coats share them)
@@ -122,7 +123,7 @@ export class Shadows {
     g.fillRect(0, 0, 64, 64);
     scene.textures.addCanvas('blob', blob);
     for (const b of opts.blobs)
-      this.blobs.push(scene.add.image(b.x, b.y, 'blob').setDisplaySize(b.w, b.h).setDepth(b.depth).setAlpha(0));
+      this.blobs.push(cullerFor(scene).add(scene.add.image(b.x, b.y, 'blob').setDisplaySize(b.w, b.h).setDepth(b.depth).setAlpha(0)));
   }
 
   /** How shaded the ground under (x, y) is right now, 0..1, for darkening cats standing there. */

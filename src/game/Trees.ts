@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { bayer, type Prop } from '../art/tiles.ts';
 import type { CatView } from './CatView.ts';
+import { cullerFor } from './Culler.ts';
 
 const HOLE_R = 16;
 /** Fraction of pixels removed at the centre of the hole; the tree never fully disappears. */
@@ -28,7 +29,7 @@ export class Trees {
       const orig = canvases[i].getContext('2d')!.getImageData(0, 0, w, h);
       tex.getContext().putImageData(orig, 0, 0);
       tex.refresh();
-      scene.add.image(p.x, p.y, `tree-${i}`).setOrigin(0).setDepth(p.depthY);
+      cullerFor(scene).add(scene.add.image(p.x, p.y, `tree-${i}`).setOrigin(0).setDepth(p.depthY));
       return { p, tex, orig, work: new ImageData(w, h), holed: false };
     });
   }

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { Light } from '../world/sky.ts';
 import { DEPTH } from './Daylight.ts';
 import { seedRng } from './fauna.ts';
+import { cullerFor } from './Culler.ts';
 
 type Box = { x: number; y: number; w: number; h: number };
 const MOON_R = 6;
@@ -42,7 +43,7 @@ export class NightWater {
         const x = Math.floor(r() * box.w), y = Math.floor(r() * box.h);
         if (wet(box.x + x, box.y + y)) stars.push([x, y, 0.6 + r() * 2, r() * 6.3]);
       }
-      const img = scene.add.image(box.x, box.y, key).setOrigin(0).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+      const img = cullerFor(scene).add(scene.add.image(box.x, box.y, key).setOrigin(0).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
       this.pools.push({ box, tex, img, mask, stars });
     });
   }

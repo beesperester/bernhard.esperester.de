@@ -34,6 +34,7 @@ import { touch, setupUI } from '../ui/ui.ts';
 import { setCatCount } from '../ui/favicon.ts';
 import { Board, NAME_AT } from './Board.ts';
 import { askName, renderBoard } from '../ui/board.ts';
+import { cullerFor } from './Culler.ts';
 
 const SPEED = 64; // px per second
 const DASH_SPEED = 168;
@@ -51,6 +52,8 @@ const HOP_MS = 480;
 const HOP_HEIGHT = 16;
 /** Walking (not jumping) climbs small rises like stairs, but not a rock or a cliff. */
 const STEP_UP = 3;
+/** How often the pond reflections are redrawn, ms. */
+const REFLECTION_MS = 33;
 /**
  * Corner slip: walking straight into an edge with an opening at most this many px
  * to the side slides the cat over into it, so one-tile gaps (the maze) are easy to enter.
@@ -120,6 +123,7 @@ export class GardenScene extends Phaser.Scene {
   private lanterns!: Lanterns;
   private shadows!: Shadows;
   private nightWater!: NightWater;
+  private nextReflection = 0;
   private nextClock = 0;
   private board!: Board;
   /** Offered a name of our own already (or the dialog is open). */
@@ -151,7 +155,7 @@ export class GardenScene extends Phaser.Scene {
     const grounds = [0, 1].map((p) => this.add.image(0, 0, `ground-${p}`).setOrigin(0).setDepth(-100000));
     grounds[1].setVisible(false);
     // raised ground: each plateau row lifted by its height, sorted like everything else by ground y
-    canvases.terrain.forEach((t, i) => this.add.image(t.x, t.y, `terrain-${i}`).setOrigin(0).setDepth(t.depth));
+    canvases.terrain.forEach((t, i) => cullerFor(this).add(this.add.image(t.x, t.y, `terrain-${i}`).setOrigin(0).setDepth(t.depth)));
     this.time.addEvent({ delay: 700, loop: true, callback: () => grounds.forEach((g) => g.setVisible(!g.visible)) });
 
     const props = buildProps();
@@ -434,10 +438,15 @@ export class GardenScene extends Phaser.Scene {
     const gt = this.net.now();
     // only animate plants and redraw reflections that are on screen
     const view = this.cameras.main.worldView;
+    cullerFor(this).update(view);
     this.meadow.update(gt, cats, view);
-    for (const pond of this.ponds) {
-      const b = pond.box;
-      if (b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y) pond.update(time, cats);
+    // the ripple is slow, so reflections only need redrawing about 30 times a second
+    if (time >= this.nextReflection) {
+      this.nextReflection = time + REFLECTION_MS;
+      for (const pond of this.ponds) {
+        const b = pond.box;
+        if (b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y) pond.update(time, cats);
+      }
     }
     this.daylight.update(gt);
     const light = this.daylight.light;
