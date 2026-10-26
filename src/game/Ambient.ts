@@ -3,6 +3,7 @@ import type { Raster } from '../art/raster.ts';
 import { BUTTERFLY_COLOURS, RIPPLE_FRAMES, Z_SIZES } from '../art/critters.ts';
 import { Act, Facing } from './state.ts';
 import type { CatView } from './CatView.ts';
+import { wetAt } from '../world/map.ts';
 
 type Img = Phaser.GameObjects.Image;
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
@@ -50,7 +51,7 @@ export class Ambient {
   private fish: { img: Img; x0: number; y: number; dir: number; t: number } | null = null;
   private nextFish = rand(3000, 7000);
   private nextButterfly = 500;
-  private perCat = new WeakMap<CatView, { nextZ: number; nextDust: number }>();
+  private perCat = new WeakMap<CatView, { nextZ: number; nextDust: number; wet: boolean }>();
 
   constructor(
     scene: Phaser.Scene,
@@ -253,7 +254,16 @@ export class Ambient {
   private updateCats(time: number, cats: CatView[]): void {
     for (const c of cats) {
       let s = this.perCat.get(c);
-      if (!s) this.perCat.set(c, (s = { nextZ: 0, nextDust: 0 }));
+      if (!s) this.perCat.set(c, (s = { nextZ: 0, nextDust: 0, wet: false }));
+      // splash whenever a cat (ours or anyone's) touches down in the pond
+      const wet = c.z < 4 && wetAt(c.x, c.y);
+      if (wet && !s.wet) {
+        this.splash(c.x, c.y, 0);
+        this.splash(c.x, c.y, 0);
+        this.ripple(c.x, c.y, 0);
+        this.ripple(c.x, c.y, 0.25);
+      }
+      s.wet = wet;
       if (c.act === Act.Sleep && time >= s.nextZ) {
         s.nextZ = time + 850;
         const head = c.facing === Facing.Right ? 4 : -4;

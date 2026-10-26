@@ -4,7 +4,7 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 
 - **Arrow keys** move · **Space** jump · **Shift** dash · **H** hiss · **R** roll on your back
 - Idle cats sit down after a few seconds and lick their paws now and then; after 30 s they curl up and sleep (zzZZzz)
-- Jump onto low obstacles — hedges, bushes, rocks, the fountain rim — and walk along them
+- Jump onto low obstacles — hedges, bushes, rocks, the fountain rim — and walk along them. Jump into the pond and you splash and scramble straight back out
 - On touch devices an on-screen D-pad and buttons appear
 
 ## How it works

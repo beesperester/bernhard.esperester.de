@@ -56,7 +56,8 @@ export function tileAt(tx: number, ty: number): string {
 // higher than they currently are, so low obstacles can be reached by jumping.
 export const WALL = 99;
 
-const HEIGHT: Record<string, number> = { F: WALL, g: WALL, w: WALL, l: WALL, '#': 8, b: 7, o: 6, r: 5 };
+// water is flat but special: cats won't walk in, though they can jump in (see waterUnder)
+const HEIGHT: Record<string, number> = { F: WALL, g: WALL, '#': 8, b: 7, o: 6, r: 5 };
 /** Footprint insets [left, top, right, bottom] for objects smaller than their tile. */
 const INSET: Record<string, [number, number, number, number]> = { b: [1, 2, 1, 1], r: [1, 4, 1, 2], o: [0, 1, 0, 1] };
 
@@ -83,6 +84,17 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number): num
   for (const [ax, ay, bx, by] of TRUNKS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
   return h;
 }
+
+/** True if any part of the box is over the pond. */
+export function waterUnder(x0: number, y0: number, x1: number, y1: number): boolean {
+  const tx0 = Math.floor(x0 / TILE), tx1 = Math.floor((x1 - 0.01) / TILE);
+  const ty0 = Math.floor(y0 / TILE), ty1 = Math.floor((y1 - 0.01) / TILE);
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if ('wl'.includes(tileAt(tx, ty))) return true;
+  return false;
+}
+
+/** True if a cat standing at (x, y) has a paw in the water. */
+export const wetAt = (x: number, y: number): boolean => waterUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1);
 
 /** Surface height under a cat standing at (x, y). */
 export const groundAt = (x: number, y: number): number => heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1);

@@ -5,7 +5,7 @@ import { buildGround, buildProps, buildWaterMask } from '../art/tiles.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { BUTTERFLY_COLOURS, RIPPLE_W, RIPPLE_H, Z_SIZES, buildBee, buildButterfly, buildDust, buildFish, buildRipples, buildZ } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, groundAt, spawnPoints, tileAt, pondBounds } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds } from '../world/map.ts';
 import { Act, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
@@ -21,6 +21,9 @@ const SPEED = 64; // px per second
 const DASH_SPEED = 168;
 const DASH_MS = 2500;
 const DASH_COOLDOWN_MS = 1500;
+// a cat that lands in the pond hops straight back out to dry land
+const HOP_MS = 480;
+const HOP_HEIGHT = 16;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
 const TICK_MS = 50;
 const SEND_MS = 100;
@@ -72,6 +75,8 @@ export class GardenScene extends Phaser.Scene {
   private ambient!: Ambient;
   private dashUntil = 0;
   private dashReadyAt = 0;
+  private lastDry = { x: 0, y: 0 };
+  private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number } | null = null;
 
   constructor() {
     super('garden');
@@ -105,6 +110,7 @@ export class GardenScene extends Phaser.Scene {
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
     const now = this.time.now;
     this.me = new CatView(this, sx, sy, loadCoat());
+    this.lastDry = { x: sx, y: sy };
     this.lastInput = now;
 
     this.youMarker = this.add.image(sx, sy, 'you').setOrigin(0.5, 1).setDepth(100001);
@@ -257,6 +263,21 @@ export class GardenScene extends Phaser.Scene {
       this.ui.hideHelp();
     }
 
+    if (this.hop) {
+      // scrambling back out of the pond: no control until back on dry land
+      const h = this.hop;
+      const u = Math.min(1, (now - h.t0) / HOP_MS);
+      me.x = h.fx + (h.tx - h.fx) * u;
+      me.y = h.fy + (h.ty - h.fy) * u;
+      me.z = h.tz * u + HOP_HEIGHT * 4 * u * (1 - u);
+      if (u >= 1) {
+        me.z = h.tz;
+        this.hop = null;
+        me.setAct(Act.Idle, now);
+      }
+      return;
+    }
+
     const elapsed = now - me.actStart;
     const begin = (act: Act) => {
       me.seq = (me.seq + 1) & 0xffff;
@@ -305,11 +326,21 @@ export class GardenScene extends Phaser.Scene {
         me.z = ground;
         this.vz = 0;
         me.setAct(moving ? Act.Walk : Act.Idle, now);
+        if (wetAt(me.x, me.y)) {
+          // splash! straight back out to where we last stood on dry land
+          const { x, y } = this.lastDry;
+          if (Math.abs(x - me.x) > 0.5) me.facing = x < me.x ? Facing.Left : Facing.Right;
+          this.hop = { fx: me.x, fy: me.y, tx: x, ty: y, tz: groundAt(x, y), t0: now };
+          begin(Act.Jump);
+          return;
+        }
       }
     } else {
       me.z = ground;
       if (me.act === Act.Jump) me.setAct(moving ? Act.Walk : Act.Idle, now);
     }
+
+    if (me.act !== Act.Jump && !wetAt(me.x, me.y)) this.lastDry = { x: me.x, y: me.y };
 
     if (me.act === Act.Idle && now - this.lastInput > SIT_AFTER_MS) {
       if (me.facing === Facing.Up) me.facing = Facing.Down;
@@ -321,10 +352,17 @@ export class GardenScene extends Phaser.Scene {
     if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS) me.setAct(Act.Sleep, now);
   }
 
-  /** Move horizontally, but only onto surfaces no higher than the cat currently is. */
+  /**
+   * Move horizontally, but only onto surfaces no higher than the cat currently is.
+   * Cats won't walk into the pond, but they can jump in.
+   */
   private move(mx: number, my: number): void {
     const me = this.me;
-    const hits = (x: number, y: number) => heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1) > me.z + 0.5;
+    const airborne = me.act === Act.Jump;
+    const hits = (x: number, y: number) => {
+      const [x0, y0, x1, y1] = [x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1];
+      return heightUnder(x0, y0, x1, y1) > me.z + 0.5 || (!airborne && waterUnder(x0, y0, x1, y1));
+    };
     if (mx && !hits(me.x + mx, me.y)) me.x += mx;
     if (my && !hits(me.x, me.y + my)) me.y += my;
   }
