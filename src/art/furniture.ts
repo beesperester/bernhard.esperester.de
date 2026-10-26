@@ -2,7 +2,8 @@
 // a picnic table, a bistro set and a picnic blanket with its basket. Every
 // sprite gets a dark outline at the end, like the trees and critters.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { bayer } from './tiles.ts';
+import { SNOW, bayer } from './tiles.ts';
+import { SEASON, type Season } from '../world/season.ts';
 
 const WOOD = { o: hex('#3b2412'), d: hex('#7a4522'), b: hex('#a8642e'), l: hex('#c07a3e'), s: hex('#e2a868') };
 const IRON = { o: hex('#18141a'), d: hex('#2e2a30'), l: hex('#5a5460') };
@@ -246,4 +247,34 @@ export function buildBirdBath(): Raster {
   for (let x = 1; x < 15; x++) if (hash2(x, 1, 75) < 0.2 && r.isSet(x, 5)) r.set(x, 5, STONE.d);
   outline(r, STONE.o);
   return r;
+}
+
+// ---------------------------------------------------------------- seasons
+
+/** Snow lying on every upward-facing edge of a piece of art (in patches until the snow is deep). */
+export function snowCap(r: Raster, amount: number, seed = 0): void {
+  if (amount <= 0) return;
+  for (let x = 0; x < r.w; x++)
+    for (let y = 0; y < r.h; y++) {
+      if (!r.isSet(x, y) || (y > 0 && r.isSet(x, y - 1)) || hash2(x, y, seed + 1501) >= amount) continue;
+      r.set(x, y, SNOW[3]);
+      if (r.isSet(x, y + 1) && hash2(x, y, seed + 1502) < 0.7) r.set(x, y + 1, SNOW[2]);
+    }
+}
+
+/** Furniture in winter: snow on top, a snowed-over shed roof, a frozen bird bath. */
+export function dressForSeason(r: Raster, kind: string, s: Season = SEASON): void {
+  const swap = (from: RGB[], to: (c: RGB) => RGB, p = 1) => {
+    const keys = new Set(from.map((c) => c.join()));
+    for (let y = 0; y < r.h; y++)
+      for (let x = 0; x < r.w; x++) {
+        const i = (y * r.w + x) * 4;
+        const k = `${r.data[i]},${r.data[i + 1]},${r.data[i + 2]}`;
+        if (r.data[i + 3] && keys.has(k) && hash2(x, y, 1503) < p) r.set(x, y, to([r.data[i], r.data[i + 1], r.data[i + 2]]));
+      }
+  };
+  if (s.frozen && kind === 'birdbath') swap([GLASS.l, hex('#4a8ce0')], (c) => (c[0] > 150 ? hex('#f2fbff') : hex('#a6d4ec')));
+  if (s.snow <= 0) return;
+  if (kind === 'shed') swap([ROOF.d, ROOF.b, ROOF.l, ROOF.s], (c) => SNOW[c[0] < 150 ? 1 : c[0] < 200 ? 2 : 3], s.snow);
+  snowCap(r, s.snow, kind.length);
 }

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { PIXEL_FONT } from '../ui/pixel.ts';
 import { Act, ACT_MAX, EAT_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { CAT, COATS } from '../art/cat.ts';
 import { WORLD_W, WORLD_H, groundAt, terrainCover } from '../world/map.ts';
@@ -8,7 +9,9 @@ import { DEPTH } from './Daylight.ts';
 const SILHOUETTE = 0x5ee86a;
 
 /** Names float over everything but the emotes, the same size at any zoom. */
-const LABEL_DEPTH = 99999.6, LABEL_PX = 10;
+const LABEL_DEPTH = 99999.6, LABEL_PX = 12;
+/** How long the name takes to fade out when a cat crouches (and back in). */
+const LABEL_FADE_MS = 400;
 
 /** Light shared by all cats, set by the scene every frame. */
 export const catLight = {
@@ -59,6 +62,8 @@ export class CatView {
   private readonly rim: Phaser.GameObjects.Sprite;
   private readonly eyes: Phaser.GameObjects.Sprite;
   private readonly label: Phaser.GameObjects.Text;
+  private labelAlpha = 1;
+  private labelT = -1;
 
   constructor(scene: Phaser.Scene, x: number, y: number, coat: number, local = false) {
     this.x = x;
@@ -76,7 +81,7 @@ export class CatView {
       .setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     // drawn at screen resolution and shrunk by the zoom, so the letters stay sharp
     this.label = scene.add.text(x, y, '', {
-      fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+      fontFamily: PIXEL_FONT,
       fontSize: `${LABEL_PX}px`,
       fontStyle: 'bold',
       color: local ? '#ffe890' : '#fff4dc',
@@ -144,7 +149,13 @@ export class CatView {
     // the name, just under the cat's feet (and under its shadow on a ledge)
     if (this.label.text !== this.name) this.label.setText(this.name);
     const zoom = this.label.scene.cameras.main.zoom;
-    this.label.setVisible(!!this.name).setScale(1 / zoom).setPosition(x, y + 1 - Math.round(groundAt(this.x, this.y)));
+    // a crouching cat is lying low: its name fades away (the act is synced, so for everyone)
+    const hiding = this.act === Act.Crouch || this.act === Act.Sneak;
+    const step = this.labelT < 0 ? 1 : (now - this.labelT) / LABEL_FADE_MS;
+    this.labelT = now;
+    this.labelAlpha = Math.max(0, Math.min(1, this.labelAlpha + (hiding ? -step : step)));
+    this.label.setVisible(!!this.name && this.labelAlpha > 0).setAlpha(this.labelAlpha)
+      .setScale(1 / zoom).setPosition(x, y + 1 - Math.round(groundAt(this.x, this.y)));
 
     const content = ((this.act === Act.Eat || this.act === Act.Feast) && ms > EAT_MS - 700) || (this.act === Act.Munch && ms > MUNCH_MS - 500);
     const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Mew ? 'bubble-mew' : this.act === Act.Roll || content ? 'bubble-roll' : null;

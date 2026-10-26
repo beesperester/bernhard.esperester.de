@@ -9,6 +9,7 @@
 // into the lake; the hedge labyrinth sits in the north-east.
 
 import { hash2 } from '../art/raster.ts';
+import { SEASON } from './season.ts';
 
 export const TILE = 16;
 /** Height of one terrain level in px: more than a jump (~14px), so cliffs can't be hopped up. */
@@ -205,13 +206,19 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number): num
   return h;
 }
 
-/** True if any part of the box is over the pond. */
-export function waterUnder(x0: number, y0: number, x1: number, y1: number): boolean {
+/** True if any part of the box is over the pond (frozen or not). */
+function pondUnder(x0: number, y0: number, x1: number, y1: number): boolean {
   const tx0 = Math.floor(x0 / TILE), tx1 = Math.floor((x1 - 0.01) / TILE);
   const ty0 = Math.floor(y0 / TILE), ty1 = Math.floor((y1 - 0.01) / TILE);
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if ('wl'.includes(tileAt(tx, ty))) return true;
   return false;
 }
+
+/** True if any part of the box is over open water (a frozen pond is solid ground). */
+export const waterUnder = (x0: number, y0: number, x1: number, y1: number): boolean => !SEASON.frozen && pondUnder(x0, y0, x1, y1);
+
+/** True if a cat standing at (x, y) is out on the ice. */
+export const iceAt = (x: number, y: number): boolean => SEASON.frozen && pondUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1);
 
 /** True if a cat standing at (x, y) has a paw in the water. */
 export const wetAt = (x: number, y: number): boolean => waterUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1);

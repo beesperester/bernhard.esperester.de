@@ -6,6 +6,7 @@ import type { PreyRef } from './Ambient.ts';
 import { DEPTH } from './Daylight.ts';
 import { MAP_H, MAP_W, TILE, elevAt, levelAt, tileAt } from '../world/map.ts';
 import { lightAt } from '../world/sky.ts';
+import { inSeason } from '../world/season.ts';
 import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
 
 // Fireflies drifting over the grass and frogs sitting at the water's edge,
@@ -14,8 +15,8 @@ import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
 
 /** A swarm of fireflies may rise every FIRE_SLOT ms. */
 const FIRE_SLOT = 2500, FIRE_MAX = 45000;
-/** A frog may come out of the water every FROG_SLOT ms. */
-const FROG_SLOT = 6000, FROG_P = 0.55, FROG_MAX = 90000;
+/** A frog may come out of the water every FROG_SLOT ms; this share of them climb onto a lily pad. */
+const FROG_SLOT = 6000, FROG_P = 0.55, FROG_MAX = 90000, LILY_P = 0.35;
 /** Dark enough for night creatures (0..1). */
 const DARK = 0.5;
 const HOP_MS = 420;
@@ -40,6 +41,7 @@ export class NightLife {
   private readonly frogs: Pool;
   private readonly grass: Pt[] = [];
   private readonly shore: { at: Pt; water: Pt; lily: boolean }[] = [];
+  private readonly pads: { at: Pt; water: Pt; lily: boolean }[] = [];
   private readonly swarms = new Map<number, Swarm | null>();
   private readonly frogVisits = new Map<number, Frog | null>();
   /** Frogs that jumped back in early: when, and from where. */
@@ -62,9 +64,13 @@ export class NightLife {
         // fireflies like long grass and flowers, and the edges of the ponds
         if (',f'.includes(ch) || (ch === '.' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => water(tx + dx, ty + dy))))
           this.grass.push([tx * TILE + 8, ty * TILE + 8]);
-        // frogs: on the lawn right at the water, facing it, or out on a lily pad
-        if (ch === 'l' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => '.,'.includes(tileAt(tx + dx, ty + dy))))
-          this.shore.push({ at: [tx * TILE + 8, ty * TILE + 10], water: [tx * TILE + 8, ty * TILE + 14], lily: true });
+        // frogs: out on a lily pad, climbing up from the open water beside it...
+        if (ch === 'l') {
+          const side = ([[0, 1], [1, 0], [-1, 0], [0, -1]] as const).find(([dx, dy]) => tileAt(tx + dx, ty + dy) === 'w');
+          const cx = tx * TILE + 7, cy = ty * TILE + 11;
+          if (side) this.pads.push({ at: [cx, cy], water: [cx + side[0] * 11, cy + side[1] * 8], lily: true });
+        }
+        // ...or on the lawn right at the water, facing it
         if (!'.,'.includes(ch) || levelAt(tx, ty) !== 0) continue;
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
           if (tileAt(tx + dx, ty + dy) === 'w') {
@@ -96,7 +102,7 @@ export class NightLife {
     if (!this.swarms.has(k)) {
       let s: Swarm | null = null;
       const t0 = k * FIRE_SLOT;
-      if (this.grass.length && dark(t0)) {
+      if (this.grass.length && dark(t0) && inSeason('firefly', t0, hash2(k, 31, 1603))) {
         const r = seedRng(k, 31);
         s = { id: k, at: this.grass[Math.floor(r() * this.grass.length)], n: 2 + Math.floor(r() * 3), t0: t0 + r() * FIRE_SLOT, life: 25000 + r() * 20000 };
       }
@@ -142,9 +148,10 @@ export class NightLife {
     if (!this.frogVisits.has(k)) {
       let f: Frog | null = null;
       const t0 = k * FROG_SLOT;
-      if (this.shore.length && hash2(k, 33, 930) < FROG_P && dark(t0)) {
+      if (this.shore.length && hash2(k, 33, 930) < FROG_P && dark(t0) && inSeason('frog', t0, hash2(k, 33, 1604))) {
         const r = seedRng(k, 33);
-        const s = this.shore[Math.floor(r() * this.shore.length)];
+        const spots = this.pads.length && r() < LILY_P ? this.pads : this.shore;
+        const s = spots[Math.floor(r() * spots.length)];
         f = { id: k, at: s.at, water: s.water, lily: s.lily, t0: t0 + r() * FROG_SLOT, life: 40000 + r() * 50000 };
       }
       this.frogVisits.set(k, f);
@@ -158,16 +165,20 @@ export class NightLife {
   }
 
   private updateFrogs(gt: number, now: number, cats: CatView[], prey: PreyRef[]): void {
+    // one frog to a pad (or patch of shore): one that would turn up while it's taken never comes
+    const busy = new Map<Pt, number>();
     for (let k = Math.floor((gt - FROG_MAX) / FROG_SLOT); k <= Math.floor(gt / FROG_SLOT); k++) {
       const f = this.frogAt(k);
-      if (!f || gt < f.t0 || this.isCaught(Prey.Frog, f.id)) continue;
+      if (!f || f.t0 < (busy.get(f.at) ?? -Infinity)) continue;
+      busy.set(f.at, f.t0 + f.life + HOP_MS);
+      if (gt < f.t0 || this.isCaught(Prey.Frog, f.id)) continue;
       const [x, y] = f.at, [wx, wy] = f.water;
       const right = wx < x; // faces away from the water, towards the lawn
       const end = this.dived.get(f.id) ?? f.t0 + f.life;
       const tau = gt - f.t0;
       // climbing out of the water...
       if (tau < HOP_MS) {
-        if (tau < 20 && !f.lily) this.fx.ripple(wx, wy, 0);
+        if (tau < 20) this.fx.ripple(wx, wy, 0);
         this.hop(wx, wy, x, y, tau / HOP_MS, right);
         continue;
       }

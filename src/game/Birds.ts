@@ -5,6 +5,7 @@ import { Act, Prey, SWIPE_AT_MS } from './state.ts';
 import type { CatView } from './CatView.ts';
 import type { PreyRef } from './Ambient.ts';
 import { BATH_H, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../world/map.ts';
+import { SEASON } from '../world/season.ts';
 import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
 import { lightAt } from '../world/sky.ts';
 import { sound } from '../audio/sound.ts';
@@ -60,6 +61,8 @@ export class Birds {
   private readonly splashed = new Map<number, number>();
   /** Birds sitting in a tree right now, for birdsong. */
   private perched: { x: number; y: number }[] = [];
+  /** This frame's catchable things, for birds on the wing. */
+  private prey: PreyRef[] = [];
 
   constructor(
     scene: Phaser.Scene, trees: { p: Prop; canvas: HTMLCanvasElement }[], isCaught: (id: number) => boolean,
@@ -163,6 +166,7 @@ export class Birds {
   }
 
   update(gt: number, now: number, cats: CatView[], prey: PreyRef[]): void {
+    this.prey = prey;
     this.birds.begin();
     this.shadows.begin();
     this.marks.begin();
@@ -199,6 +203,7 @@ export class Birds {
       const u = (gt - v.start) / ARRIVE_MS, e = 1 - (1 - u) ** 2;
       const pos: Pt3 = [lerp(v.from[0], first.x, e), lerp(v.from[1], first.y, e), lerp(v.from[2], first.h, e)];
       this.draw(v, pos, wing, first.x > v.from[0], clamp01(u * 3), first.depth);
+      this.onTheWing(v, pos);
       return;
     }
     // flying off, fading out
@@ -206,6 +211,7 @@ export class Birds {
       const u = (gt - last.t1) / LEAVE_MS, e = u * u;
       const pos: Pt3 = [lerp(last.x, v.to[0], e), lerp(last.y, v.to[1], e), lerp(last.h, v.to[2], e)];
       this.draw(v, pos, wing, v.to[0] > last.x, clamp01((1 - u) * 3), last.depth);
+      this.onTheWing(v, pos);
       return;
     }
     for (let i = 0; i < stops.length; i++) {
@@ -217,6 +223,7 @@ export class Birds {
           const u = (gt - s.t1) / FLIT_MS;
           const pos: Pt3 = [lerp(s.x, n.x, u), lerp(s.y, n.y, u), lerp(s.h, n.h, u) + 12 * 4 * u * (1 - u)];
           this.draw(v, pos, wing, n.x > s.x, 1, u < 0.5 ? s.depth : n.depth);
+          this.onTheWing(v, pos);
           return;
         }
         continue;
@@ -286,7 +293,7 @@ export class Birds {
 
     const pecking = !alert && u >= 1 && hash2(v.id, Math.floor(gt / 280), 925) < 0.4;
     // at the bath, every now and then a good splash: wings whirring, drops flying
-    const bathing = s.bath && !alert && u >= 1 && hash2(v.id, Math.floor(gt / BATHE_EVERY), 927) < BATHE_P;
+    const bathing = s.bath && !SEASON.frozen && !alert && u >= 1 && hash2(v.id, Math.floor(gt / BATHE_EVERY), 927) < BATHE_P;
     if (bathing) {
       const last = this.splashed.get(v.id) ?? -1e9;
       if (gt - last > 260 || gt < last) {
@@ -310,6 +317,13 @@ export class Birds {
     const s = (gt - f.t) / 1000;
     const pos: Pt3 = [f.x + f.dir * (50 * s + 40 * s * s), f.y - 14 * s, f.h + 45 * s + 10 * s * s];
     this.draw(v, pos, Math.floor(gt / 55) % 2 ? 2 : 3, f.dir > 0, clamp01((FLEE_MS - (gt - f.t)) / 700), f.y);
+    // just taking off, it can still be had by a cat leaping after it
+    if (gt - f.t < 900) this.onTheWing(v, pos);
+  }
+
+  /** A bird flying at pos: catchable in mid-jump (only low ones are within reach anyway). */
+  private onTheWing(v: Visit, [x, y, h]: Pt3): void {
+    this.prey.push({ kind: Prey.Bird, id: v.id, x, y, h, colour: v.colour, air: true });
   }
 
   /** Draw a bird at ground point (x, y), height h; flying high it goes over everything. */

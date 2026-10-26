@@ -96,6 +96,37 @@ export function buildDust(): Raster {
   return r;
 }
 
+/** Cartoon cloud left behind where a cat dashes off: 5 frames, PUFF_W x PUFF_H, swelling then breaking up. */
+export const PUFF_W = 20, PUFF_H = 14, PUFF_FRAMES = 5;
+export function buildDashPuff(): Raster {
+  const r = new Raster(PUFF_W * PUFF_FRAMES, PUFF_H);
+  const line = hex('#6a7090'), fill = hex('#fbf8ee'), shade = hex('#cfd2e0'), shine = hex('#ffffff');
+  // blobs per frame: [x, y, radius], around the centre bottom of the frame
+  const frames: [number, number, number][][] = [
+    [[10, 9, 2.6], [7, 10, 1.8], [13, 10, 1.8]],
+    [[10, 8, 3.6], [6, 10, 2.6], [14, 10, 2.6], [9, 5, 2]],
+    [[10, 7, 4.2], [5, 9, 3.2], [15, 9, 3.2], [8, 4, 2.6], [13, 4, 2.2]],
+    [[11, 6, 3], [3.5, 9, 2.6], [16.5, 9, 2.6], [7, 3, 2], [15, 3, 1.8]],
+    [[11, 4, 1.8], [2.5, 9, 1.6], [17.5, 9, 1.6], [6, 2, 1.2]],
+  ];
+  frames.forEach((blobs, f) => {
+    const ox = f * PUFF_W;
+    const inside = (x: number, y: number) => blobs.find(([bx, by, br]) => (x + 0.5 - bx) ** 2 + (y + 0.5 - by) ** 2 <= br * br);
+    for (let y = 0; y < PUFF_H; y++)
+      for (let x = 0; x < PUFF_W; x++) {
+        const b = inside(x, y);
+        if (b) {
+          const [bx, by, br] = b;
+          const dx = x + 0.5 - bx, dy = y + 0.5 - by;
+          r.set(ox + x, y, dx + dy > br * 0.55 ? shade : dx + dy < -br * 0.9 && br > 2 ? shine : fill);
+        } else if (inside(x - 1, y) || inside(x + 1, y) || inside(x, y - 1) || inside(x, y + 1)) {
+          if (x > 0 && x < PUFF_W - 1 && y > 0 && y < PUFF_H) r.set(ox + x, y, line);
+        }
+      }
+  });
+  return r;
+}
+
 /** Dark shape of a fish just below the surface, facing right. */
 export function buildFishShadow(): Raster {
   const r = new Raster(10, 4);
@@ -220,5 +251,120 @@ export function buildLantern(): Raster {
   const base = { o: hex('#26262c'), m: hex('#4a4a54'), g: hex('#3c3c44') };
   r.paint(rows, 0, 0, { ...base, l: hex('#707060') });
   r.paint(rows, LANTERN_W, 0, { ...base, l: hex('#fff0a0') });
+  return r;
+}
+
+// bat, 11x5, seen from below as it flits about: frame 0 wings up, 1 level, 2 down
+export const BAT_W = 11;
+export const BAT_H = 5;
+const BAT = [
+  ['w.........w', 'ww..o.o..ww', '.wwwooowww.', '....ooo....', '.....o.....'],
+  ['...........', '....o.o....', 'wwwwooowwww', '.ww.ooo.ww.', '.....o.....'],
+  ['...........', '....o.o....', '...wooow...', '.wwwooowww.', 'ww...o...ww'],
+];
+export function buildBat(): Raster {
+  const r = new Raster(BAT_W * BAT.length, BAT_H);
+  BAT.forEach((rows, f) => r.paint(rows, f * BAT_W, 0, { o: hex('#2e2634'), w: hex('#54465c') }));
+  return r;
+}
+
+// field mouse, 8x5, side on, facing left: frame 0 sitting up, 1-2 running, 3 just the ears peeking out of the grass
+export const MOUSE_W = 8, MOUSE_H = 5;
+const MOUSE_PAL = () => ({ o: hex('#4a3830'), f: hex('#c8b098'), l: hex('#f0e4d0'), e: hex('#101010'), p: hex('#ffb8b0') });
+export function buildMouse(): Raster {
+  const r = new Raster(MOUSE_W * 4, MOUSE_H);
+  const pal = MOUSE_PAL();
+  r.paint(['..p.....', '.offoo..', 'eoffffo.', '.olllfo.', '..o..opp'], 0, 0, pal);
+  r.paint(['........', '..p.....', '.offooo.', 'eoffffop', '.o.o.o.p'], MOUSE_W, 0, pal);
+  r.paint(['........', '..p.....', '.offoooo', 'eofffffp', '..oo.o..'], MOUSE_W * 2, 0, pal);
+  r.paint(['........', '........', '.p..p...', '.ofefo..', '........'], MOUSE_W * 3, 0, pal);
+  return r;
+}
+
+/** A mouse held in the mouth, facing left: whole, half eaten, just the tail. */
+export function buildHeldMouse(): Raster {
+  const r = new Raster(HELD_W * 3, 5);
+  const pal = MOUSE_PAL();
+  r.paint(['.p......', 'ofoffoo.', 'effffffp', '.olllo.p', '........'], 0, 0, pal);
+  r.paint(['.p......', 'ofoo....', 'effo....', '.olo....', '........'], HELD_W, 0, pal);
+  r.paint(['........', '........', '...pp...', '.....p..', '........'], HELD_W * 2, 0, pal);
+  return r;
+}
+
+/** A bat held in the mouth, facing left: whole, half eaten, a scrap of wing. */
+export function buildHeldBat(): Raster {
+  const pal = { o: hex('#2e2634'), w: hex('#54465c'), e: hex('#e8d8a0') };
+  const r = new Raster(HELD_W * 3, 5);
+  r.paint(['.o....o.', 'owo..oww', 'oewwwwwo', '.owwwow.', '..o..o..'], 0, 0, pal);
+  r.paint(['.o......', 'owo.....', 'oewwo...', '.owo....', '..o.....'], HELD_W, 0, pal);
+  r.paint(['........', '........', '..ow....', '...o....', '........'], HELD_W * 2, 0, pal);
+  return r;
+}
+
+/** A bat hanging upside down under a branch, 11x7: frame 0 wrapped in its wings, 1 stretching them. */
+export function buildHangingBat(): Raster {
+  const r = new Raster(BAT_W * 2, 7);
+  const pal = { o: hex('#2e2634'), w: hex('#54465c') };
+  r.paint(['....o.o....', '....www....', '...wwwww...', '...wwoww...', '....wow....', '....ooo....', '....o.o....'], 0, 0, pal);
+  r.paint(['....o.o....', '.w..www..w.', 'ww.wwwww.ww', 'wwwwwowwwww', '.ww.wow.ww.', '....ooo....', '....o.o....'], BAT_W, 0, pal);
+  return r;
+}
+
+// tawny owl, 15x11, facing the viewer:
+//   frame 0 sitting, 1 blinking, 2 looking to the side (flip for the other side), 3 flying wings up, 4 wings down
+//   o outline  b back  l breast  f face  e eye  k beak and talons  w wing
+export const OWL_W = 15;
+export const OWL_H = 11;
+const sit = (rows: string[]) => rows.map((r) => `...${r}...`);
+const OWL = [
+  sit(['.oo...oo.', 'obbooobbo', 'offfbfffo', 'ofefkfefo', 'obfffffbo', 'obblllbbo', 'owblllbwo', 'owblblbwo', 'owbllbbwo', '.owbbbwo.', '..kk.kk..']),
+  sit(['.oo...oo.', 'obbooobbo', 'offfbfffo', 'ofbfkfbfo', 'obfffffbo', 'obblllbbo', 'owblllbwo', 'owblblbwo', 'owbllbbwo', '.owbbbwo.', '..kk.kk..']),
+  sit(['.oo...oo.', 'obboooobo', 'offfbbbbo', 'oefkfebbo', 'offffbbbo', 'obblllbbo', 'owblllbwo', 'owblblbwo', 'owbllbbwo', '.owbbbwo.', '..kk.kk..']),
+  ['ww...........ww', '.ww..oo.oo..ww.', '.wwwobbbbbowww.', '..wwofekefoww..', '...wobllbbow...', '.....oblbo.....', '......obo......', '.......o.......', '...............', '...............', '...............'],
+  ['...............', '.....oo.oo.....', '....obbbbbo....', '.wwwofekefowww.', 'ww.wobllbbow.ww', 'w....oblbo....w', '......obo......', '.......o.......', '...............', '...............', '...............'],
+];
+const OWL_PAL = { o: hex('#2a1a10'), b: hex('#9a6638'), l: hex('#d8a868'), f: hex('#ecd0a0'), e: hex('#181008'), k: hex('#e8b040'), w: hex('#6a4020') };
+export function buildOwl(): Raster {
+  const r = new Raster(OWL_W * OWL.length, OWL_H);
+  OWL.forEach((rows, f) => r.paint(rows, f * OWL_W, 0, OWL_PAL));
+  return r;
+}
+/** Just the owl's eyes, frame for frame, to shine through the dark. */
+export function buildOwlEyes(): Raster {
+  const r = new Raster(OWL_W * OWL.length, OWL_H);
+  OWL.forEach((rows, f) => r.paint(rows.map((row) => row.replace(/[^e]/g, '.')), f * OWL_W, 0, { e: hex('#ffd848') }));
+  return r;
+}
+
+// beetle, 7x4, side on, facing left: two walking frames (legs swapped)
+//   s shell  d spot or shine  h head  l legs
+export const BEETLE_W = 7;
+export const BEETLE_H = 4;
+/** [shell, spot, head] for a ladybird, a black ground beetle and a green rose chafer. */
+export const BEETLE_COLOURS: [string, string, string][] = [
+  ['#d82820', '#181010', '#181010'],
+  ['#2c2a34', '#6a6880', '#141218'],
+  ['#3a9a48', '#a8e070', '#1c4a24'],
+];
+export function buildBeetle(i: number): Raster {
+  const [s, d, h] = BEETLE_COLOURS[i].map(hex);
+  const pal = { s, d, h, o: OUTLINE, l: hex('#181010') };
+  const r = new Raster(BEETLE_W * 2, BEETLE_H);
+  r.paint(['..ooo..', '.osdso.', 'hossdso', '.l.l.l.'], 0, 0, pal);
+  r.paint(['..ooo..', '.osdso.', 'hossdso', 'l.l.l..'], BEETLE_W, 0, pal);
+  return r;
+}
+
+// dragonfly, 10x5, seen from above, facing left: frame 0 wings out, 1 swept back
+export const DRAGONFLY_W = 10;
+export const DRAGONFLY_H = 5;
+export function buildDragonfly(): Raster {
+  const pal = { e: hex('#40c0a8'), t: hex('#2a5aa0'), b: hex('#3c88e0'), k: hex('#1c3870'), w: hex('#e8f4ff') };
+  const r = new Raster(DRAGONFLY_W * 2, DRAGONFLY_H);
+  r.paint(['..ww.ww...', '..ww.ww...', 'eetbkbkbkb', '..ww.ww...', '..ww.ww...'], 0, 0, pal);
+  r.paint(['....w.w...', '..www.w...', 'eetbkbkbkb', '..www.w...', '....w.w...'], DRAGONFLY_W, 0, pal);
+  // see-through wings
+  for (let y = 0; y < DRAGONFLY_H; y++)
+    for (let x = 0; x < r.w; x++) if (y !== 2 && r.isSet(x, y)) r.set(x, y, pal.w, 150);
   return r;
 }

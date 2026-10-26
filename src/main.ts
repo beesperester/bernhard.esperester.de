@@ -2,6 +2,18 @@ import Phaser from 'phaser';
 import { GardenScene } from './game/GardenScene.ts';
 import { Music } from './audio/music.ts';
 import { sound } from './audio/sound.ts';
+import { applyPixelUI } from './ui/pixel.ts';
+import '@fontsource/pixelify-sans/latin-400.css';
+import '@fontsource/pixelify-sans/latin-ext-400.css';
+import '@fontsource/pixelify-sans/latin-700.css';
+import '@fontsource/pixelify-sans/latin-ext-700.css';
+
+applyPixelUI();
+// text drawn into the game (names, scores) needs the font ready; don't wait forever for it
+await Promise.race([
+  Promise.all([document.fonts.load('16px "Pixelify Sans"'), document.fonts.load('bold 16px "Pixelify Sans"')]),
+  new Promise((r) => setTimeout(r, 2000)),
+]).catch(() => {});
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,

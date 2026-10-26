@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
+import { PIXEL_FONT } from '../ui/pixel.ts';
 import { Raster } from '../art/raster.ts';
 import { buildCatSheet, buildEyeSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
 import { buildGround, buildProps, buildUprightMask, buildWaterMask, TREE_W, type Prop } from '../art/tiles.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
-import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ } from '../art/critters.ts';
+import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildHeldBat, buildMouse, buildHeldMouse, MOUSE_W, MOUSE_H, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildDashPuff, PUFF_W, PUFF_H, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ, buildBat, buildHangingBat, buildBeetle, buildDragonfly, BEETLE_COLOURS, BEETLE_W, BEETLE_H, DRAGONFLY_W, DRAGONFLY_H, buildOwl, buildOwlEyes, BAT_W, BAT_H, OWL_W, OWL_H } from '../art/critters.ts';
 import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, FEET, heightUnder, waterUnder, wetAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, FEET, heightUnder, waterUnder, wetAt, iceAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, preyPoints, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
@@ -22,6 +23,9 @@ import { RimLight } from './RimLight.ts';
 import { Lanterns } from './Lanterns.ts';
 import { NightWater } from './NightWater.ts';
 import { berlinClock } from '../world/sky.ts';
+import { snowCap } from '../art/furniture.ts';
+import { SEASON, rainfall } from '../world/season.ts';
+import { Weather, addWeatherTextures } from './Weather.ts';
 import { Ambient } from './Ambient.ts';
 import { Net } from '../net/net.ts';
 import { sound } from '../audio/sound.ts';
@@ -35,6 +39,8 @@ const SPEED = 64; // px per second
 const DASH_SPEED = 168;
 /** Creeping up on a bird, low to the ground. */
 const SNEAK_SPEED = 26;
+/** On ice: how quickly the cat's speed follows the keys while pushing (and while dashing), and how slowly a slide dies away (per second). */
+const ICE_GRIP = 1.6, ICE_DASH_GRIP = 7, ICE_GLIDE = 0.45;
 /** Dash lasts while held, up to this long. */
 const DASH_MS = 2500;
 /** Recovery after a full-length dash; shorter dashes recover proportionally faster. */
@@ -72,6 +78,16 @@ function loadCoat(): number {
   const coat = Math.floor(Math.random() * COATS.length);
   try { localStorage.setItem('cat-coat', String(coat)); } catch { /* ignore */ }
   return coat;
+}
+
+/** What a cat does with what it caught: eat a fish, feast on a bird, frog or bat, munch a bug; a bee stings. */
+function eatAct(kind: Prey): Act {
+  switch (kind) {
+    case Prey.Fish: return Act.Eat;
+    case Prey.Bird: case Prey.Frog: case Prey.Bat: case Prey.Mouse: return Act.Feast;
+    case Prey.Bee: return Act.Hiss; // ouch, it stung
+    default: return Act.Munch;
+  }
 }
 
 export class GardenScene extends Phaser.Scene {
@@ -113,12 +129,17 @@ export class GardenScene extends Phaser.Scene {
   private camZ = 0;
   private vz = 0;
   private ambient!: Ambient;
+  private weather!: Weather;
   private dashStart = 0;
   private dashing = false;
   private dashReadyAt = 0;
   private lastDry = { x: 0, y: 0 };
+  /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
+  private vel = { x: 0, y: 0 };
   private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number } | null = null;
   private catching: { swiped: boolean; got: Prey | null } | null = null;
+  /** A swipe made in mid-jump (one per jump), and what it got, to eat on landing. */
+  private airCatch: { got: Prey | null } | null = null;
 
   constructor() {
     super('garden');
@@ -160,7 +181,8 @@ export class GardenScene extends Phaser.Scene {
     this.clouds = new Clouds(this, toCanvas);
     this.sun = new Sunlight(this, toCanvas);
     // soft glow: bright areas (path, blossom, sunlight, white fur) bleed light into their surroundings
-    Phaser.Actions.AddEffectBloom(this.cameras.main, { threshold: 0.55, blurRadius: 3, blurSteps: 4, blurQuality: 0, blendAmount: 0.35 });
+    // (snow is bright all over: only the brightest bits glow then)
+    Phaser.Actions.AddEffectBloom(this.cameras.main, { threshold: SEASON.snow > 0.3 ? 0.82 : 0.55, blurRadius: 3, blurSteps: 4, blurQuality: 0, blendAmount: 0.35 });
     this.vignette = new Vignette(this);
     // time of day: tint, sunlit rims, lanterns, and stars and moon in the water
     this.daylight = new Daylight(this, Date.now());
@@ -183,6 +205,7 @@ export class GardenScene extends Phaser.Scene {
     for (let ty = 0; ty < MAP_H; ty++)
       for (let tx = 0; tx < MAP_W; tx++) if (tileAt(tx, ty) === 'f') flowers.push([tx * TILE + 8, ty * TILE + 8]);
     this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: reflect.props });
+    this.weather = new Weather(this, props, water);
 
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
@@ -282,15 +305,28 @@ export class GardenScene extends Phaser.Scene {
     tex.addCanvas('glow-lamp', toCanvas(buildGlow(11, 11, [255, 220, 130])));
     tex.addCanvas('glow-lantern', toCanvas(buildGlow(76, 40, [255, 190, 100], 6)));
     sheet('frog', buildFrog(), FROG_W, FROG_H);
+    sheet('bat', buildBat(), BAT_W, BAT_H);
+    BEETLE_COLOURS.forEach((_, i) => sheet(`beetle-${i}`, buildBeetle(i), BEETLE_W, BEETLE_H));
+    sheet('dragonfly', buildDragonfly(), DRAGONFLY_W, DRAGONFLY_H);
+    sheet('bat-hang', buildHangingBat(), BAT_W, 7);
+    sheet('owl', buildOwl(), OWL_W, OWL_H);
+    sheet('owl-eyes', buildOwlEyes(), OWL_W, OWL_H);
     sheet('held-frog', buildHeldFrog(), HELD_W, 5);
-    sheet('lantern', buildLantern(), LANTERN_W, LANTERN_H);
+    sheet('held-bat', buildHeldBat(), HELD_W, 5);
+    sheet('mouse', buildMouse(), MOUSE_W, MOUSE_H);
+    sheet('held-mouse', buildHeldMouse(), HELD_W, 5);
+    const lantern = buildLantern();
+    snowCap(lantern, SEASON.snow);
+    sheet('lantern', lantern, LANTERN_W, LANTERN_H);
     BIRD_COLOURS.forEach((_, i) => {
       sheet(`bird-${i}`, buildBird(i), BIRD_W, BIRD_H);
       sheet(`held-bird-${i}`, buildHeldBird(i), HELD_W, 5);
       tex.addCanvas(`feather-${i}`, toCanvas(buildFeather(i)));
     });
     sheet('ripple', buildRipples(), RIPPLE_W, RIPPLE_H);
+    addWeatherTextures(this, toCanvas);
     sheet('dust', buildDust(), 6, 5);
+    sheet('dash-puff', buildDashPuff(), PUFF_W, PUFF_H);
     tex.addCanvas('fish', toCanvas(buildFish()));
     tex.addCanvas('fish-shadow', toCanvas(buildFishShadow()));
     sheet('held-fish', buildHeldFish(), HELD_W, 5);
@@ -405,16 +441,19 @@ export class GardenScene extends Phaser.Scene {
     }
     this.daylight.update(gt);
     const light = this.daylight.light;
-    this.rims.update(light);
-    this.shadows.update(light, cats);
+    // under rain clouds the sun's rims, shadows and rays fade
+    const overcast = Math.min(1, rainfall(gt) * 1.4);
+    this.rims.update(overcast ? { ...light, rim: light.rim * (1 - overcast * 0.85) } : light);
+    this.shadows.update(light, cats, overcast);
     catLight.soft = 0.06 + 0.2 * (1 - this.shadows.strength);
     catLight.rim = this.rims.strength;
     catLight.rimColour = this.rims.colour;
     catLight.night = light.night;
     this.ambient.update(gt, dt, cats, view);
+    this.weather.update(gt, time, dt, cats, view);
     this.clouds.update(gt);
     this.clouds.setDaylight(light.day);
-    this.sun.update(time, dt, this.clouds.coverAt(view.centerX, view.centerY), light.day);
+    this.sun.update(time, dt, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), light.day);
     this.lanterns.update(light, time);
     this.nightWater.update(light, time, view);
     // keep the clock in the status line current
@@ -491,6 +530,18 @@ export class GardenScene extends Phaser.Scene {
     if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || mew || grab)) me.setAct(Act.Idle, now);
 
+    // in mid-jump: one swipe at whatever flies within reach, a bird or bat on the wing included
+    if (grab && me.act === Act.Jump && !this.airCatch) {
+      this.airCatch = { got: null };
+      const prey = this.ambient.preyNear(me);
+      if (prey && prey.kind !== Prey.Fish) {
+        me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
+        this.ambient.catchPrey(prey.kind, prey.id, me);
+        this.net.catchPrey(prey.kind, prey.id);
+        this.ate(prey.kind, prey.colour);
+        this.airCatch.got = prey.kind;
+      }
+    }
     // catching: swipe at a fish, butterfly, bee or bird within a tile of the cat
     const busy = me.act === Act.Jump || me.act === Act.Catch || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast;
     if (grab && !busy && !wetAt(me.x, me.y)) {
@@ -530,11 +581,8 @@ export class GardenScene extends Phaser.Scene {
         }
       }
       if (elapsed >= CATCH_MS) {
-        if (c.got === Prey.Fish) begin(Act.Eat);
-        else if (c.got === Prey.Bird || c.got === Prey.Frog) begin(Act.Feast);
-        else if (c.got === Prey.Firefly) begin(Act.Munch);
-        else if (c.got === Prey.Fly) begin(Act.Munch);
-        else if (c.got === Prey.Bee) begin(Act.Hiss); // ouch, it stung
+        const after = c.got === null ? null : eatAct(c.got);
+        if (after !== null) begin(after);
         else me.setAct(Act.Idle, now);
         this.catching = null;
       }
@@ -553,6 +601,9 @@ export class GardenScene extends Phaser.Scene {
     const low = sneakHeld && me.act !== Act.Jump && !this.dashing;
     const to = (act: Act) => { if (me.act !== act) me.setAct(act, now); };
     const afoot = (act: Act) => act === Act.Idle || act === Act.Walk || act === Act.Crouch || act === Act.Sneak;
+    // out on the ice the cat keeps its momentum: speed builds slowly, turns are wide, and it slides on
+    const icy = me.act !== Act.Jump && iceAt(me.x, me.y);
+    let wx = 0, wy = 0;
     if (moving) {
       if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Mew || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast)
         me.setAct(Act.Idle, now);
@@ -560,11 +611,29 @@ export class GardenScene extends Phaser.Scene {
       else me.facing = dy < 0 ? Facing.Up : Facing.Down;
       if (dx !== 0 && dy !== 0) { dx *= Math.SQRT1_2; dy *= Math.SQRT1_2; }
       const speed = low ? SNEAK_SPEED : this.dashing ? DASH_SPEED : SPEED;
-      this.move(dx * speed * dt, dy * speed * dt);
+      wx = dx * speed;
+      wy = dy * speed;
       if (afoot(me.act)) to(low ? Act.Sneak : Act.Walk);
     } else if (afoot(me.act) || (low && (me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep))) {
       to(low ? Act.Crouch : Act.Idle);
     }
+    if (icy) {
+      const k = Math.min(1, (this.dashing ? ICE_DASH_GRIP : moving ? ICE_GRIP : ICE_GLIDE) * dt);
+      this.vel.x += (wx - this.vel.x) * k;
+      this.vel.y += (wy - this.vel.y) * k;
+    } else {
+      this.vel.x = wx;
+      this.vel.y = wy;
+    }
+    if (Math.abs(this.vel.x) + Math.abs(this.vel.y) > (icy ? 1.5 : 0)) {
+      const [bx, by] = [me.x, me.y];
+      this.move(this.vel.x * dt, this.vel.y * dt);
+      // sliding into something stops the slide that way
+      if (icy) {
+        if (Math.abs(me.x - bx) < Math.abs(this.vel.x * dt) * 0.5) this.vel.x = 0;
+        if (Math.abs(me.y - by) < Math.abs(this.vel.y * dt) * 0.5) this.vel.y = 0;
+      }
+    } else if (icy) this.vel.x = this.vel.y = 0;
 
     // vertical: fall onto whatever surface is below (also when walking off a hedge)
     const ground = groundAt(me.x, me.y);
@@ -576,6 +645,13 @@ export class GardenScene extends Phaser.Scene {
         me.z = ground;
         this.vz = 0;
         me.setAct(moving ? Act.Walk : Act.Idle, now);
+        // landing with something caught on the way: eat it
+        const got = this.airCatch?.got ?? null;
+        this.airCatch = null;
+        if (got !== null && !wetAt(me.x, me.y)) {
+          begin(eatAct(got));
+          return;
+        }
         if (wetAt(me.x, me.y)) {
           // splash! straight back out to where we last stood on dry land
           const { x, y } = this.lastDry;
@@ -588,11 +664,12 @@ export class GardenScene extends Phaser.Scene {
     } else {
       me.z = ground;
       if (me.act === Act.Jump) me.setAct(moving ? Act.Walk : Act.Idle, now);
+      this.airCatch = null;
     }
 
     if (me.act !== Act.Jump && !wetAt(me.x, me.y)) this.lastDry = { x: me.x, y: me.y };
 
-    if (me.act === Act.Idle && now - this.lastInput > SIT_AFTER_MS) {
+    if (me.act === Act.Idle && now - this.lastInput > SIT_AFTER_MS && Math.abs(this.vel.x) + Math.abs(this.vel.y) < 2) {
       if (me.facing === Facing.Up) me.facing = Facing.Down;
       me.setAct(Act.Sit, now);
       this.nextLick = now + 2500 + Math.random() * 4000;
@@ -628,7 +705,7 @@ export class GardenScene extends Phaser.Scene {
     const me = this.me;
     const zoom = this.cameras.main.zoom;
     const t = this.add.text(Math.round(me.x), Math.round(me.y - me.z) - 20, points > 0 ? `+${points}` : String(points), {
-      fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+      fontFamily: PIXEL_FONT,
       fontSize: '12px',
       fontStyle: 'bold',
       color: points > 0 ? '#ffe890' : '#ff8080',

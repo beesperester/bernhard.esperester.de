@@ -132,9 +132,10 @@ export class Shadows {
     return this.shade[py * WORLD_W + px] * this.strength;
   }
 
-  update(light: Light, cats: CatView[]): void {
+  /** `overcast` (0..1): rain clouds soften the shadows away. */
+  update(light: Light, cats: CatView[], overcast = 0): void {
     const el = light.elevation;
-    this.strength = Math.max(0, Math.min(1, el / 10));
+    this.strength = Math.max(0, Math.min(1, el / 10)) * (1 - overcast * 0.85);
     const sun = this.strength > 0.01;
     if (sun) {
       const key = `${Math.round(light.azimuth / AZ_STEP)}:${Math.round(Math.min(el, 70) / EL_STEP)}`;
@@ -156,7 +157,7 @@ export class Shadows {
   private cast(azimuth: number, elevation: number): void {
     const W = WORLD_W, H = WORLD_H;
     const A = azimuth * RAD, rise = Math.tan(elevation * RAD);
-    // towards the sun on the ground (x east, y south), and the shadow per px of height
+    // towards the sun on the ground (x right, y down the screen), and the shadow per px of height
     const gx = Math.sin(A), gy = -Math.cos(A);
     this.s = [-gx / rise, -gy / rise];
     this.sweep(gx, gy, rise);
