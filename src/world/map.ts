@@ -51,17 +51,44 @@ export function tileAt(tx: number, ty: number): string {
   return ROWS[ty][tx];
 }
 
-const SOLID = new Set(['F', 'g', 'w', 'l', '#', 'T', 'b', 'r', 'o']);
+// ---- height map ----
+// Every tile has a surface height in pixels. Cats can walk onto surfaces no
+// higher than they currently are, so low obstacles can be reached by jumping.
+export const WALL = 99;
 
-export const isSolidTile = (tx: number, ty: number): boolean => SOLID.has(tileAt(tx, ty));
+const HEIGHT: Record<string, number> = { F: WALL, g: WALL, w: WALL, l: WALL, '#': 8, b: 7, o: 6, r: 5 };
+/** Footprint insets [left, top, right, bottom] for objects smaller than their tile. */
+const INSET: Record<string, [number, number, number, number]> = { b: [1, 2, 1, 1], r: [1, 4, 1, 2], o: [0, 1, 0, 1] };
 
-/** True if the world-space box overlaps any solid tile. */
-export function boxHitsSolid(x0: number, y0: number, x1: number, y1: number): boolean {
+/** The cat's feet box, relative to its (x, y) = bottom centre. */
+export const FEET = { x0: -5, x1: 5, y0: -5, y1: 0 };
+
+/** Tree trunks block movement only where they meet the ground. */
+const TRUNKS: [number, number, number, number][] = [];
+
+/** Highest surface under a world-space box. */
+export function heightUnder(x0: number, y0: number, x1: number, y1: number): number {
+  let h = 0;
   const tx0 = Math.floor(x0 / TILE), tx1 = Math.floor((x1 - 0.01) / TILE);
   const ty0 = Math.floor(y0 / TILE), ty1 = Math.floor((y1 - 0.01) / TILE);
-  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if (isSolidTile(tx, ty)) return true;
-  return false;
+  for (let ty = ty0; ty <= ty1; ty++)
+    for (let tx = tx0; tx <= tx1; tx++) {
+      const ch = tileAt(tx, ty);
+      const th = HEIGHT[ch];
+      if (!th || th <= h) continue;
+      const [l, t, r, b] = INSET[ch] ?? [0, 0, 0, 0];
+      const fx0 = tx * TILE + l, fy0 = ty * TILE + t, fx1 = (tx + 1) * TILE - r, fy1 = (ty + 1) * TILE - b;
+      if (x1 > fx0 && x0 < fx1 && y1 > fy0 && y0 < fy1) h = th;
+    }
+  for (const [ax, ay, bx, by] of TRUNKS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
+  return h;
 }
+
+/** Surface height under a cat standing at (x, y). */
+export const groundAt = (x: number, y: number): number => heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1);
+
+/** World position of a tree's trunk base (bottom centre). */
+export const trunkBase = (tx: number, ty: number): [number, number] => [tx * TILE + TILE / 2, ty * TILE + TILE - 1];
 
 export function treeTiles(): [number, number][] {
   const out: [number, number][] = [];
@@ -86,4 +113,9 @@ export function pondBounds(): { x: number; y: number; w: number; h: number } {
         x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
       }
   return { x: x0 * TILE, y: y0 * TILE, w: (x1 - x0 + 1) * TILE, h: (y1 - y0 + 1) * TILE };
+}
+
+for (const [tx, ty] of treeTiles()) {
+  const [x, y] = trunkBase(tx, ty);
+  TRUNKS.push([x - 6, y - 5, x + 6, y + 1]);
 }

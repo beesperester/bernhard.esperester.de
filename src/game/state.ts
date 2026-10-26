@@ -5,21 +5,16 @@ export type Facing = (typeof Facing)[keyof typeof Facing];
 export const Act = { Idle: 0, Walk: 1, Sit: 2, Lick: 3, Jump: 4, Hiss: 5, Roll: 6 } as const;
 export type Act = (typeof Act)[keyof typeof Act];
 
-export const JUMP_MS = 420;
-export const JUMP_HEIGHT = 10;
+/** Jump velocity and gravity in px/s: a jump peaks at ~14px, enough to clear a hedge. */
+export const JUMP_V = 130;
+export const GRAVITY = 600;
 export const HISS_MS = 1400;
 export const ROLL_MS = 2400;
 export const LICK_MS = 1600;
 export const SIT_AFTER_MS = 5000;
 
-/** Everything other visitors need to draw a cat: [x, y, facing, act, seq, coat]. */
-export type CatMsg = [number, number, number, number, number, number];
-
-export function jumpHeight(elapsed: number): number {
-  if (elapsed < 0 || elapsed >= JUMP_MS) return 0;
-  const t = elapsed / JUMP_MS;
-  return 4 * JUMP_HEIGHT * t * (1 - t);
-}
+/** Everything other visitors need to draw a cat: [x, y, z, facing, act, seq, coat]. */
+export type CatMsg = [number, number, number, number, number, number, number];
 
 const cycle = <T>(frames: T[], fps: number, ms: number): T => frames[Math.floor((ms / 1000) * fps) % frames.length];
 

@@ -50,7 +50,7 @@ export class PondReflection {
     this.floraSheets = opts.floraSheets;
     const near = (bx: number, base: number, half: number) =>
       bx + half > x && bx - half < x + w && base > y - MARGIN && base < y + h;
-    this.trees = opts.props.filter(({ p }) => near(p.x + 16, p.depthY + 1, 16));
+    this.trees = opts.props.filter(({ p, canvas }) => near(p.x + canvas.width / 2, p.depthY + 1, canvas.width / 2));
     this.plants = opts.plants.filter((p) => near(p.x, p.y, 8));
   }
 
@@ -67,7 +67,10 @@ export class PondReflection {
     raw.setTransform(1, 0, 0, 1, 0, 0);
     raw.clearRect(0, 0, w, h);
 
+    // big crowns would swamp the water, so trees reflect more faintly than cats
+    raw.globalAlpha = 0.45;
     for (const { canvas, p } of this.trees) this.flipped(canvas, 0, 0, canvas.width, canvas.height, p.x, p.y, p.depthY + 1);
+    raw.globalAlpha = 1;
     for (const p of this.plants) {
       const k = FLORA[p.kind];
       this.flipped(this.floraSheets[p.kind], (p.lean + 2) * k.w, 0, k.w, k.h, p.x - Math.floor(k.w / 2), p.y - k.h, p.y);
@@ -90,7 +93,7 @@ export class PondReflection {
     }
     // tint towards the water colour, then clip to open water
     out.globalCompositeOperation = 'source-atop';
-    out.fillStyle = 'rgba(40, 90, 190, 0.35)';
+    out.fillStyle = 'rgba(40, 90, 190, 0.45)';
     out.fillRect(0, 0, w, h);
     out.globalCompositeOperation = 'destination-in';
     out.drawImage(this.mask, 0, 0);

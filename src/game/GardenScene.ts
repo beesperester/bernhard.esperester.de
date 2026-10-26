@@ -4,21 +4,23 @@ import { buildCatSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
 import { buildGround, buildProps, buildWaterMask } from '../art/tiles.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
 import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, boxHitsSolid, spawnPoints } from '../world/map.ts';
-import { Act, Facing, HISS_MS, JUMP_MS, LICK_MS, ROLL_MS, SIT_AFTER_MS, type CatMsg } from './state.ts';
+import { WORLD_W, WORLD_H, FEET, heightUnder, groundAt, spawnPoints } from '../world/map.ts';
+import { Act, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat } from './CatView.ts';
 import { Meadow, addFloraTextures } from './Meadow.ts';
 import { Sunlight } from './Sunlight.ts';
 import { PondReflection } from './PondReflection.ts';
+import { Trees } from './Trees.ts';
+import { Vignette } from './Vignette.ts';
 import { Net } from '../net/net.ts';
 import { touch, setupUI } from '../ui/ui.ts';
 
 const SPEED = 64; // px per second
+// send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
+const TICK_MS = 50;
 const SEND_MS = 100;
 const HEARTBEAT_MS = 1000;
 const STALE_MS = 15000;
-// feet hitbox, relative to the cat's (x, y) = bottom centre
-const HIT = { x0: -5, x1: 5, y0: -5, y1: 0 };
 
 function toCanvas(r: Raster): HTMLCanvasElement {
   const c = document.createElement('canvas');
@@ -57,6 +59,10 @@ export class GardenScene extends Phaser.Scene {
   private meadow!: Meadow;
   private sun!: Sunlight;
   private pond!: PondReflection;
+  private trees!: Trees;
+  private vignette!: Vignette;
+  private camAnchor!: Phaser.GameObjects.Zone;
+  private vz = 0;
 
   constructor() {
     super('garden');
@@ -70,7 +76,7 @@ export class GardenScene extends Phaser.Scene {
     this.time.addEvent({ delay: 700, loop: true, callback: () => grounds.forEach((g) => g.setVisible(!g.visible)) });
 
     const props = buildProps();
-    props.forEach((p, i) => this.add.image(p.x, p.y, `prop-${i}`).setOrigin(0).setDepth(p.depthY));
+    this.trees = new Trees(this, props, canvases.props);
     this.meadow = new Meadow(this);
     this.pond = new PondReflection(this, {
       waterMask: toCanvas(buildWaterMask()),
@@ -80,6 +86,7 @@ export class GardenScene extends Phaser.Scene {
       plants: this.meadow.plants,
     });
     this.sun = new Sunlight(this, toCanvas);
+    this.vignette = new Vignette(this);
 
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
@@ -92,7 +99,9 @@ export class GardenScene extends Phaser.Scene {
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, WORLD_W, WORLD_H);
-    cam.startFollow(this.me.shadow, true);
+    // follow the cat's feet on the ground plane, so jumps don't shake the view
+    this.camAnchor = this.add.zone(sx, sy, 1, 1);
+    cam.startFollow(this.camAnchor, true);
     cam.setRoundPixels(true);
     this.scale.on('resize', () => this.fitZoom());
     this.fitZoom();
@@ -125,7 +134,7 @@ export class GardenScene extends Phaser.Scene {
     });
     this.net.start();
     // timers keep running while the tab is in the background, so others still see us
-    window.setInterval(() => this.sendState(), SEND_MS);
+    window.setInterval(() => this.sendState(), TICK_MS);
   }
 
   private makeTextures() {
@@ -138,11 +147,7 @@ export class GardenScene extends Phaser.Scene {
     });
     tex.addCanvas('ground-0', toCanvas(buildGround(0)));
     tex.addCanvas('ground-1', toCanvas(buildGround(1)));
-    const props = buildProps().map((p, i) => {
-      const canvas = toCanvas(p.raster);
-      tex.addCanvas(`prop-${i}`, canvas);
-      return canvas;
-    });
+    const props = buildProps().map((p) => toCanvas(p.raster));
     const flora = addFloraTextures(this, (i) => toCanvas(buildFloraSheet(FLORA[i])));
     for (const [k, make] of Object.entries(ICONS)) tex.addCanvas(k, toCanvas(make()));
     return { cats, props, flora };
@@ -153,18 +158,21 @@ export class GardenScene extends Phaser.Scene {
     const zoom = Math.max(2, Math.round(Math.min(width / 260, height / 220)));
     this.cameras.main.setZoom(zoom);
     this.sun?.resize();
+    this.vignette?.resize();
   }
 
   private state(): CatMsg {
     const m = this.me;
-    return [Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, m.facing, m.act, m.seq, m.coat];
+    const r = (v: number) => Math.round(v * 10) / 10;
+    return [r(m.x), r(m.y), r(m.z), m.facing, m.act, m.seq, m.coat];
   }
 
   private sendState(): void {
     const s = this.state();
     const now = performance.now();
     const changed = !this.lastSent || s.some((v, i) => v !== this.lastSent![i]);
-    if (!changed && now - this.lastSentAt < HEARTBEAT_MS) return;
+    const airborne = this.me.act === Act.Jump;
+    if (changed ? !airborne && now - this.lastSentAt < SEND_MS : now - this.lastSentAt < HEARTBEAT_MS) return;
     this.net.broadcast(s);
     this.lastSent = s;
     this.lastSentAt = now;
@@ -192,13 +200,16 @@ export class GardenScene extends Phaser.Scene {
     }
     this.me.render(time);
 
+    this.camAnchor.setPosition(this.me.x, this.me.y);
+
     const cats: CatView[] = [this.me, ...this.remotes.values()];
+    this.trees.update(cats);
     this.meadow.update(time, cats);
     this.pond.update(time, cats);
     this.sun.update(time, dt);
     if (this.youMarker.active) {
       const bob = Math.floor(time / 300) % 2;
-      this.youMarker.setPosition(Math.round(this.me.x), Math.round(this.me.y) - 18 - bob).setVisible(Math.floor(time / 300) % 4 !== 3);
+      this.youMarker.setPosition(Math.round(this.me.x), Math.round(this.me.y - this.me.z) - 18 - bob).setVisible(Math.floor(time / 300) % 4 !== 3);
     }
   }
 
@@ -225,16 +236,19 @@ export class GardenScene extends Phaser.Scene {
     };
 
     // finish timed acts
-    if (me.act === Act.Jump && elapsed >= JUMP_MS) me.setAct(moving ? Act.Walk : Act.Idle, now);
     if ((me.act === Act.Hiss && elapsed >= HISS_MS) || (me.act === Act.Roll && elapsed >= ROLL_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Lick && elapsed >= LICK_MS) {
       me.setAct(Act.Sit, now);
       this.nextLick = now + 4000 + Math.random() * 7000;
     }
 
-    if (hiss && me.act !== Act.Jump) begin(Act.Hiss);
-    else if (roll && me.act !== Act.Jump) begin(Act.Roll);
-    else if (jump && me.act !== Act.Jump) begin(Act.Jump);
+    const grounded = me.act !== Act.Jump;
+    if (hiss && grounded) begin(Act.Hiss);
+    else if (roll && grounded) begin(Act.Roll);
+    else if (jump && grounded) {
+      begin(Act.Jump);
+      this.vz = JUMP_V;
+    }
 
     if (moving) {
       if (me.act === Act.Hiss || me.act === Act.Roll || me.act === Act.Sit || me.act === Act.Lick) me.setAct(Act.Idle, now);
@@ -247,6 +261,22 @@ export class GardenScene extends Phaser.Scene {
       me.setAct(Act.Idle, now);
     }
 
+    // vertical: fall onto whatever surface is below (also when walking off a hedge)
+    const ground = groundAt(me.x, me.y);
+    if (me.z > ground || this.vz > 0) {
+      if (me.act !== Act.Jump) me.setAct(Act.Jump, now);
+      this.vz -= GRAVITY * dt;
+      me.z += this.vz * dt;
+      if (me.z <= ground) {
+        me.z = ground;
+        this.vz = 0;
+        me.setAct(moving ? Act.Walk : Act.Idle, now);
+      }
+    } else {
+      me.z = ground;
+      if (me.act === Act.Jump) me.setAct(moving ? Act.Walk : Act.Idle, now);
+    }
+
     if (me.act === Act.Idle && now - this.lastInput > SIT_AFTER_MS) {
       if (me.facing === Facing.Up) me.facing = Facing.Down;
       me.setAct(Act.Sit, now);
@@ -255,9 +285,10 @@ export class GardenScene extends Phaser.Scene {
     if (me.act === Act.Sit && now >= this.nextLick) begin(Act.Lick);
   }
 
+  /** Move horizontally, but only onto surfaces no higher than the cat currently is. */
   private move(mx: number, my: number): void {
     const me = this.me;
-    const hits = (x: number, y: number) => boxHitsSolid(x + HIT.x0, y + HIT.y0, x + HIT.x1, y + HIT.y1);
+    const hits = (x: number, y: number) => heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1) > me.z + 0.5;
     if (mx && !hits(me.x + mx, me.y)) me.x += mx;
     if (my && !hits(me.x, me.y + my)) me.y += my;
   }

@@ -85,3 +85,10 @@ for (let f = 0; f < n; f++) {
   big.blit(fr, (f % COLS) * 18 + 1, Math.floor(f / COLS) * 18 + 1);
 }
 writeFileSync(`${out}/cat-big.png`, png(big, 10));
+
+// trees, big
+const trees = buildProps().slice(0, 8);
+const tr = new Raster(trees.length * 66, 86);
+tr.rect(0, 0, tr.w, tr.h, hex('#68b848'));
+trees.forEach((p, i) => tr.blit(p.raster, i * 66 + 1, 1));
+writeFileSync(`${out}/trees.png`, png(tr, 4));

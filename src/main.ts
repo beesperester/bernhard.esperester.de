@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GardenScene } from './game/GardenScene.ts';
 
-new Phaser.Game({
+const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
   backgroundColor: '#2e6e24',
@@ -11,3 +11,6 @@ new Phaser.Game({
   input: { keyboard: { capture: [32, 37, 38, 39, 40] } },
   scene: [GardenScene],
 });
+
+// handy for poking at the game from the console during development
+if (import.meta.env.DEV) (window as unknown as { game: Phaser.Game }).game = game;

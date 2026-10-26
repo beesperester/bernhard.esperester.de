@@ -1,5 +1,5 @@
-import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { TILE, MAP_W, MAP_H, tileAt, treeTiles } from '../world/map.ts';
+import { Raster, hex, hash2, mulberry32, type RGB } from './raster.ts';
+import { TILE, MAP_W, MAP_H, tileAt, treeTiles, trunkBase } from '../world/map.ts';
 
 const C = {
   g0: hex('#68b848'), g1: hex('#90d468'), g2: hex('#4c9a34'), g3: hex('#2e6e24'), g4: hex('#5aaa3e'), g5: hex('#78c454'),
@@ -294,18 +294,34 @@ export function buildGround(phase: number): Raster {
             fountain(r, ox, oy);
           }
           break;
-        case 'T': {
-          grass(r, ox, oy, tx, ty);
-          for (let x = -6; x < 22; x++) for (let y = 10; y < 18; y++) {
-            const dx = (x - 8) / 14, dy = (y - 14) / 4;
-            if (dx * dx + dy * dy < 1) r.set(ox + x, oy + y, C.g2);
-          }
-          break;
-        }
         default: grass(r, ox, oy, tx, ty);
       }
     }
+  castTreeShadows(r);
   return r;
+}
+
+/** Canopy shadows fall to the lower right, away from the sun in the top-left. */
+function castTreeShadows(r: Raster): void {
+  const shade = new Uint8Array(r.w * r.h);
+  for (const [tx, ty] of treeTiles()) {
+    const [bx, by] = trunkBase(tx, ty);
+    const cx = bx + 9, cy = by - 3, rx = 30, ry = 11;
+    for (let y = Math.floor(cy - ry); y <= cy + ry; y++)
+      for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
+        if (x < 0 || y < 0 || x >= r.w || y >= r.h) continue;
+        const d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
+        // dithered soft edge
+        if (d < 1 && (d < 0.7 || bayer(x, y) > (d - 0.7) / 0.3)) shade[y * r.w + x] = 1;
+      }
+  }
+  for (let i = 0; i < shade.length; i++)
+    if (shade[i]) {
+      const k = i * 4;
+      r.data[k] = r.data[k] * 0.72;
+      r.data[k + 1] = r.data[k + 1] * 0.78;
+      r.data[k + 2] = r.data[k + 2] * 0.8 + 6;
+    }
 }
 
 export interface Prop {
@@ -316,49 +332,128 @@ export interface Prop {
   depthY: number;
 }
 
+// [highlight, light, mid, dark, outline]
 const CANOPIES: { c: RGB[]; dots?: RGB[] }[] = [
-  { c: [C.c0, C.c1, C.c2, C.c3] },
-  { c: [hex('#5cb048'), hex('#3c8c38'), hex('#286a2c'), hex('#143c1c')] },
-  { c: [hex('#fcd0e0'), hex('#f0a0c0'), hex('#d07098'), hex('#6a2c48')], dots: [hex('#ffffff'), hex('#fce8f0')] },
-  { c: [C.c0, C.c1, C.c2, C.c3], dots: [hex('#e83838'), hex('#f86048')] },
+  { c: ['#a6e070', '#72c050', '#4c9c3c', '#307430', '#173f1c'].map(hex) },
+  { c: ['#7cc85e', '#52a242', '#378036', '#245c2a', '#10301a'].map(hex) },
+  { c: ['#fff0f6', '#f9c0d8', '#ee92b8', '#c86492', '#5c2642'].map(hex), dots: [hex('#ffffff')] },
+  { c: ['#a6e070', '#72c050', '#4c9c3c', '#307430', '#173f1c'].map(hex), dots: [hex('#e83838'), hex('#ff6a50')] },
 ];
+const BARK = ['#b88048', '#86532a', '#5a3417', '#2e1a0a'].map(hex);
 
+export const TREE_W = 64;
+export const TREE_H = 84;
+
+/** A big tree built from many shaded leaf clumps, with branches, bark and roots. */
 function tree(seed: number, kind: number): Raster {
-  const W = 32, H = 44;
+  const W = TREE_W, H = TREE_H, cx = W / 2, base = H - 1;
   const r = new Raster(W, H);
-  const pal = CANOPIES[kind];
-  // trunk
-  for (let y = 26; y < H - 2; y++)
-    for (let x = 12; x < 20; x++) {
-      const edge = x === 12 || x === 19;
-      r.set(x, y, edge ? C.t2 : x < 15 ? C.t0 : x === 17 && y % 5 === 0 ? C.t2 : C.t1);
+  const rnd = mulberry32(seed * 977 + kind * 13);
+  const pal = CANOPIES[kind].c;
+  const rx = 24 + rnd() * 5, ry = 21 + rnd() * 4, ccy = 31;
+  const trunkTop = ccy + 4;
+
+  // trunk with bark lines, flaring into roots
+  for (let y = trunkTop; y <= base; y++) {
+    const flare = Math.max(0, y - (base - 5));
+    const half = 4 + Math.floor((y - trunkTop) / 14) + Math.floor(flare * flare * 0.25);
+    for (let x = cx - half; x < cx + half; x++) {
+      const u = (x - (cx - half)) / (2 * half);
+      let c = u < 0.1 ? BARK[3] : u < 0.35 ? BARK[0] : u < 0.8 ? BARK[1] : u < 0.92 ? BARK[2] : BARK[3];
+      if (c !== BARK[3] && hash2(x, Math.floor(y / 3) + (x % 2), seed) < 0.18) c = BARK[2];
+      if (y === base) c = BARK[3];
+      r.set(x, y, c);
     }
-  r.set(11, H - 3, C.t2); r.set(20, H - 3, C.t2); r.rect(12, H - 2, 8, 1, C.t2);
-  // canopy: union of blobs, jittered per tree
-  const j = (k: number) => Math.round((hash2(seed, k, 77) - 0.5) * 3);
-  const blobs: [number, number, number][] = [
-    [16, 14, 13], [7 + j(1), 19 + j(2), 8], [25 + j(3), 19 + j(4), 8],
-    [11 + j(5), 9 + j(6), 8], [21 + j(7), 9 + j(8), 8], [16, 22, 9],
-  ];
-  const inside = (x: number, y: number) => blobs.some(([bx, by, br]) => (x - bx) ** 2 + (y - by) ** 2 < br * br);
-  for (let y = 0; y < 32; y++)
-    for (let x = 0; x < W; x++) {
-      if (!inside(x + 0.5, y + 0.5)) continue;
-      const edge = !inside(x - 0.5, y + 0.5) || !inside(x + 1.5, y + 0.5) || !inside(x + 0.5, y - 0.5) || !inside(x + 0.5, y + 1.5);
-      if (edge) { r.set(x, y, pal.c[3]); continue; }
-      // light from the top-left, leafy dither
-      const l = (x - 16) * 0.5 + (y - 12) + (hash2(x, y, seed) - 0.5) * 9;
-      const leaf = ((x >> 2) + (y >> 2)) % 2 === 0 && (x + y) % 4 === 0;
-      let i = l < -6 ? 0 : l < 3 ? 1 : l < 11 ? 2 : 3;
-      if (leaf && i > 0 && i < 3) i = i === 1 ? 0 : 1;
-      r.set(x, y, pal.c[i]);
+  }
+  // branches reaching up into the crown
+  const branch = (x0: number, y0: number, x1: number, y1: number, th: number) => {
+    const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, x = Math.round(x0 + (x1 - x0) * t), y = Math.round(y0 + (y1 - y0) * t);
+      const w = Math.max(1, Math.round(th * (1 - t * 0.6)));
+      for (let k = 0; k < w; k++) r.set(x + k, y, k === 0 ? BARK[3] : k === 1 ? BARK[1] : BARK[2]);
     }
-  if (pal.dots)
-    for (let k = 0; k < 14; k++) {
-      const x = 4 + Math.floor(hash2(seed, k, 81) * 24), y = 3 + Math.floor(hash2(seed, k, 82) * 24);
-      if (!inside(x - 0.5, y - 0.5) || !inside(x + 1.5, y + 1.5)) continue;
-      const c = pal.dots[k % pal.dots.length];
-      r.set(x, y, c); r.set(x + 1, y, c); r.set(x, y + 1, c); r.set(x + 1, y + 1, pal.c[3]);
+  };
+
+  // leaf clumps: an outer ring for the silhouette plus a filled interior
+  type Clump = { x: number; y: number; r: number };
+  const clumps: Clump[] = [];
+  const ring = 13 + Math.floor(rnd() * 4);
+  for (let i = 0; i < ring; i++) {
+    const a = (i / ring) * Math.PI * 2 + rnd() * 0.3;
+    clumps.push({ x: cx + Math.cos(a) * rx * 0.82, y: ccy + Math.sin(a) * ry * 0.82, r: 6 + rnd() * 3.5 });
+  }
+  for (let i = 0; i < 16; i++) {
+    const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * 0.65;
+    clumps.push({ x: cx + Math.cos(a) * rx * d, y: ccy + Math.sin(a) * ry * d - 2, r: 7 + rnd() * 4 });
+  }
+  clumps.sort((a, b) => a.y - b.y);
+
+  const drawClump = (c: Clump, i: number) => {
+    for (let y = Math.floor(c.y - c.r); y <= c.y + c.r; y++)
+      for (let x = Math.floor(c.x - c.r); x <= c.x + c.r; x++) {
+        const dx = x + 0.5 - c.x, dy = y + 0.5 - c.y, d = Math.hypot(dx, dy);
+        if (d > c.r) continue;
+        // soft dark rim only on the shadow side; the silhouette is outlined later
+        if (d > c.r - 1.2 && dx + dy > -c.r * 0.2) { r.set(x, y, pal[3]); continue; }
+        // light from the top-left plus the clump's place in the crown
+        const crown = ((c.x - cx) / rx) * 0.25 + ((c.y - ccy) / ry) * 0.45;
+        const l = -(dx * 0.55 + dy * 0.85) / c.r - crown + (bayer(x, y) - 0.5) * 0.35 + (hash2(x, y, seed + i) - 0.5) * 0.25;
+        let tone = l > 0.55 ? 0 : l > 0.05 ? 1 : l > -0.45 ? 2 : 3;
+        // leaf speckle
+        const h = hash2(x, y, seed * 7 + i);
+        if (h < 0.07 && tone > 0) tone--;
+        else if (h > 0.95 && tone < 3) tone++;
+        r.set(x, y, pal[tone]);
+      }
+    // a few leaf glints
+    for (let k = 0; k < 2; k++) {
+      const gx = Math.round(c.x - c.r * 0.4 + rnd() * 3), gy = Math.round(c.y - c.r * 0.45 + rnd() * 2);
+      r.set(gx, gy, pal[0]); r.set(gx + 1, gy, pal[0]); r.set(gx + 1, gy - 1, pal[0]);
+    }
+  };
+
+  const back = clumps.filter((c) => c.y < ccy - 3);
+  const front = clumps.filter((c) => c.y >= ccy - 3);
+  back.forEach(drawClump);
+  branch(cx - 3, trunkTop + 4, cx - 14, ccy + 2, 3);
+  branch(cx + 1, trunkTop + 3, cx + 12, ccy, 3);
+  front.forEach((c, i) => {
+    // leave a couple of gaps low in the crown so branches show through
+    if (c.y > ccy + 2 && Math.abs(c.x - cx) < 10 && i % 3 === 0) return;
+    drawClump(c, i + back.length);
+  });
+
+  const dots = CANOPIES[kind].dots;
+  if (dots)
+    for (let k = 0; k < 30; k++) {
+      const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * 0.9;
+      const x = Math.round(cx + Math.cos(a) * rx * d), y = Math.round(ccy + Math.sin(a) * ry * d);
+      if (!r.isSet(x - 1, y) || !r.isSet(x + 2, y + 2)) continue;
+      const c = dots[k % dots.length];
+      r.set(x, y, c); r.set(x + 1, y, c); r.set(x, y + 1, c); r.set(x + 1, y + 1, pal[3]);
+    }
+
+  // outline the silhouette of the crown
+  const leafy = (x: number, y: number) => {
+    if (!r.isSet(x, y)) return false;
+    const i = (y * W + x) * 4;
+    return !BARK.some((b) => b[0] === r.data[i] && b[1] === r.data[i + 1] && b[2] === r.data[i + 2]);
+  };
+  const edge: [number, number][] = [];
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      if (leafy(x, y) && (!r.isSet(x - 1, y) || !r.isSet(x + 1, y) || !r.isSet(x, y - 1) || !r.isSet(x, y + 1))) edge.push([x, y]);
+  for (const [x, y] of edge) r.set(x, y, pal[4]);
+
+  // canopy shade falling onto the upper trunk
+  for (let y = trunkTop; y < trunkTop + 8; y++)
+    for (let x = cx - 6; x < cx + 6; x++) {
+      const i = (y * W + x) * 4;
+      if (r.data[i + 3] && r.data[i] < 200 && (y - trunkTop < 4 || bayer(x, y) > 0.5)) {
+        const isBark = BARK.some((b) => b[0] === r.data[i] && b[1] === r.data[i + 1]);
+        if (isBark) r.set(x, y, BARK[2]);
+      }
     }
   return r;
 }
@@ -367,11 +462,12 @@ export function buildProps(): Prop[] {
   return treeTiles().map(([tx, ty], i) => {
     const h = hash2(tx, ty, 55);
     const kind = h < 0.22 ? 2 : h < 0.36 ? 3 : h < 0.6 ? 1 : 0;
+    const [bx, by] = trunkBase(tx, ty);
     return {
       raster: tree(i + 1, kind),
-      x: tx * TILE - 8,
-      y: ty * TILE + TILE - 44 + 2,
-      depthY: ty * TILE + TILE - 1,
+      x: bx - TREE_W / 2,
+      y: by - (TREE_H - 1),
+      depthY: by,
     };
   });
 }

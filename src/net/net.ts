@@ -4,7 +4,8 @@
 import { joinRoom, type Room } from 'trystero';
 import type { CatMsg } from '../game/state.ts';
 
-const APP_ID = 'bernhard.esperester.de/garden-of-cats/v1';
+// bump the version whenever CatMsg changes so old and new clients don't mix
+const APP_ID = 'bernhard.esperester.de/garden-of-cats/v2';
 /** A garden is "full" at this many cats; later visitors open the next one. */
 const ROOM_CAP = 20;
 const MAX_ROOMS = 50;
@@ -90,7 +91,7 @@ export class Net {
 
 /** Peers are untrusted: accept only a well-formed state tuple. */
 function sanitize(d: unknown): CatMsg | null {
-  if (!Array.isArray(d) || d.length !== 6 || !d.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
-  const [x, y, facing, act, seq, coat] = d as number[];
-  return [x, y, facing | 0, act | 0, seq | 0, coat | 0];
+  if (!Array.isArray(d) || d.length !== 7 || !d.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
+  const [x, y, z, facing, act, seq, coat] = d as number[];
+  return [x, y, z, facing | 0, act | 0, seq | 0, coat | 0];
 }
