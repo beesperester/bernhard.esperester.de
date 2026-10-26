@@ -25,12 +25,27 @@ const isPathCh = (ch: string) => ch === 'p' || ch === 'B' || ch === 'g';
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 export const bayer = (x: number, y: number) => BAYER[(y & 3) * 4 + (x & 3)];
 
+/** Lattice values of the noise are remembered per seed for this many points each way (the map needs fewer). */
+const LATTICE = 160;
+const lattices = new Map<number, Float64Array>();
+
+/** The noise's random value at lattice point (xi, yi): hash2, looked up once and then remembered. */
+function latticeAt(xi: number, yi: number, s: number): number {
+  if (xi < 0 || yi < 0 || xi >= LATTICE || yi >= LATTICE) return hash2(xi, yi, s);
+  let values = lattices.get(s);
+  if (!values) lattices.set(s, (values = new Float64Array(LATTICE * LATTICE).fill(-1)));
+  const i = yi * LATTICE + xi;
+  let v = values[i];
+  if (v < 0) values[i] = v = hash2(xi, yi, s);
+  return v;
+}
+
 /** Smooth value noise in [0,1), deterministic. */
 export function noise(x: number, y: number, s: number): number {
   const xi = Math.floor(x), yi = Math.floor(y);
   const fx = x - xi, fy = y - yi;
   const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
-  const a = hash2(xi, yi, s), b = hash2(xi + 1, yi, s), c = hash2(xi, yi + 1, s), d = hash2(xi + 1, yi + 1, s);
+  const a = latticeAt(xi, yi, s), b = latticeAt(xi + 1, yi, s), c = latticeAt(xi, yi + 1, s), d = latticeAt(xi + 1, yi + 1, s);
   return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
 }
 
