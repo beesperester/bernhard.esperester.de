@@ -115,7 +115,9 @@ export class CatView {
     // up a tree, it is drawn in front of the tree (and of the branches it walks on); up on a folly, in front of that
     const tree = treeHolding(this.x, this.y, z);
     const folly = tree < 0 ? upOnFolly(this.x, this.y, z) : null;
-    const d = tree >= 0 ? TREES[tree].y + 0.6 : folly !== null ? folly + 0.6 : y;
+    // (sorted by where it really is, not the rounded pixel it's drawn at: pressed up against a
+    // cliff from behind, it stands a hair short of the cliff's row and must stay behind it)
+    const d = tree >= 0 ? TREES[tree].y + 0.6 : folly !== null ? folly + 0.6 : this.y;
     this.depth = d;
     // the shadow lies on whatever surface is below the cat
     const below = Math.round(surfaceAt(this.x, this.y, z));
@@ -136,7 +138,7 @@ export class CatView {
     this.eyes.setVisible(glow);
     if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * (this.act === Act.Sleep ? 0 : 0.9));
     // our own cat, where a hill hides it: the covered part shows as a silhouette
-    const cover = this.local ? terrainCover(x, y, Math.round(z), CAT, CAT) : null;
+    const cover = this.local ? terrainCover(x, this.y, Math.round(z), CAT, CAT) : null;
     this.ghost.setVisible(!!cover);
     if (cover) {
       const left = x - CAT / 2, top = y - Math.round(z) - CAT;
