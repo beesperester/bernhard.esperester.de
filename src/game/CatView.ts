@@ -11,7 +11,7 @@ const SILHOUETTE = 0x5ee86a;
 
 /** Names float over everything but the emotes, the same size at any zoom. */
 const LABEL_DEPTH = 99999.6, LABEL_PX = 12;
-/** How long the name takes to fade out when a cat crouches (and back in). */
+/** How long the name takes to fade out when a cat crouches or falls asleep (and back in). */
 const LABEL_FADE_MS = 400;
 
 /** Light shared by all cats, set by the scene every frame. */
@@ -160,8 +160,8 @@ export class CatView {
     // the name, just under the cat's feet (and under its shadow on a ledge)
     if (this.label.text !== this.name) this.label.setText(this.name);
     const zoom = this.label.scene.cameras.main.zoom;
-    // a crouching cat is lying low: its name fades away (the act is synced, so for everyone)
-    const hiding = this.act === Act.Crouch || this.act === Act.Sneak;
+    // a crouching or sleeping cat is lying low: its name fades away (the act is synced, so for everyone)
+    const hiding = this.act === Act.Crouch || this.act === Act.Sneak || this.act === Act.Sleep;
     const step = this.labelT < 0 ? 1 : (now - this.labelT) / LABEL_FADE_MS;
     this.labelT = now;
     this.labelAlpha = Math.max(0, Math.min(1, this.labelAlpha + (hiding ? -step : step)));

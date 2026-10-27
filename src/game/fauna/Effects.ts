@@ -33,6 +33,8 @@ interface Particle {
   cat?: CatView;
   /** Draw order, if not by its own ground position. */
   depth?: number;
+  /** A 'z' over someone else's cat: small and faint, so a sleeper can hide. */
+  small?: boolean;
 }
 
 type Spawn = Omit<Particle, 'img' | 't' | 'z' | 'vx' | 'vy' | 'vz' | 'delay'> & Partial<Pick<Particle, 'z' | 'vx' | 'vy' | 'vz' | 'delay'>>;
@@ -130,9 +132,16 @@ export class Effects {
       s.wet = wet;
 
       if (c.act === Act.Sleep && now >= s.nextZ) {
-        s.nextZ = now + 850;
         const head = c.facing === Facing.Right ? 4 : -4;
-        this.add(this.image('z-0').setDepth(ON_TOP), { kind: 'z', x: c.x + head, y: c.y - 8 - c.z, vx: 4 + Math.random() * 4, vy: -9, life: 2.4 });
+        // our own cat's Zs float over everything; another cat's are few and tiny, and stay
+        // behind whatever it is curled up in (a bush, a crown), so a sleeper is easy to miss
+        if (c.local) {
+          s.nextZ = now + 850;
+          this.add(this.image('z-0').setDepth(ON_TOP), { kind: 'z', x: c.x + head, y: c.y - 8 - c.z, vx: 4 + Math.random() * 4, vy: -9, life: 2.4 });
+        } else {
+          s.nextZ = now + 1700;
+          this.add(this.image('z-0').setDepth(c.depth + 0.4), { kind: 'z', x: c.x + head, y: c.y - 6 - c.z, vx: 2 + Math.random() * 2, vy: -5, life: 1.6, small: true });
+        }
       }
 
       const dashing = c.speed > DASH_SPEED && c.act !== Act.Jump;
@@ -180,10 +189,11 @@ export class Effects {
           break;
         case 'z': {
           // drifts up from the cat, growing as it goes, then fades
-          p.x += (p.vx + Math.sin(p.t * 3) * 6) * dt;
+          p.x += (p.vx + Math.sin(p.t * 3) * (p.small ? 2 : 6)) * dt;
           p.y += p.vy * dt;
-          const size = Math.min(Z_SIZES.length - 1, Math.floor(u * Z_SIZES.length));
-          p.img.setTexture(`z-${size}`).setPosition(Math.round(p.x), Math.round(p.y)).setAlpha(u > 0.75 ? (1 - u) / 0.25 : 1);
+          const sizes = p.small ? 2 : Z_SIZES.length;
+          const size = Math.min(sizes - 1, Math.floor(u * sizes));
+          p.img.setTexture(`z-${size}`).setPosition(Math.round(p.x), Math.round(p.y)).setAlpha((u > 0.75 ? (1 - u) / 0.25 : 1) * (p.small ? 0.6 : 1));
           break;
         }
         case 'dust':
