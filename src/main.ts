@@ -3,6 +3,7 @@ import { GardenScene } from './game/GardenScene.ts';
 import { Music } from './audio/music.ts';
 import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
+import { setupFullscreen, toggleFullscreen } from './ui/fullscreen.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
 import '@fontsource/pixelify-sans/latin-ext-400.css';
 import '@fontsource/pixelify-sans/latin-700.css';
@@ -47,7 +48,10 @@ window.addEventListener('keydown', (e) => {
   // typing a name is not playing
   if (e.target instanceof HTMLInputElement) return;
   const k = e.key.toLowerCase();
-  if (k === 'm' || k === 's') {
+  if (k === 'f') {
+    if (!e.repeat) toggleFullscreen();
+    unlock();
+  } else if (k === 'm' || k === 's') {
     if (!e.repeat) (k === 'm' ? music : sound).toggle();
     if (k === 'm') sound.unlock();
     else music.unlock();
@@ -61,6 +65,8 @@ for (const [btn, target] of [[musicBtn, music], [soundBtn, sound]] as const) {
     (target === music ? sound : music).unlock();
   });
 }
+
+setupFullscreen(document.getElementById('fullscreen')!);
 
 // handy for poking at the game from the console during development
 if (import.meta.env.DEV) Object.assign(window, { game, music, sound });

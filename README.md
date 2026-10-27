@@ -28,6 +28,7 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 - Jump onto low obstacles — hedges, bushes, rocks, the fountain rim — and walk along them. Jump into the pond and you splash and scramble straight back out
 - The park (80×60 tiles): narrow winding paths, a two-level highland and a little mesa ringed by stone walls — drop off any edge, but you have to find the stairs to get up — a spring feeding a stream that runs under footbridges into the lake, small lily ponds, a walled rose garden, and a hedge labyrinth (too tall to jump) with a fountain at its heart
 - Background music and sounds start with your first key press or tap; **M** / the ♪ button mutes the music, **S** / the speaker button the sounds; both pause while the tab is hidden. Birds sing now and then from a tree near you; cats boing when they jump, purr when content, hiss, mew, whoosh off when dashing, patter along paths (lower on the wooden bridges, brighter on stone stairs), rustle through tall grass and chew their catch, and the water splashes — for every cat near you
+- **F** / the corners button toggles full screen. iPhones can't take a web page full screen, so there the button explains how to add the garden to the home screen, which opens it full screen (`public/manifest.webmanifest`).
 - On touch devices an on-screen D-pad and buttons appear
 
 ## How it works

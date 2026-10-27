@@ -64,7 +64,7 @@ html, body {
   top: calc(max(12px, env(safe-area-inset-top)) + 40px);
 }
 
-#music, #sound {
+#music, #sound, #fullscreen {
   left: auto;
   right: 12px;
   top: max(12px, env(safe-area-inset-top));
@@ -81,7 +81,24 @@ html, body {
 #music.muted { background-image: var(--px-music-off); }
 #sound { right: 50px; background-image: var(--px-sound); }
 #sound.muted { background-image: var(--px-sound-off); }
-#music:active, #sound:active { transform: translateY(2px); }
+#fullscreen { right: 88px; background-image: var(--px-fullscreen); }
+#fullscreen.on { background-image: var(--px-fullscreen-exit); }
+#music:active, #sound:active, #fullscreen:active { transform: translateY(2px); }
+/* (installed on the home screen it is full screen already) */
+@media (display-mode: fullscreen), (display-mode: standalone) {
+  #fullscreen { display: none; }
+}
+
+/* a short note under the buttons, e.g. how to get full screen on an iPhone */
+#tip {
+  left: auto;
+  right: 12px;
+  top: calc(max(12px, env(safe-area-inset-top)) + 42px);
+  max-width: min(280px, calc(100vw - 24px));
+  z-index: 5;
+  transition: opacity 0.4s;
+}
+#tip.fading { opacity: 0; }
 
 #touch {
   position: fixed;
