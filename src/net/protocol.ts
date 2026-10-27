@@ -1,6 +1,7 @@
 // What peers send each other, and how we check it. Peers are untrusted: every
 // message is validated here before the game sees it.
 import { Prey, type CatMsg } from '../game/state.ts';
+import type { WorldSeed } from '../world/seed.ts';
 
 /** Accept only a well-formed cat state tuple: [x, y, z, facing, act, seq, coat, mews]. */
 export function sanitizeCat(d: unknown): CatMsg | null {
@@ -35,6 +36,14 @@ export function sanitizeWorld(d: unknown, trees: number): WorldMsg | null {
   if (!Array.isArray(caught) || caught.length > 512 || !Array.isArray(shakes) || shakes.length > 64) return null;
   const c = caught.map(sanitizeCatch), s = shakes.map((x) => sanitizeShake(x, trees));
   return c.every((x) => x) && s.every((x) => x) ? { caught: c as [Prey, number][], shakes: s as [number, number][] } : null;
+}
+
+/** Accept only a [seed, born] garden seed: a 32-bit seed, and a time it could have been planted (ms since epoch). */
+export function sanitizeSeed(d: unknown): WorldSeed | null {
+  if (!Array.isArray(d) || d.length !== 2) return null;
+  const [seed, born] = d;
+  const ok = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 && Number.isInteger(born) && born > 1.7e12 && born < Date.now() + 864e5;
+  return ok ? { seed, born } : null;
 }
 
 /** A verdict on a catch ('c': catcher, kind, id, confirmed) or on a cat ('a': suspect, accused). */

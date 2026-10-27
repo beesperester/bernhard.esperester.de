@@ -5,7 +5,7 @@ import { buildUprightMask } from '../art/tiles.ts';
 import { buildProps, type Prop } from '../art/trees.ts';
 import type { Raster } from '../art/raster.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
-import { HOUSES, standingOn, surfaceAt } from '../world/trees.ts';
+import { HOUSES, TREES, standingOn, surfaceAt } from '../world/trees.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, WALL, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
@@ -34,7 +34,7 @@ import { Ambient } from './Ambient.ts';
 import { DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
-import { Net, PEER } from '../net/net.ts';
+import { PEER, theNet, type Net, type NetEvents } from '../net/net.ts';
 import { Referee } from './Referee.ts';
 import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
@@ -73,22 +73,13 @@ function loadCoat(): number {
 }
 
 /**
- * How long the garden stays behind its curtain at first: briefly for a new
- * visitor, longer for one that was here a moment ago (a reload: the other cats
- * take a few seconds to connect, and may remember where it was); HELLO_MS
- * more for each cat that turns up meanwhile, up to LAST_LOOK_MS.
+ * How long the garden stays behind its curtain once it is laid out: a moment,
+ * or, with other cats here, long enough for one that remembers us (from
+ * before a reload) to say so; HELLO_MS more for each cat that turns up
+ * meanwhile, up to LAST_LOOK_MS. (The waiting for the cats to connect at all
+ * was done before: net.ts, seed().)
  */
-const FIRST_LOOK_MS = 1500, RETURN_LOOK_MS = 5000, HELLO_MS = 1200, LAST_LOOK_MS = 6000;
-/** Back within this long counts as returning. */
-const RETURN_WITHIN_MS = 10 * 60 * 1000;
-
-/** When this browser last left the garden (ms since epoch), or 0. */
-function leftAt(): number {
-  try { return Number(localStorage.getItem('cat-left')) || 0; } catch { return 0; }
-}
-addEventListener('pagehide', () => {
-  try { localStorage.setItem('cat-left', String(Date.now())); } catch { /* storage unavailable */ }
-});
+const FIRST_LOOK_MS = 300, HELLO_MS = 1200, LAST_LOOK_MS = 4000;
 
 export class GardenScene extends Phaser.Scene {
   private me!: CatView;
@@ -242,7 +233,7 @@ export class GardenScene extends Phaser.Scene {
     this.lastDry = { x: sx, y: sy, z: 0 };
     this.lastInput = now;
     this.arrived = now;
-    this.revealAt = now + (Date.now() - leftAt() < RETURN_WITHIN_MS ? RETURN_LOOK_MS : FIRST_LOOK_MS);
+    this.revealAt = now + FIRST_LOOK_MS;
     this.fader = new Fader(() => this.cameras.main.zoom);
     loading(0.65, 200, 'looking for other cats…');
 
@@ -281,7 +272,8 @@ export class GardenScene extends Phaser.Scene {
     );
     this.board.onBack = (pose) => this.resume(pose);
     renderBoard(this.board.ranking(), this.board.id);
-    this.net = new Net(() => this.state(), {
+    this.net = theNet();
+    const events: NetEvents = {
       onState: (id, msg) => {
         if (!this.referee.observe(id, msg, performance.now())) return;
         const cat = this.remotes.get(id);
@@ -334,7 +326,7 @@ export class GardenScene extends Phaser.Scene {
         this.garden = garden;
         this.updateStatus();
       },
-    });
+    };
     this.me.id = this.net.id;
     this.referee = new Referee(this.net.id, {
       vote: (msg) => this.net.vote(msg),
@@ -353,7 +345,8 @@ export class GardenScene extends Phaser.Scene {
         this.updateStatus();
       },
     });
-    this.net.start();
+    // (what the others said while the garden was being laid out comes in now)
+    this.net.attach(() => this.state(), events, TREES.length);
     // timers keep running while the tab is in the background, so others still see us
     window.setInterval(() => this.sendState(), TICK_MS);
   }

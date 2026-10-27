@@ -1,10 +1,12 @@
 // Generates the park map (src/world/garden.ts) from OpenStreetMap: Berlin
 // inside the S-Bahn Ring, as a garden. The Spree and the canals, the lakes,
 // the main roads and their bridges and the Ring itself keep their real
-// layout; everything else is filled in with lawns, meadows, flower beds and
-// trees (thickest where the real parks and woods are). The maze, the tree
-// house, the terraces, the garden ponds, the furniture and the landmark
-// follies are placed around that.
+// layout, and so do the terraces, the garden ponds and the landmark follies
+// placed around them. That is the fixed part of the park. Everything else
+// (lawns, meadows, flower beds, trees, the maze, the tree house, the
+// furniture) is laid out afresh for every new garden from its seed
+// (src/world/layout.ts), thickest where the real parks and woods are: ZONES
+// says where those are.
 //
 //   sh tools/berlin/fetch.sh          (once: downloads the OSM extract into tools/berlin/cache)
 //   npx tsx tools/berlin/generate.ts  (writes src/world/garden.ts, and a preview to tools/berlin/cache)
@@ -257,13 +259,6 @@ const hash = (x: number, y: number, s: number) => {
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
-/** Smooth value noise, 0..1, blobs about `size` tiles across. */
-function noise(x: number, y: number, size: number, s: number): number {
-  const fx = x / size, fy = y / size, ix = Math.floor(fx), iy = Math.floor(fy), u = fx - ix, v = fy - iy;
-  const sm = (t: number) => t * t * (3 - 2 * t);
-  const a = hash(ix, iy, s), b = hash(ix + 1, iy, s), c = hash(ix, iy + 1, s), d = hash(ix + 1, iy + 1, s);
-  return (a + (b - a) * sm(u)) * (1 - sm(v)) + (c + (d - c) * sm(u)) * sm(v);
-}
 const deg = (lat: number, lon: number): Pt => { const [x, y] = project(lat, lon); return [Math.floor(x), Math.floor(y)]; };
 
 const T = grid('.');
@@ -420,40 +415,6 @@ const rectFree = (x0: number, y0: number, w: number, h: number, margin: number) 
   console.log(`${laid.length} bridges for ${fords.length} crossings`);
 }
 
-// the maze, in the Tiergarten: a hedge labyrinth with the fountain in the middle
-const MAZE_W = 17, MAZE_H = 13;
-{
-  const centre = deg(52.5145, 13.3501);
-  const spot = nearest([centre[0] - 8, centre[1] - 6], (x, y) => rectFree(x, y, MAZE_W, MAZE_H, 1));
-  if (!spot) throw new Error('no room for the maze');
-  const [mx, my] = spot;
-  fillRect(mx, my, MAZE_W, MAZE_H, 'm');
-  const cw = (MAZE_W - 1) / 2, ch = (MAZE_H - 1) / 2;
-  const seen = new Set<number>();
-  const stack: Pt[] = [[0, 0]];
-  seen.add(0);
-  T[my + 1][mx + 1] = '.';
-  let n = 1;
-  while (stack.length) {
-    const [cx, cy] = stack[stack.length - 1];
-    const next = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as Pt[])
-      .map(([dx, dy]): Pt => [cx + dx, cy + dy])
-      .filter(([x, y]) => x >= 0 && y >= 0 && x < cw && y < ch && !seen.has(y * cw + x));
-    if (!next.length) { stack.pop(); continue; }
-    const [nx, ny] = next[Math.floor(hash(cx, cy, 77 + n++) * next.length)];
-    seen.add(ny * cw + nx);
-    T[my + 1 + cy + ny][mx + 1 + cx + nx] = '.';
-    T[my + 1 + 2 * ny][mx + 1 + 2 * nx] = '.';
-    stack.push([nx, ny]);
-  }
-  // the fountain court in the middle, and a way in at the bottom (and out at the top)
-  const fx = mx + Math.floor(MAZE_W / 2) - 2, fy = my + Math.floor(MAZE_H / 2) - 1;
-  fillRect(fx - 1, fy, 6, 3, '.');
-  T[fy + 1][fx] = 'f'; T[fy + 1][fx + 1] = 'o'; T[fy + 1][fx + 2] = 'o'; T[fy + 1][fx + 3] = 'f';
-  T[my + MAZE_H - 1][mx + 1 + 2 * Math.floor(cw / 2)] = '.';
-  T[my][mx + 1 + 2 * Math.floor(cw / 2)] = '.';
-}
-
 // garden ponds (with lily pads) in the parks: Viktoriapark, Weinbergspark, Görlitzer Park
 for (const [lat, lon, w, h] of [[52.4875, 13.381, 5, 3], [52.5329, 13.4, 4, 3], [52.4965, 13.4375, 5, 4]] as const) {
   const spot = nearest(deg(lat, lon), (x, y) => rectFree(x, y, w, h, 2));
@@ -483,33 +444,6 @@ for (const kind of Object.keys(LANDMARKS) as LandmarkKind[]) {
   if (!spot) { console.warn(`no room for ${kind}`); continue; }
   spots.push({ kind, tx: spot[0], ty: spot[1] });
   if (!across) fillRect(spot[0], spot[1], w, h, 'L');
-}
-
-// the tree house, in Volkspark Friedrichshain
-{
-  const spot = nearest(deg(52.5277, 13.433), (x, y) => clear(x, y, 3) && open(x, y));
-  if (spot) T[spot[1]][spot[0]] = 'H';
-}
-
-// meadows and flower beds
-for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
-  if (!open(x, y)) continue;
-  const n = noise(x, y, 7, 3);
-  if (outside[y][x] ? n > 0.3 : n > (green[y][x] ? 0.6 : 0.68)) T[y][x] = ',';
-}
-for (let y = 2; y < H - 3; y++) for (let x = 2; x < W - 3; x++) {
-  if (outside[y][x] || hash(x, y, 41) > 0.012) continue;
-  // a bed beside a path
-  if (![[0, -1], [0, 2], [-1, 0], [3, 0]].some(([dx, dy]) => at(x + dx, y + dy) === 'p')) continue;
-  const w = 2 + Math.floor(hash(x, y, 42) * 2);
-  let ok = true;
-  for (let j = 0; j < 2; j++) for (let i = 0; i < w; i++) if (!'.,'.includes(at(x + i, y + j))) ok = false;
-  if (!ok) continue;
-  fillRect(x, y, w, 2, 'f');
-  // half of them edged with low box hedge on the side away from the path
-  if (hash(x, y, 43) < 0.5) continue;
-  const row = at(x, y - 1) === 'p' ? y + 2 : at(x, y + 2) === 'p' ? y - 1 : -1;
-  if (row >= 0) for (let i = -1; i <= w; i++) if ('.,'.includes(at(x + i, row))) T[row][x + i] = '#';
 }
 
 // the terraces: raised ground away from the roads and the water, with stairs up from the south
@@ -549,55 +483,6 @@ for (const t of terraces) {
       // a clear way to the foot of the stairs
       if (!'.,f'.includes(at(x, y + 1)) && at(x, y + 1) !== 'p') T[y + 1][x] = '.';
     }
-  }
-}
-
-// trees: thick in the parks and woods and outside the Ring, a few along the streets; some pines
-const trees: Pt[] = [];
-const order: Pt[] = [];
-for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) order.push([x, y]);
-order.sort((a, b) => hash(a[0], a[1], 61) - hash(b[0], b[1], 61));
-for (const [x, y] of order) {
-  if (!'.,'.includes(at(x, y))) continue;
-  // room round the trunk: nothing but grass beside it, and not at a terrace edge or the foot of stairs
-  if ([[1, 0], [-1, 0], [0, 1], [0, -1], [0, 2]].some(([dx, dy]) => !'.,f'.includes(at(x + dx, y + dy)) || E[y + dy]?.[x + dx] !== E[y][x])) continue;
-  if (E[y - 1][x] !== E[y][x] || at(x, y + 1) === 'S') continue;
-  const p = green[y][x] ? 0.3 : outside[y][x] ? 0.16 : 0.025 + 0.2 * Math.max(0, noise(x, y, 9, 7) - 0.6) * 4;
-  if (hash(x, y, 62) > p) continue;
-  if (trees.some(([tx, ty]) => Math.abs(tx - x) < 5 && Math.abs(ty - y) < 4)) continue;
-  if (spots.some((s) => x >= s.tx - 3 && x < s.tx + LANDMARK_SIZE[s.kind][0] + 3 && y >= s.ty - 1 && y < s.ty + LANDMARK_SIZE[s.kind][1] + 4)) continue;
-  const pine = hash(x, y, 63) < (outside[y][x] ? 0.45 : green[y][x] ? 0.3 : 0.15) || noise(x, y, 12, 64) > 0.78;
-  T[y][x] = pine ? 'P' : 'T';
-  trees.push([x, y]);
-}
-
-// bushes and rocks, here and there on the lawns
-for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
-  if (!open(x, y) || trees.some(([tx, ty]) => Math.abs(tx - x) <= 1 && Math.abs(ty - y) <= 1)) continue;
-  if (![[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dy]) => '.,f'.includes(at(x + dx, y + dy)))) continue;
-  const h = hash(x, y, 71);
-  if (h < 0.012) T[y][x] = 'b';
-  else if (h < 0.018) T[y][x] = 'r';
-}
-
-// garden furniture beside the paths
-const furniture: { kind: string; tx: number; ty: number }[] = [];
-const SIZES: Record<string, Pt> = { shed: [3, 2], bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3], birdbath: [1, 1] };
-const WANT: [string, number][] = [['shed', 1], ['picnic', 3], ['blanket', 3], ['bistro', 3], ['birdbath', 5], ['bench', 14]];
-for (const [kind, count] of WANT) {
-  let placed = 0;
-  for (const [x, y] of order) {
-    if (placed >= count) break;
-    const [w, h] = SIZES[kind];
-    if (E[y][x] !== 0 || !rectFree(x, y, w, h, 0)) continue;
-    let flat = true;
-    for (let j = -1; j <= h; j++) for (let i = -1; i <= w; i++) if (E[y + j]?.[x + i] !== 0 || 'TPHmLSo'.includes(at(x + i, y + j))) flat = false;
-    if (!flat) continue;
-    // benches face a path just below them; the rest stand near one
-    const byPath = kind === 'bench' ? [0, 1].every((i) => at(x + i, y + 1) === 'p') : nearest([x, y], (px, py) => at(px, py) === 'p', 3) !== null;
-    if (!byPath || furniture.some((f) => Math.abs(f.tx - x) < 8 && Math.abs(f.ty - y) < 6)) continue;
-    furniture.push({ kind, tx: x, ty: y });
-    placed++;
   }
 }
 
@@ -715,30 +600,35 @@ function riverPx(run: Pt[]): number[] {
 
 const ROWS = T.map((r) => r.join(''));
 const ELEV = E.map((r) => r.join(''));
+const ZONES = T.map((r, y) => r.map((_, x) => (outside[y][x] ? 'o' : green[y][x] ? 'g' : '.')).join(''));
 png(ROWS, ELEV, `${here}cache/garden.png`);
 
 // where cats arrive: along the paths round the Brandenburger Tor
 const [sx, sy] = deg(52.5163, 13.3777);
 const SPAWN = { x0: sx - 8, y0: sy - 6, x1: sx + 8, y1: sy + 6 };
 
-const out = `// The park itself: Berlin inside the S-Bahn Ring, as a garden. GENERATED by
-// tools/berlin/generate.ts from OpenStreetMap (map data © OpenStreetMap
-// contributors, ODbL): edit the generator and run it again rather than this file.
+const out = `// The fixed part of the park: Berlin inside the S-Bahn Ring, as a garden.
+// GENERATED by tools/berlin/generate.ts from OpenStreetMap (map data ©
+// OpenStreetMap contributors, ODbL): edit the generator and run it again
+// rather than this file.
 //
-//  - ROWS is the park seen from above, one character per 16x16 tile (about
-//    ${Math.round(111200 / scale)} m of the real city). What each character means is in legend.ts.
+//  - BASE is the park seen from above, one character per 16x16 tile (about
+//    ${Math.round(111200 / scale)} m of the real city): the water, the paths and bridges, the
+//    stairs and the fence. What each character means is in legend.ts. Its open
+//    ground ('.') is filled in for each garden from the garden's seed
+//    (layout.ts): grass, flower beds, trees, hedges, the maze, the furniture.
+//  - ZONES says what the real city is like there: 'g' parks and woods, 'o'
+//    outside the Ring, '.' the town (trees grow thickest in the first two).
 //  - ELEV gives every tile its terrain level (0 = lawn, each level is 16px up).
-//  - FURNITURE places benches, tables, the shed and so on by their top-left tile.
 //  - LANDMARK_SPOTS places the follies of famous places (world/landmarks.ts).
 //  - RIVERS are the lines the running water ('~') flows along.
 //  - SPAWN is where cats arrive: the paths in this box.
-// \`npm test\` checks the result: rows the same width, everything walkable
+// \`npm test\` checks the result for a good few seeds: everything walkable
 // reachable from the spawn, furniture on lawn, lanterns apart, and so on.
 
-import type { FurnitureKind } from './map.ts';
 import type { LandmarkKind } from './landmarks.ts';
 
-export const ROWS = [
+export const BASE = [
 ${ROWS.map((r) => `  '${r}',`).join('\n')}
 ];
 
@@ -747,9 +637,9 @@ export const ELEV = [
 ${ELEV.map((r) => `  '${r}',`).join('\n')}
 ];
 
-/** Garden furniture, by its top-left tile. */
-export const FURNITURE: { kind: FurnitureKind; tx: number; ty: number }[] = [
-${furniture.map((f) => `  { kind: '${f.kind}', tx: ${f.tx}, ty: ${f.ty} },`).join('\n')}
+/** What the real city is like on each tile: 'g' parks and woods, 'o' outside the Ring, '.' the town. */
+export const ZONES = [
+${ZONES.map((r) => `  '${r}',`).join('\n')}
 ];
 
 /** The landmark follies, by their top-left tile. */

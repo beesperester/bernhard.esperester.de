@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
-import { GardenScene } from './game/GardenScene.ts';
 import { Music } from './audio/music.ts';
 import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
 import { setupFullscreen } from './ui/fullscreen.ts';
 import { loading } from './ui/loading.ts';
 import { Identity, useIdentity } from './net/identity.ts';
+import { Net, useNet } from './net/net.ts';
+import { plant } from './world/seed.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
 import '@fontsource/pixelify-sans/latin-ext-400.css';
 import '@fontsource/pixelify-sans/latin-700.css';
@@ -13,6 +14,10 @@ import '@fontsource/pixelify-sans/latin-ext-700.css';
 
 applyPixelUI();
 loading(0.15, 600);
+// which garden is this? the cats already here know its seed (with none here, it's a new one): start asking at once
+const net = new Net();
+useNet(net);
+net.start();
 // who we are: this browser's key pair (made on the first visit)
 useIdentity(await Identity.load());
 // text drawn into the game (names, scores) needs the font ready; don't wait forever for it
@@ -21,13 +26,18 @@ await Promise.race([
   new Promise((r) => setTimeout(r, 2000)),
 ]).catch(() => {});
 
-// building the garden takes a moment and keeps the page busy: let the bar creep along meanwhile
-loading(0.6, 3000);
+loading(0.2, 200, 'looking for other cats…');
+plant(await net.seed((p) => loading(0.2 + 0.3 * p, 120, 'looking for other cats…')));
+
+// laying out and building the garden takes a moment and keeps the page busy: let the bar creep along meanwhile
+loading(0.6, 3000, 'growing the garden…');
 // (after the bar is on screen; a tab opened in the background draws nothing, so don't wait for that)
 await new Promise((r) => {
   requestAnimationFrame(() => requestAnimationFrame(r));
   setTimeout(r, 100);
 });
+// (only now: everything that asks about the map needs the seed)
+const { GardenScene } = await import('./game/GardenScene.ts');
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',

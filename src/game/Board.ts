@@ -74,7 +74,7 @@ export const NAME_AT = 100;
 export const NAME_MAX = 16;
 
 import { COATS } from '../art/cat.ts';
-import { WORLD_H, WORLD_W } from '../world/map.ts';
+import { WORLD_H, WORLD_W } from '../world/size.ts';
 
 const ADJ = [
   'Sleepy', 'Fluffy', 'Sneaky', 'Tiny', 'Grumpy', 'Velvet', 'Dusty', 'Misty', 'Lucky', 'Fuzzy', 'Ginger', 'Pepper',

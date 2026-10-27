@@ -1,4 +1,5 @@
 import { Act, Prey } from '../state.ts';
+import { FOOD_POINTS, type Food } from '../../world/food.ts';
 
 // Everything about a kind of prey that doesn't depend on how it moves: what
 // it is worth, what a cat does with it, and how it looks on its way into the
@@ -36,6 +37,8 @@ export const PREY: Record<Prey, PreyInfo> = {
   [Prey.Dragonfly]: { name: 'dragonfly', points: fixed(2), eat: Act.Munch, leap: { texture: () => 'dragonfly', frame: 1, seconds: 0.18 } },
   [Prey.Bat]: { name: 'bat', points: fixed(4), eat: Act.Feast, held: () => 'held-bat', leap: { texture: () => 'bat', frame: 1, seconds: 0.18 } },
   [Prey.Squirrel]: { name: 'squirrel', points: fixed(4), eat: Act.Feast, held: () => 'held-squirrel', leap: { texture: () => 'squirrel', frame: 1, seconds: 0.18 } },
+  // something found (world/finds.ts): `colour` is what it is; it has to be pawed out of its basket, bucket or nest
+  [Prey.Find]: { name: 'find', points: (c) => FOOD_POINTS[c as Food] ?? 0, eat: Act.Feast, swipeOnly: true, held: (c) => `held-food-${c}` },
   [Prey.Mouse]: { name: 'mouse', points: fixed(3), eat: Act.Feast, held: () => 'held-mouse', leap: { texture: () => 'mouse', frame: 1, seconds: 0.18 } },
 };
 

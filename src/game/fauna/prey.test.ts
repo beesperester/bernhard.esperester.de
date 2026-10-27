@@ -20,7 +20,7 @@ describe('the prey table', () => {
     for (const info of Object.values(PREY)) expect(info.eat === Act.Feast).toBe(!!info.held);
   });
 
-  it('only lets fish be fished for', () => {
-    expect(Object.values(PREY).filter((p) => p.swipeOnly).map((p) => p.name)).toEqual(['fish']);
+  it('only lets fish be fished for, and finds be pawed out', () => {
+    expect(Object.values(PREY).filter((p) => p.swipeOnly).map((p) => p.name)).toEqual(['fish', 'find']);
   });
 });

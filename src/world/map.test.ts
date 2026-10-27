@@ -2,10 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GRAVITY, JUMP_V } from '../game/state.ts';
 import { TILE_ART } from '../art/tiles.ts';
 import { LEGEND } from './legend.ts';
+import * as map from './map.ts';
 import {
-  FURNITURE, FURNITURE_SIZE, LANTERNS, LEVEL, MAP_H, MAP_W, TILE, WALL,
-  furnished, groundAt, heightUnder, levelAt, spawnPoints, tileAt, treeTiles,
+  LANTERNS, LEVEL, MAP_H, MAP_W, TILE, WALL,
+  groundAt, heightUnder, levelAt, spawnPoints, tileAt, treeTiles,
 } from './map.ts';
+
+type Map = typeof map;
 
 /** How high a jump gets: v² / 2g. */
 const JUMP_HEIGHT = (JUMP_V * JUMP_V) / (2 * GRAVITY);
@@ -48,8 +51,7 @@ describe('the map', () => {
     expect(LEVEL).toBeGreaterThan(JUMP_HEIGHT);
     const maze = findTile('m');
     expect(heightUnder(maze[0] * TILE, maze[1] * TILE, maze[0] * TILE + TILE, maze[1] * TILE + TILE)).toBeGreaterThan(JUMP_HEIGHT);
-    const hedge = findTile('#');
-    expect(heightUnder(hedge[0] * TILE, hedge[1] * TILE, hedge[0] * TILE + TILE, hedge[1] * TILE + TILE)).toBeLessThan(JUMP_HEIGHT);
+    expect(LEGEND['#'].height).toBeLessThan(JUMP_HEIGHT);
   });
 
   it('blocks tree trunks where they meet the ground', () => {
@@ -81,31 +83,7 @@ describe('the map', () => {
   // A guard for editing the landscape: every lawn, path, bridge and stair
   // tile must be reachable from the spawn by walking and jumping.
   it('lets a cat reach every walkable tile from the spawn', () => {
-    const height = (tx: number, ty: number) => {
-      const h = heightUnder(tx * TILE + 3, ty * TILE + 6, tx * TILE + 13, ty * TILE + 11);
-      return tileAt(tx, ty) === 'S' ? levelAt(tx, ty) * LEVEL + LEVEL / 2 : h;
-    };
-    const standable = (tx: number, ty: number) => WALKABLE.includes(tileAt(tx, ty)) && height(tx, ty) < WALL;
-    const [sx, sy] = spawnPoints()[0];
-    const start = [Math.floor(sx / TILE), Math.floor(sy / TILE)];
-    const seen = new Set([start.join()]);
-    const queue = [start];
-    while (queue.length) {
-      const [x, y] = queue.pop()!;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = x + dx, ny = y + dy;
-        if (seen.has(`${nx},${ny}`) || !standable(nx, ny)) continue;
-        // up by at most a jump; down any distance
-        if (height(nx, ny) - height(x, y) > JUMP_HEIGHT) continue;
-        seen.add(`${nx},${ny}`);
-        queue.push([nx, ny]);
-      }
-    }
-    const unreachable: string[] = [];
-    for (let y = 0; y < MAP_H; y++)
-      for (let x = 0; x < MAP_W; x++)
-        if (standable(x, y) && !furnished(x, y) && !seen.has(`${x},${y}`)) unreachable.push(`${x},${y} '${tileAt(x, y)}'`);
-    expect(unreachable).toEqual([]);
+    expect(unreachable(map)).toEqual([]);
   });
 
   it('has straight bridges that cross the water from land to land', () => {
@@ -141,8 +119,42 @@ describe('the map', () => {
   });
 });
 
+describe('every garden', { timeout: 20000 }, () => {
+  afterEach(() => vi.resetModules());
+
+  /** The map of the garden that grows from `seed`. */
+  const grow = async (seed: number): Promise<Map> => {
+    vi.resetModules();
+    (await import('./seed.ts')).plant({ seed, born: 0 });
+    return import('./map.ts');
+  };
+  const SEEDS = [2, 3, 3668339987, 0xdeadbeef, 123456789, 4000000000, 77];
+
+  it.each(SEEDS)('lets a cat reach every walkable tile (seed %i)', async (seed) => {
+    expect(unreachable(await grow(seed))).toEqual([]);
+  });
+
+  it.each(SEEDS)('has its furniture on plain lawn (seed %i)', async (seed) => {
+    const m = await grow(seed);
+    furnitureOnLawn(m);
+    expect(m.FURNITURE.length).toBeGreaterThan(20);
+    expect(m.treeTiles().length).toBeGreaterThan(100);
+  });
+
+  it('is different for a different seed, and the same for the same one', async () => {
+    const a = await grow(5), b = await grow(6), c = await grow(5);
+    expect(a.treeTiles()).not.toEqual(b.treeTiles());
+    expect(a.treeTiles()).toEqual(c.treeTiles());
+    expect(a.FURNITURE).toEqual(c.FURNITURE);
+  });
+});
+
 describe('furniture', () => {
-  it('stands on plain lawn, inside the fence, without overlapping', () => {
+  it('stands on plain lawn, inside the fence, without overlapping', () => furnitureOnLawn(map));
+});
+
+function furnitureOnLawn({ FURNITURE, FURNITURE_SIZE, tileAt }: Map): void {
+  {
     const taken = new Set<string>();
     for (const f of FURNITURE) {
       const [w, h] = FURNITURE_SIZE[f.kind];
@@ -153,8 +165,8 @@ describe('furniture', () => {
           taken.add(`${x},${y}`);
         }
     }
-  });
-});
+  }
+}
 
 describe('lanterns', () => {
   it('stand on lawn beside a path, well apart', () => {
@@ -207,6 +219,35 @@ describe('ponds through the year', () => {
   });
 });
 
+/** Walkable tiles a cat can't get to from the spawn, walking and jumping. */
+function unreachable({ heightUnder, tileAt, levelAt, spawnPoints, furnished }: Map): string[] {
+  const height = (tx: number, ty: number) => {
+    const h = heightUnder(tx * TILE + 3, ty * TILE + 6, tx * TILE + 13, ty * TILE + 11);
+    return tileAt(tx, ty) === 'S' ? levelAt(tx, ty) * LEVEL + LEVEL / 2 : h;
+  };
+  const standable = (tx: number, ty: number) => WALKABLE.includes(tileAt(tx, ty)) && height(tx, ty) < WALL;
+  const [sx, sy] = spawnPoints()[0];
+  const start = [Math.floor(sx / TILE), Math.floor(sy / TILE)];
+  const seen = new Set([start.join()]);
+  const queue = [start];
+  while (queue.length) {
+    const [x, y] = queue.pop()!;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (seen.has(`${nx},${ny}`) || !standable(nx, ny)) continue;
+      // up by at most a jump; down any distance
+      if (height(nx, ny) - height(x, y) > JUMP_HEIGHT) continue;
+      seen.add(`${nx},${ny}`);
+      queue.push([nx, ny]);
+    }
+  }
+  const out: string[] = [];
+  for (let y = 0; y < MAP_H; y++)
+    for (let x = 0; x < MAP_W; x++)
+      if (standable(x, y) && !furnished(x, y) && !seen.has(`${x},${y}`)) out.push(`${x},${y} '${tileAt(x, y)}'`);
+  return out;
+}
+
 /** The first tile with this character, in the middle of a run of them where possible. */
 function findTile(ch: string): [number, number] {
   for (let y = 1; y < MAP_H - 1; y++)
@@ -215,3 +256,14 @@ function findTile(ch: string): [number, number] {
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (tileAt(x, y) === ch) return [x, y];
   throw new Error(`no '${ch}' on the map`);
 }
+
+describe('seeds', () => {
+  it('keep the older of two gardens that meet', async () => {
+    const { older } = await import('./seed.ts');
+    const a = { seed: 9, born: 1000 }, b = { seed: 3, born: 2000 }, c = { seed: 4, born: 1000 };
+    expect(older(a, b)).toBe(a);
+    expect(older(b, a)).toBe(a);
+    expect(older(a, c)).toBe(c);
+    expect(older(c, a)).toBe(c);
+  });
+});

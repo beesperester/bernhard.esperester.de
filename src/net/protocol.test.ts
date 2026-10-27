@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Prey } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeShake, sanitizeVote, sanitizeWorld } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeSeed, sanitizeShake, sanitizeVote, sanitizeWorld } from './protocol.ts';
 
 describe('sanitizeCat', () => {
   it('accepts a well-formed state and truncates the integer fields', () => {
@@ -81,5 +81,17 @@ describe('sanitizeWorld', () => {
     expect(sanitizeWorld({ caught: [], shakes: [[10, 5000]] }, 10)).toBeNull();
     expect(sanitizeWorld({ caught: Array.from({ length: 600 }, () => [Prey.Fish, 1]), shakes: [] }, 10)).toBeNull();
     expect(sanitizeWorld({ caught: [] }, 10)).toBeNull();
+  });
+});
+
+describe('garden seeds', () => {
+  it('accept a 32-bit seed and a plausible planting time', () => {
+    expect(sanitizeSeed([123, 1.75e12])).toEqual({ seed: 123, born: 1.75e12 });
+    expect(sanitizeSeed([2 ** 32, 1.75e12])).toBeNull();
+    expect(sanitizeSeed([-1, 1.75e12])).toBeNull();
+    expect(sanitizeSeed([1.5, 1.75e12])).toBeNull();
+    expect(sanitizeSeed([1, 5])).toBeNull();
+    expect(sanitizeSeed([1, Date.now() + 1e9])).toBeNull();
+    expect(sanitizeSeed({ seed: 1, born: 1.75e12 })).toBeNull();
   });
 });

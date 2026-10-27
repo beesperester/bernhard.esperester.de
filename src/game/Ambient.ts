@@ -7,6 +7,7 @@ import { TILE } from '../world/map.ts';
 import { FAUNA, Birds, Squirrels, type Fauna, type FaunaContext, type PreyRef } from './fauna/index.ts';
 import { Effects } from './fauna/Effects.ts';
 import { PREY } from './fauna/prey.ts';
+import { FINDS } from '../world/finds.ts';
 
 // The garden's wildlife as a whole: builds every fauna module (fauna/index.ts),
 // updates them each frame, collects what can be caught, and settles catches.
@@ -87,7 +88,13 @@ export class Ambient {
     const key = preyKey(kind, id);
     if (this.caught.has(key)) return;
     this.caught.set(key, [kind, id]);
-    if (this.caught.size > REMEMBER_CATCHES) this.caught.delete(this.caught.keys().next().value!);
+    // (what was found stays gone for as long as the garden lasts: the oldest catch of anything else makes room)
+    if (this.caught.size > REMEMBER_CATCHES + FINDS.length)
+      for (const [k, [what]] of this.caught)
+        if (what !== Prey.Find) {
+          this.caught.delete(k);
+          break;
+        }
   }
 
   /** A bird sitting in a tree near (x, y), for birdsong. */
