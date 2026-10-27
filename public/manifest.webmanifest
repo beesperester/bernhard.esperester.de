@@ -1,0 +1,11 @@
+{
+  "name": "A garden full of cats",
+  "short_name": "Cat Garden",
+  "description": "A tiny garden full of cats. Every visitor is one.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#2e6e24",
+  "theme_color": "#2e6e24",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

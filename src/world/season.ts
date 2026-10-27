@@ -151,3 +151,31 @@ export function rainfall(ms: number): number {
   const u = f * f * (3 - 2 * f);
   return (1 - s / 0.3) * (at(h) + (at(h + 1) - at(h)) * u);
 }
+
+// ---- puddles ----
+
+/** Puddles are worked out from the rain of the last few hours, in steps of this many ms. */
+const WET_STEP = 5 * 60000, WET_STEPS = 48;
+/** Puddles shrink to half in this long once the rain stops (ms)... */
+const DRY_MS = 35 * 60000;
+/** ...and fill up after about this much steady rain. */
+const FILL = 0.2;
+const wetSteps = new Map<number, number>();
+
+/** How full the puddles are at garden moment `ms` (0 dry .. 1 brimming): they fill while it rains and dry up slowly after. */
+export function wetness(ms: number): number {
+  const t = ms / WET_STEP;
+  const k = Math.floor(t);
+  const at = (step: number) => {
+    let w = wetSteps.get(step);
+    if (w === undefined) {
+      w = 0;
+      for (let i = 0; i < WET_STEPS; i++) w += rainfall((step - i) * WET_STEP) * FILL * 0.5 ** ((i * WET_STEP) / DRY_MS);
+      w = Math.min(1, w);
+      wetSteps.set(step, w);
+      if (wetSteps.size > 16) wetSteps.delete(wetSteps.keys().next().value!);
+    }
+    return w;
+  };
+  return at(k) + (at(k + 1) - at(k)) * (t - k);
+}

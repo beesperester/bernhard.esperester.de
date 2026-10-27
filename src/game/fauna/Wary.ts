@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
-import { Act, SWIPE_AT_MS } from './state.ts';
-import type { CatView } from './CatView.ts';
-import { Pool } from './fauna.ts';
+import { Act, SWIPE_AT_MS } from '../state.ts';
+import type { CatView } from '../CatView.ts';
+import { Pool } from './kit.ts';
 
 // How prey keeps an eye on the cats. Walking, jumping, hissing or dashing up
 // to it scares it off from a distance. A crouching cat can creep closer, but

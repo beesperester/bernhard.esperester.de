@@ -1,16 +1,13 @@
 import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
-import { Raster } from '../art/raster.ts';
-import { buildCatSheet, buildEyeSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
-import { buildGround, buildProps, buildUprightMask, buildWaterMask, TREE_W, type Prop } from '../art/tiles.ts';
-import { buildTerrain } from '../art/terrain.ts';
-import { FLORA, buildFloraSheet } from '../art/flora.ts';
-import { BIRD_COLOURS, BIRD_W, BIRD_H, BUTTERFLY_COLOURS, HELD_W, RIPPLE_W, RIPPLE_H, Z_SIZES, buildAlert, buildBee, buildBird, buildFirefly, buildFrog, buildGlow, buildHeldFrog, buildHeldBat, buildMouse, buildHeldMouse, MOUSE_W, MOUSE_H, buildLantern, FROG_W, FROG_H, LANTERN_W, LANTERN_H, buildButterfly, buildDust, buildDashPuff, PUFF_W, PUFF_H, buildFeather, buildFish, buildFishShadow, buildHeldBird, buildHeldFish, buildRipples, buildZ, buildBat, buildHangingBat, buildBeetle, buildDragonfly, BEETLE_COLOURS, BEETLE_W, BEETLE_H, DRAGONFLY_W, DRAGONFLY_H, buildOwl, buildOwlEyes, BAT_W, BAT_H, OWL_W, OWL_H } from '../art/critters.ts';
-import { ICONS } from '../art/icons.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, FEET, heightUnder, waterUnder, wetAt, iceAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
-import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, preyPoints, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
+import { COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
+import { buildProps, buildUprightMask, TREE_W, type Prop } from '../art/tiles.ts';
+import type { Raster } from '../art/raster.ts';
+import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, wetAt, iceAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
+import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
-import { Meadow, addFloraTextures } from './Meadow.ts';
+import { Meadow } from './Meadow.ts';
 import { Sunlight } from './Sunlight.ts';
 import { Clouds } from './Clouds.ts';
 import { PondReflection } from './PondReflection.ts';
@@ -22,53 +19,38 @@ import { Daylight } from './Daylight.ts';
 import { RimLight } from './RimLight.ts';
 import { Lanterns } from './Lanterns.ts';
 import { NightWater } from './NightWater.ts';
+import { Streams } from './Streams.ts';
+import { Puddles } from './Puddles.ts';
+import { WaterSurface } from './WaterSurface.ts';
+import { Lighting } from './Lighting.ts';
 import { berlinClock } from '../world/sky.ts';
-import { snowCap } from '../art/furniture.ts';
 import { SEASON, rainfall } from '../world/season.ts';
-import { Weather, addWeatherTextures } from './Weather.ts';
+import { Weather } from './Weather.ts';
 import { Ambient } from './Ambient.ts';
+import { DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
+import { makeTextures, toCanvas } from './textures.ts';
+import { PREY, preyPoints } from './fauna/prey.ts';
 import { Net } from '../net/net.ts';
+import { Referee } from './Referee.ts';
 import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
 import { touch, setupUI } from '../ui/ui.ts';
 import { setCatCount } from '../ui/favicon.ts';
 import { Board, NAME_AT } from './Board.ts';
 import { askName, renderBoard } from '../ui/board.ts';
+import { cullerFor } from './Culler.ts';
+import { castsNightBlob, groundOf } from '../world/legend.ts';
 
-const SPEED = 64; // px per second
-const DASH_SPEED = 168;
-/** Creeping up on a bird, low to the ground. */
-const SNEAK_SPEED = 26;
-/** On ice: how quickly the cat's speed follows the keys while pushing (and while dashing), and how slowly a slide dies away (per second). */
-const ICE_GRIP = 1.6, ICE_DASH_GRIP = 7, ICE_GLIDE = 0.45;
-/** Dash lasts while held, up to this long. */
-const DASH_MS = 2500;
-/** Recovery after a full-length dash; shorter dashes recover proportionally faster. */
-const DASH_COOLDOWN_MS = 30000;
-const DASH_COOLDOWN_MIN_MS = 2000;
 // a cat that lands in the pond hops straight back out to dry land
 const HOP_MS = 480;
 const HOP_HEIGHT = 16;
-/** Walking (not jumping) climbs small rises like stairs, but not a rock or a cliff. */
-const STEP_UP = 3;
-/**
- * Corner slip: walking straight into an edge with an opening at most this many px
- * to the side slides the cat over into it, so one-tile gaps (the maze) are easy to enter.
- */
-const SLIP = 8;
+/** How often the pond reflections are redrawn, ms. */
+const REFLECTION_MS = 33;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
 const TICK_MS = 50;
 const SEND_MS = 100;
 const HEARTBEAT_MS = 1000;
 const STALE_MS = 15000;
-
-function toCanvas(r: Raster): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = r.w;
-  c.height = r.h;
-  c.getContext('2d')!.putImageData(new ImageData(r.data, r.w, r.h), 0, 0);
-  return c;
-}
 
 function loadCoat(): number {
   try {
@@ -78,16 +60,6 @@ function loadCoat(): number {
   const coat = Math.floor(Math.random() * COATS.length);
   try { localStorage.setItem('cat-coat', String(coat)); } catch { /* ignore */ }
   return coat;
-}
-
-/** What a cat does with what it caught: eat a fish, feast on a bird, frog or bat, munch a bug; a bee stings. */
-function eatAct(kind: Prey): Act {
-  switch (kind) {
-    case Prey.Fish: return Act.Eat;
-    case Prey.Bird: case Prey.Frog: case Prey.Bat: case Prey.Mouse: return Act.Feast;
-    case Prey.Bee: return Act.Hiss; // ouch, it stung
-    default: return Act.Munch;
-  }
 }
 
 export class GardenScene extends Phaser.Scene {
@@ -120,6 +92,7 @@ export class GardenScene extends Phaser.Scene {
   private lanterns!: Lanterns;
   private shadows!: Shadows;
   private nightWater!: NightWater;
+  private nextReflection = 0;
   private nextClock = 0;
   private board!: Board;
   /** Offered a name of our own already (or the dialog is open). */
@@ -129,13 +102,18 @@ export class GardenScene extends Phaser.Scene {
   private camZ = 0;
   private vz = 0;
   private ambient!: Ambient;
+  private referee!: Referee;
   private weather!: Weather;
-  private dashStart = 0;
-  private dashing = false;
-  private dashReadyAt = 0;
+  private streams!: Streams;
+  private puddles!: Puddles;
+  private waterSurface!: WaterSurface;
+  private lighting!: Lighting;
+  private readonly dash = new Dash();
   private lastDry = { x: 0, y: 0 };
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
   private vel = { x: 0, y: 0 };
+  /** The way we were last pushed ("dx,dy"), to notice a new diagonal. */
+  private heading = '';
   private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number } | null = null;
   private catching: { swiped: boolean; got: Prey | null } | null = null;
   /** A swipe made in mid-jump (one per jump), and what it got, to eat on landing. */
@@ -146,12 +124,12 @@ export class GardenScene extends Phaser.Scene {
   }
 
   create(): void {
-    const canvases = this.makeTextures();
+    const canvases = makeTextures(this);
 
     const grounds = [0, 1].map((p) => this.add.image(0, 0, `ground-${p}`).setOrigin(0).setDepth(-100000));
     grounds[1].setVisible(false);
     // raised ground: each plateau row lifted by its height, sorted like everything else by ground y
-    canvases.terrain.forEach((t, i) => this.add.image(t.x, t.y, `terrain-${i}`).setOrigin(0).setDepth(t.depth));
+    canvases.terrain.forEach((t, i) => cullerFor(this).add(this.add.image(t.x, t.y, `terrain-${i}`).setOrigin(0).setDepth(t.depth)));
     this.time.addEvent({ delay: 700, loop: true, callback: () => grounds.forEach((g) => g.setVisible(!g.visible)) });
 
     const props = buildProps();
@@ -186,8 +164,10 @@ export class GardenScene extends Phaser.Scene {
     this.vignette = new Vignette(this);
     // time of day: tint, sunlit rims, lanterns, and stars and moon in the water
     this.daylight = new Daylight(this, Date.now());
+    // which pixels of the ground art stand up from it: for sunlit rims, and for where shadows can't fall
+    const upright = buildUprightMask();
     this.rims = new RimLight(this, {
-      trees: [...reflect.props, ...furniture.pieces], upright: buildUprightMask(), terrain: canvases.terrain,
+      trees: [...reflect.props, ...furniture.pieces], upright, terrain: canvases.terrain,
       catSheet: canvases.cats[0], catFrames: FRAME_NAMES.length * 2, catSize: CAT,
     });
     // what can stand in front of a lantern's light
@@ -197,15 +177,19 @@ export class GardenScene extends Phaser.Scene {
       ...furniture.pieces.map(({ p, canvas }) => ({ canvas, x: p.x, y: p.y, w: canvas.width, h: canvas.height, depth: p.depthY })),
       ...canvases.terrain.map((t, i) => ({ canvas: source(`terrain-${i}`), x: t.x, y: t.y, w: t.raster.w, h: t.raster.h, depth: t.depth })),
     ]);
-    this.shadows = this.makeShadows(props, canvases, furniture);
+    this.shadows = this.makeShadows(props, canvases, furniture, upright);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask);
+    this.waterSurface = new WaterSurface(this, waterBoxes(), water);
+    this.lighting = new Lighting(this, reflect.props, this.trees, canvases.terrain);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
     catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)
-      for (let tx = 0; tx < MAP_W; tx++) if (tileAt(tx, ty) === 'f') flowers.push([tx * TILE + 8, ty * TILE + 8]);
+      for (let tx = 0; tx < MAP_W; tx++) if (groundOf(tileAt(tx, ty)) === 'flowers') flowers.push([tx * TILE + 8, ty * TILE + 8]);
     this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: reflect.props });
     this.weather = new Weather(this, props, water);
+    this.streams = new Streams(this, water);
+    this.puddles = new Puddles(this, this.ambient.fx);
 
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
@@ -240,6 +224,7 @@ export class GardenScene extends Phaser.Scene {
     renderBoard(this.board.ranking(), this.board.id);
     this.net = new Net(() => this.state(), {
       onState: (id, msg) => {
+        if (!this.referee.observe(id, msg, performance.now())) return;
         const cat = this.remotes.get(id);
         if (cat) cat.apply(msg, this.time.now);
         else {
@@ -251,16 +236,23 @@ export class GardenScene extends Phaser.Scene {
       },
       onCatch: (id, kind, preyId) => {
         const cat = this.remotes.get(id);
-        if (cat) this.ambient.catchPrey(kind, preyId, cat);
+        if (cat && this.referee.claim(id, kind, preyId, performance.now())) this.ambient.catchPrey(kind, preyId, cat);
       },
+      onVote: (id, msg) => this.referee.receiveVote(id, msg, performance.now()),
       onLeave: (id) => {
+        this.referee.leave(id);
         this.remotes.get(id)?.destroy();
         this.remotes.delete(id);
         this.board.leave(id);
         this.updateStatus();
       },
-      onJoin: (id) => this.board.greet(id),
-      onBoard: (id, msg) => this.board.receive(id, msg),
+      onJoin: (id) => {
+        this.referee.join(id);
+        this.board.greet(id);
+      },
+      onBoard: (id, msg) => {
+        if (!this.referee.ignored(id)) this.board.receive(id, msg);
+      },
       onStatus: (garden) => {
         // every garden keeps its own scoreboard
         if (garden !== this.garden) this.board.reset();
@@ -269,76 +261,30 @@ export class GardenScene extends Phaser.Scene {
       },
     });
     this.me.id = this.net.id;
+    this.referee = new Referee(this.net.id, {
+      vote: (msg) => this.net.vote(msg),
+      judgeCatch: (peer, kind, id) => {
+        // in a background tab nothing moves: we haven't been watching
+        if (document.hidden) return null;
+        const cat = this.remotes.get(peer);
+        const seen = cat ? this.ambient.sawWithinReach(kind, id, cat.tx, cat.ty, cat.tz) : null;
+        return { ok: !!seen, points: preyPoints(kind, seen?.colour ?? 0) };
+      },
+      confirmed: (peer, points) => this.board.credit(peer, points),
+      ignore: (peer) => {
+        this.remotes.get(peer)?.destroy();
+        this.remotes.delete(peer);
+        this.board.drop(peer);
+        this.updateStatus();
+      },
+    });
     this.net.start();
     // timers keep running while the tab is in the background, so others still see us
     window.setInterval(() => this.sendState(), TICK_MS);
   }
 
-  private makeTextures() {
-    const tex = this.textures;
-    const cats = COATS.map((_, c) => {
-      const canvas = toCanvas(buildCatSheet(c));
-      const t = tex.addCanvas(`cat-${c}`, canvas)!;
-      for (let f = 0; f < FRAME_NAMES.length * 2; f++) t.add(f, 0, f * CAT, 0, CAT, CAT);
-      return canvas;
-    });
-    const grounds = [buildGround(0), buildGround(1)];
-    grounds.forEach((g, i) => tex.addCanvas(`ground-${i}`, toCanvas(g)));
-    const terrain = buildTerrain(grounds[0]).map((t, i) => {
-      tex.addCanvas(`terrain-${i}`, toCanvas(t.raster));
-      return t;
-    });
-    const props = buildProps().map((p) => toCanvas(p.raster));
-    const flora = addFloraTextures(this, (i) => toCanvas(buildFloraSheet(FLORA[i])));
-    for (const [k, make] of Object.entries(ICONS)) tex.addCanvas(k, toCanvas(make()));
-    const sheet = (key: string, r: Raster, fw: number, fh: number) => {
-      const t = tex.addCanvas(key, toCanvas(r))!;
-      for (let f = 0; f * fw < r.w; f++) t.add(f, 0, f * fw, 0, fw, fh);
-    };
-    BUTTERFLY_COLOURS.forEach((_, i) => sheet(`butterfly-${i}`, buildButterfly(i), 7, 5));
-    sheet('bee', buildBee(), 4, 3);
-    tex.addCanvas('alert', toCanvas(buildAlert()));
-    COATS.forEach((_, c) => sheet(`cat-eyes-${c}`, buildEyeSheet(c), CAT, CAT));
-    tex.addCanvas('firefly', toCanvas(buildFirefly()));
-    tex.addCanvas('glow-firefly', toCanvas(buildGlow(9, 9, [200, 255, 120])));
-    tex.addCanvas('glow-puff', toCanvas(buildGlow(15, 15, [220, 255, 150])));
-    tex.addCanvas('glow-lamp', toCanvas(buildGlow(11, 11, [255, 220, 130])));
-    tex.addCanvas('glow-lantern', toCanvas(buildGlow(76, 40, [255, 190, 100], 6)));
-    sheet('frog', buildFrog(), FROG_W, FROG_H);
-    sheet('bat', buildBat(), BAT_W, BAT_H);
-    BEETLE_COLOURS.forEach((_, i) => sheet(`beetle-${i}`, buildBeetle(i), BEETLE_W, BEETLE_H));
-    sheet('dragonfly', buildDragonfly(), DRAGONFLY_W, DRAGONFLY_H);
-    sheet('bat-hang', buildHangingBat(), BAT_W, 7);
-    sheet('owl', buildOwl(), OWL_W, OWL_H);
-    sheet('owl-eyes', buildOwlEyes(), OWL_W, OWL_H);
-    sheet('held-frog', buildHeldFrog(), HELD_W, 5);
-    sheet('held-bat', buildHeldBat(), HELD_W, 5);
-    sheet('mouse', buildMouse(), MOUSE_W, MOUSE_H);
-    sheet('held-mouse', buildHeldMouse(), HELD_W, 5);
-    const lantern = buildLantern();
-    snowCap(lantern, SEASON.snow);
-    sheet('lantern', lantern, LANTERN_W, LANTERN_H);
-    BIRD_COLOURS.forEach((_, i) => {
-      sheet(`bird-${i}`, buildBird(i), BIRD_W, BIRD_H);
-      sheet(`held-bird-${i}`, buildHeldBird(i), HELD_W, 5);
-      tex.addCanvas(`feather-${i}`, toCanvas(buildFeather(i)));
-    });
-    sheet('ripple', buildRipples(), RIPPLE_W, RIPPLE_H);
-    addWeatherTextures(this, toCanvas);
-    sheet('dust', buildDust(), 6, 5);
-    sheet('dash-puff', buildDashPuff(), PUFF_W, PUFF_H);
-    tex.addCanvas('fish', toCanvas(buildFish()));
-    tex.addCanvas('fish-shadow', toCanvas(buildFishShadow()));
-    sheet('held-fish', buildHeldFish(), HELD_W, 5);
-    Z_SIZES.forEach((n, i) => tex.addCanvas(`z-${i}`, toCanvas(buildZ(n))));
-    const drop = new Raster(1, 1);
-    drop.set(0, 0, [232, 244, 255]);
-    tex.addCanvas('drop', toCanvas(drop));
-    return { cats, props, flora, terrain, water: buildWaterMask(grounds[0], grounds[1]) };
-  }
-
   /** Who casts what shadow: trees, lanterns and furniture by their outlines, and soft blobs under everything for the night. */
-  private makeShadows(props: Prop[], canvases: ReturnType<GardenScene['makeTextures']>, furniture: Furniture): Shadows {
+  private makeShadows(props: Prop[], canvases: ReturnType<typeof makeTextures>, furniture: Furniture, upright: Raster): Shadows {
     const casters: Caster[] = [];
     const blobs: { x: number; y: number; w: number; h: number; depth: number }[] = [];
     props.forEach((p, i) => {
@@ -362,11 +308,11 @@ export class GardenScene extends Phaser.Scene {
     // bushes and rocks in the ground art
     for (let ty = 0; ty < MAP_H; ty++)
       for (let tx = 0; tx < MAP_W; tx++)
-        if ('br'.includes(tileAt(tx, ty))) {
+        if (castsNightBlob(tileAt(tx, ty))) {
           const l = levelAt(tx, ty);
           blobs.push({ x: tx * TILE + 8, y: ty * TILE + 13 - l * LEVEL, w: 20, h: 8, depth: l ? ty * TILE + 0.0012 : -99992 });
         }
-    return new Shadows(this, { terrain: canvases.terrain, casters, blobs, catSheet: canvases.cats[0] });
+    return new Shadows(this, { terrain: canvases.terrain, casters, blobs, catSheet: canvases.cats[0], upright });
   }
 
   private fitZoom(): void {
@@ -381,7 +327,7 @@ export class GardenScene extends Phaser.Scene {
   private state(): CatMsg {
     const m = this.me;
     const r = (v: number) => Math.round(v * 10) / 10;
-    return [r(m.x), r(m.y), r(m.z), m.facing, m.act, m.seq, m.coat];
+    return [r(m.x), r(m.y), r(m.z), m.facing, m.act, m.seq, m.coat, m.mews];
   }
 
   private sendState(): void {
@@ -405,6 +351,8 @@ export class GardenScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     const dt = Math.min(delta, 100) / 1000;
     this.updateLocal(time, dt);
+    // (the referee goes by the page clock: messages keep coming while the tab is hidden and Phaser's clock stands still)
+    this.referee.update(performance.now());
 
     this.me.name = this.board.me.name;
     for (const [id, cat] of this.remotes) {
@@ -434,13 +382,24 @@ export class GardenScene extends Phaser.Scene {
     const gt = this.net.now();
     // only animate plants and redraw reflections that are on screen
     const view = this.cameras.main.worldView;
+    cullerFor(this).update(view);
     this.meadow.update(gt, cats, view);
+    // the ripple is slow, so trees' reflections only need redrawing about 30 times a second;
+    // cats move, so theirs are redrawn every frame (only where one is near the water)
+    const reflectTrees = time >= this.nextReflection;
+    if (reflectTrees) this.nextReflection = time + REFLECTION_MS;
     for (const pond of this.ponds) {
       const b = pond.box;
-      if (b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y) pond.update(time, cats);
+      // (on screen, and just off it, so they're ready when the camera gets there)
+      if (b.x >= view.right + 48 || b.x + b.w <= view.x - 48 || b.y >= view.bottom + 48 || b.y + b.h <= view.y - 48) continue;
+      if (reflectTrees) pond.update(time);
+      pond.updateCats(time, cats);
     }
     this.daylight.update(gt);
     const light = this.daylight.light;
+    // trees, bushes and rocks lit from where the sun is, and the sun's rays falling from there
+    this.lighting.update(light);
+    this.sun.setSun(light.sunDir);
     // under rain clouds the sun's rims, shadows and rays fade
     const overcast = Math.min(1, rainfall(gt) * 1.4);
     this.rims.update(overcast ? { ...light, rim: light.rim * (1 - overcast * 0.85) } : light);
@@ -451,11 +410,14 @@ export class GardenScene extends Phaser.Scene {
     catLight.night = light.night;
     this.ambient.update(gt, dt, cats, view);
     this.weather.update(gt, time, dt, cats, view);
+    this.streams.update(gt, light.night, view);
+    this.puddles.update(gt, time, dt, cats, view);
     this.clouds.update(gt);
     this.clouds.setDaylight(light.day);
     this.sun.update(time, dt, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), light.day);
     this.lanterns.update(light, time);
     this.nightWater.update(light, time, view);
+    this.waterSurface.update(light, gt, time, overcast, view);
     // keep the clock in the status line current
     if (time >= this.nextClock) {
       this.nextClock = time + 10000;
@@ -517,16 +479,8 @@ export class GardenScene extends Phaser.Scene {
     }
 
     // dash runs while the key is held (up to DASH_MS), then needs a long rest
-    if (dash && !this.dashing && now >= this.dashReadyAt) {
-      this.dashing = true;
-      this.dashStart = now;
-    }
-    if (this.dashing && (!dashHeld || now - this.dashStart >= DASH_MS)) {
-      this.dashing = false;
-      const used = Math.min(1, (now - this.dashStart) / DASH_MS);
-      this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, used * DASH_COOLDOWN_MS);
-    }
-    this.ui.setDashCooldown(Math.ceil(Math.max(0, this.dashReadyAt - now) / 1000));
+    this.dash.update(dash, dashHeld, now);
+    this.ui.setDashCooldown(Math.ceil(this.dash.cooldown(now) / 1000));
     if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || mew || grab)) me.setAct(Act.Idle, now);
 
@@ -534,8 +488,8 @@ export class GardenScene extends Phaser.Scene {
     if (grab && me.act === Act.Jump && !this.airCatch) {
       this.airCatch = { got: null };
       const prey = this.ambient.preyNear(me);
-      if (prey && prey.kind !== Prey.Fish) {
-        me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
+      if (prey && !PREY[prey.kind].swipeOnly) {
+        me.facing = facingTowards(me, prey);
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
         this.ate(prey.kind, prey.colour);
@@ -546,23 +500,22 @@ export class GardenScene extends Phaser.Scene {
     const busy = me.act === Act.Jump || me.act === Act.Catch || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast;
     if (grab && !busy && !wetAt(me.x, me.y)) {
       const prey = this.ambient.preyNear(me);
-      if (prey) me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
-      else if (me.facing === Facing.Up || me.facing === Facing.Down) me.facing = Facing.Left;
+      // (with nothing in reach it swipes the way it faces)
+      if (prey) me.facing = facingTowards(me, prey);
       this.catching = { swiped: false, got: null };
       begin(Act.Catch);
       return;
     }
     // pounce: dashing into prey grabs it, no swipe needed (fish have to be fished for)
-    if (this.dashing && !busy) {
+    if (this.dash.active && !busy) {
       const prey = this.ambient.preyNear(me);
-      if (prey && prey.kind !== Prey.Fish) {
-        me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
+      if (prey && !PREY[prey.kind].swipeOnly) {
+        me.facing = facingTowards(me, prey);
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
         this.ate(prey.kind, prey.colour);
         this.catching = { swiped: true, got: prey.kind };
-        this.dashing = false;
-        this.dashReadyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, ((now - this.dashStart) / DASH_MS) * DASH_COOLDOWN_MS);
+        this.dash.stop(now);
         begin(Act.Catch);
         return;
       }
@@ -581,7 +534,7 @@ export class GardenScene extends Phaser.Scene {
         }
       }
       if (elapsed >= CATCH_MS) {
-        const after = c.got === null ? null : eatAct(c.got);
+        const after = c.got === null ? null : PREY[c.got].eat;
         if (after !== null) begin(after);
         else me.setAct(Act.Idle, now);
         this.catching = null;
@@ -589,8 +542,13 @@ export class GardenScene extends Phaser.Scene {
       return;
     }
     const grounded = me.act !== Act.Jump;
+    // a mew, whatever the cat is doing (one standing about sits up for it)
+    if (mew) {
+      me.mews = (me.mews + 1) & 0xffff;
+      me.mewAt = now;
+      if (!moving && (me.act === Act.Idle || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep)) begin(Act.Mew);
+    }
     if (hiss && grounded) begin(Act.Hiss);
-    else if (mew && grounded) begin(Act.Mew);
     else if (roll && grounded) begin(Act.Roll);
     else if (jump && grounded) {
       begin(Act.Jump);
@@ -598,7 +556,7 @@ export class GardenScene extends Phaser.Scene {
     }
 
     // holding sneak: belly to the ground, creeping slowly (and quietly); dashing from it is a pounce
-    const low = sneakHeld && me.act !== Act.Jump && !this.dashing;
+    const low = sneakHeld && me.act !== Act.Jump && !this.dash.active;
     const to = (act: Act) => { if (me.act !== act) me.setAct(act, now); };
     const afoot = (act: Act) => act === Act.Idle || act === Act.Walk || act === Act.Crouch || act === Act.Sneak;
     // out on the ice the cat keeps its momentum: speed builds slowly, turns are wide, and it slides on
@@ -610,7 +568,7 @@ export class GardenScene extends Phaser.Scene {
       if (dx !== 0) me.facing = dx < 0 ? Facing.Left : Facing.Right;
       else me.facing = dy < 0 ? Facing.Up : Facing.Down;
       if (dx !== 0 && dy !== 0) { dx *= Math.SQRT1_2; dy *= Math.SQRT1_2; }
-      const speed = low ? SNEAK_SPEED : this.dashing ? DASH_SPEED : SPEED;
+      const speed = low ? SNEAK_SPEED : this.dash.active ? DASH_SPEED : WALK_SPEED;
       wx = dx * speed;
       wy = dy * speed;
       if (afoot(me.act)) to(low ? Act.Sneak : Act.Walk);
@@ -618,7 +576,7 @@ export class GardenScene extends Phaser.Scene {
       to(low ? Act.Crouch : Act.Idle);
     }
     if (icy) {
-      const k = Math.min(1, (this.dashing ? ICE_DASH_GRIP : moving ? ICE_GRIP : ICE_GLIDE) * dt);
+      const k = Math.min(1, (this.dash.active ? ICE_DASH_GRIP : moving ? ICE_GRIP : ICE_GLIDE) * dt);
       this.vel.x += (wx - this.vel.x) * k;
       this.vel.y += (wy - this.vel.y) * k;
     } else {
@@ -627,7 +585,13 @@ export class GardenScene extends Phaser.Scene {
     }
     if (Math.abs(this.vel.x) + Math.abs(this.vel.y) > (icy ? 1.5 : 0)) {
       const [bx, by] = [me.x, me.y];
-      this.move(this.vel.x * dt, this.vel.y * dt);
+      const body = { x: me.x, y: me.y, z: me.z, airborne: me.act === Act.Jump };
+      // a fresh diagonal: get x and y stepping in time, so the view doesn't staircase
+      const heading = `${Math.sign(wx)},${Math.sign(wy)}`;
+      if (heading !== this.heading && wx && wy && !icy) alignDiagonal(body, wx, wy);
+      this.heading = heading;
+      step(body, this.vel.x * dt, this.vel.y * dt);
+      me.x = body.x; me.y = body.y; me.z = body.z;
       // sliding into something stops the slide that way
       if (icy) {
         if (Math.abs(me.x - bx) < Math.abs(this.vel.x * dt) * 0.5) this.vel.x = 0;
@@ -649,7 +613,7 @@ export class GardenScene extends Phaser.Scene {
         const got = this.airCatch?.got ?? null;
         this.airCatch = null;
         if (got !== null && !wetAt(me.x, me.y)) {
-          begin(eatAct(got));
+          begin(PREY[got].eat);
           return;
         }
         if (wetAt(me.x, me.y)) {
@@ -715,52 +679,13 @@ export class GardenScene extends Phaser.Scene {
     }).setOrigin(0.5, 1).setDepth(100001).setScale(1 / zoom);
     this.tweens.add({ targets: t, y: t.y - 14, alpha: 0, delay: 500, duration: 900, ease: 'Sine.easeIn', onComplete: () => t.destroy() });
   }
+}
 
-  /**
-   * Move horizontally, but only onto surfaces no higher than the cat currently is.
-   * Cats won't walk into the pond, but they can jump in.
-   */
-  private move(mx: number, my: number): void {
-    const me = this.me;
-    const airborne = me.act === Act.Jump;
-    const climb = airborne ? 0.5 : STEP_UP;
-    const hits = (x: number, y: number) => {
-      const [x0, y0, x1, y1] = [x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1];
-      return heightUnder(x0, y0, x1, y1) > me.z + climb || (!airborne && waterUnder(x0, y0, x1, y1));
-    };
-    // small steps, so walking up stairs can't skip past the step-up limit at low frame rates
-    const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my))));
-    let moved = false;
-    for (let i = 0; i < n; i++) {
-      if (mx && !hits(me.x + mx / n, me.y)) { me.x += mx / n; moved = true; }
-      if (my && !hits(me.x, me.y + my / n)) { me.y += my / n; moved = true; }
-      if (!airborne) me.z = Math.max(me.z, groundAt(me.x, me.y));
-    }
-    if (moved || (mx !== 0) === (my !== 0)) return;
-
-    // blocked going straight: look for an opening just to either side, the nearest one wins
-    const fx = Math.sign(mx), fy = Math.sign(my);
-    const at = (d: number): [number, number] => (fx ? [me.x, me.y + d] : [me.x + d, me.y]);
-    const opens = (side: number, d: number) => {
-      for (let k = 1; k <= d; k++) {
-        const [x, y] = at(side * k);
-        if (hits(x, y)) return false;
-      }
-      const [x, y] = at(side * d);
-      return !hits(x + fx, y + fy);
-    };
-    let slip = 0;
-    for (let d = 1; d <= SLIP; d++) {
-      const l = opens(-1, d), r = opens(1, d);
-      // equally close openings on both sides (dead centre on a post): don't guess
-      if (l && r) return;
-      if (l || r) { slip = l ? -d : d; break; }
-    }
-    if (!slip) return;
-    const step = Math.sign(slip) * Math.min(Math.abs(mx || my), Math.abs(slip));
-    const [x, y] = at(step);
-    if (!hits(x, y)) { me.x = x; me.y = y; }
-  }
+/** Which way to turn to swipe at something at (x, y): sideways unless it is clearly ahead or behind. */
+function facingTowards(cat: { x: number; y: number }, at: { x: number; y: number }): Facing {
+  const dx = at.x - cat.x, dy = at.y - cat.y;
+  if (Math.abs(dy) > Math.abs(dx) * 1.2) return dy < 0 ? Facing.Up : Facing.Down;
+  return dx < 0 ? Facing.Left : Facing.Right;
 }
 
 function asked(id: string): boolean {

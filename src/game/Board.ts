@@ -3,6 +3,11 @@
 // so the board lives in the visitors' browsers: every cat owns its own entry
 // (name, score) and announces changes; newcomers get the whole board from
 // everyone already there. It lasts as long as somebody stays in the garden.
+//
+// A cat could claim any score it likes, so for other cats the board shows no
+// more than what checks out: the score the other cats vouched for when it
+// arrived (the median of what they report), plus the catches the garden has
+// confirmed since (see net/consensus.ts).
 
 // (type aliases rather than interfaces, so they count as plain JSON for sending)
 export type Entry = {
@@ -58,6 +63,12 @@ export class Board {
   private readonly peers = new Map<string, string>();
   private readonly send: (msg: BoardMsg, target?: string) => void;
   private readonly changed: () => void;
+  /** What each cat (by cat id) reports another cat's score to be: subject -> reporter -> score. */
+  private reports = new Map<string, Map<string, number>>();
+  /** Points from confirmed catches since we've been watching, by cat id. */
+  private earned = new Map<string, number>();
+  /** Confirmed points for peers we don't know the cat id of yet. */
+  private unclaimed = new Map<string, number>();
 
   constructor(coat: number, send: (msg: BoardMsg, target?: string) => void, changed: () => void) {
     this.send = send;
@@ -76,7 +87,7 @@ export class Board {
   ranking(): (Entry & { here: boolean })[] {
     const here = new Set([this.id, ...this.peers.values()]);
     return [...this.entries.values()]
-      .map((e) => ({ ...e, here: here.has(e.id) }))
+      .map((e) => ({ ...e, score: this.scoreOf(e), here: here.has(e.id) }))
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   }
 
@@ -86,22 +97,71 @@ export class Board {
     return (id && this.entries.get(id)?.name) || '';
   }
 
+  /** A cat's score as far as it checks out: its own claim, but no more than vouched for plus confirmed since. */
+  scoreOf(e: Entry): number {
+    if (e.id === this.id) return e.score;
+    const vouched = median([...(this.reports.get(e.id)?.values() ?? [])]);
+    return Math.min(e.score, Math.max(0, vouched + (this.earned.get(e.id) ?? 0)));
+  }
+
+  /** The garden confirmed a catch by this peer's cat, worth `points`. */
+  credit(peerId: string, points: number): void {
+    const id = this.peers.get(peerId);
+    if (!id) {
+      this.unclaimed.set(peerId, (this.unclaimed.get(peerId) ?? 0) + points);
+      return;
+    }
+    // (scores never go below zero: a bee sting at zero costs nothing)
+    const shown = this.scoreOf(this.entries.get(id) ?? { id, name: '', coat: 0, score: Infinity, custom: false, v: 0 });
+    this.earned.set(id, (this.earned.get(id) ?? 0) + Math.max(points, -shown));
+    this.changed();
+  }
+
   /** A new garden starts with a fresh board (we keep our name). */
   reset(): void {
     const me = { ...this.me, score: 0 };
     this.entries = new Map([[this.id, me]]);
     this.peers.clear();
+    this.reports.clear();
+    this.earned.clear();
+    this.unclaimed.clear();
     this.changed();
   }
 
-  /** Tell a newcomer everything we know. */
+  /** Tell a newcomer everything we know (other cats' scores as far as they check out). */
   greet(peerId: string): void {
-    this.send({ me: this.me, all: [...this.entries.values()] }, peerId);
+    this.send({ me: this.me, all: [...this.entries.values()].map((e) => ({ ...e, score: this.scoreOf(e) })) }, peerId);
   }
 
   leave(peerId: string): void {
+    const id = this.peers.get(peerId);
     this.peers.delete(peerId);
+    this.unclaimed.delete(peerId);
+    if (id && this.entries.has(id)) {
+      // we vouch for what it had when it left, should it come back
+      this.report(id, this.id, this.scoreOf(this.entries.get(id)!));
+      this.earned.delete(id);
+    }
     this.changed();
+  }
+
+  /** The garden decided to ignore this peer: off the board. */
+  drop(peerId: string): void {
+    const id = this.peers.get(peerId);
+    this.peers.delete(peerId);
+    this.unclaimed.delete(peerId);
+    if (id && id !== this.id) {
+      this.entries.delete(id);
+      this.reports.delete(id);
+      this.earned.delete(id);
+    }
+    this.changed();
+  }
+
+  private report(subject: string, reporter: string, score: number): void {
+    let r = this.reports.get(subject);
+    if (!r) this.reports.set(subject, (r = new Map()));
+    r.set(reporter, score);
   }
 
   /** Our cat caught something worth `points` (bigger prey more, a bee sting costs one). */
@@ -121,7 +181,18 @@ export class Board {
   /** A message from another cat: its own entry, and when greeting us, the whole board. */
   receive(peerId: string, msg: BoardMsg): void {
     if (msg.me.id === this.id) return; // that's us, it can't be them
-    this.peers.set(peerId, msg.me.id);
+    const reporter = msg.me.id;
+    // a cat can't swap identities mid-visit to shake off what the garden knows about it
+    const known = this.peers.get(peerId);
+    if (known && known !== reporter) return;
+    this.peers.set(peerId, reporter);
+    const unclaimed = this.unclaimed.get(peerId);
+    if (unclaimed !== undefined) {
+      this.unclaimed.delete(peerId);
+      this.earned.set(reporter, (this.earned.get(reporter) ?? 0) + unclaimed);
+    }
+    // what it says about the others vouches for them (never for itself)
+    for (const e of msg.all ?? []) if (e.id !== reporter) this.report(e.id, reporter, e.score);
     for (const e of [msg.me, ...(msg.all ?? [])]) {
       const old = this.entries.get(e.id);
       // (our own entry from before a reload counts too: carry on with that name and score)
@@ -152,6 +223,14 @@ export class Board {
 }
 
 export type BoardMsg = { me: Entry; all?: Entry[] };
+
+/** The middle value (0 for none): one or two liars among the reporters can't move it far. */
+function median(values: number[]): number {
+  if (!values.length) return 0;
+  const v = [...values].sort((a, b) => a - b);
+  const mid = v.length >> 1;
+  return v.length % 2 ? v[mid] : Math.min(v[mid - 1], v[mid]);
+}
 
 function loadName(): { name: string; custom: boolean } | null {
   try {

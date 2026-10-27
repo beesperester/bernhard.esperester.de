@@ -2,6 +2,7 @@ import { sound, type Playing } from '../audio/sound.ts';
 import { tileAt, TILE } from '../world/map.ts';
 import { Act } from './state.ts';
 import type { CatView } from './CatView.ts';
+import { groundOf, isMeadow } from '../world/legend.ts';
 
 /** Content cats purr. */
 const PURRING: ReadonlySet<Act> = new Set([Act.Sit, Act.Lick, Act.Sleep, Act.Roll]);
@@ -13,6 +14,8 @@ interface State {
   act: Act;
   seq: number;
   actStart: number;
+  /** The mew count last heard. */
+  mews: number;
   dashing: boolean;
   nextRustle: number;
   nextStep: number;
@@ -33,14 +36,18 @@ export class CatSounds {
   update(cats: CatView[], now: number): void {
     for (const c of cats) {
       let s = this.cats.get(c);
-      if (!s) this.cats.set(c, (s = { act: c.act, seq: c.seq, actStart: c.actStart, dashing: false, nextRustle: 0, nextStep: 0, chews: 0, purr: null }));
+      if (!s) this.cats.set(c, (s = { act: c.act, seq: c.seq, actStart: c.actStart, mews: c.mews, dashing: false, nextRustle: 0, nextStep: 0, chews: 0, purr: null }));
       const at = { x: c.x, y: c.y };
       const started = c.act !== s.act || c.seq !== s.seq || c.actStart !== s.actStart;
       const ms = now - c.actStart;
+      // a mew, whatever the cat is doing
+      if (c.mews !== s.mews) {
+        s.mews = c.mews;
+        void sound.play('mew', { at, volume: 0.6, rate: vary(0.92, 1.1) });
+      }
 
       if (started) {
         if (c.act === Act.Hiss) void sound.play('hiss', { at, volume: 0.7, rate: vary(0.93, 1.07) });
-        if (c.act === Act.Mew) void sound.play('mew', { at, volume: 0.6, rate: vary(0.92, 1.1) });
         // a real jump bumps seq; just walking off a ledge doesn't
         if (c.act === Act.Jump && c.seq !== s.seq) void sound.play('jump', { at, volume: 0.35, rate: vary(0.95, 1.1) });
         if (c.act === Act.Munch) void sound.play('eat', { at, volume: 0.55, rate: vary(1.1, 1.25) });
@@ -81,9 +88,9 @@ export class CatSounds {
       }
 
       // rustling through tall grass and flowers
-      if (c.speed > 20 && c.act !== Act.Jump && (tile === ',' || tile === 'f') && now >= s.nextRustle) {
+      if (c.speed > 20 && c.act !== Act.Jump && isMeadow(tile) && now >= s.nextRustle) {
         s.nextRustle = now + (s.dashing ? 220 : sneaking ? 700 : 420) + Math.random() * 80;
-        void sound.play('rustle', { at, volume: vary(0.25, 0.4) * (tile === 'f' ? 0.7 : 1) * (sneaking ? 0.35 : 1), rate: vary(0.88, 1.15) });
+        void sound.play('rustle', { at, volume: vary(0.25, 0.4) * (groundOf(tile) === 'flowers' ? 0.7 : 1) * (sneaking ? 0.35 : 1), rate: vary(0.88, 1.15) });
       }
 
       s.act = c.act;

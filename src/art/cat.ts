@@ -190,6 +190,56 @@ const hiss2 = patch(hiss1, [
   [0, 9, 'orrwbooooobbbo..'],
 ]);
 
+// ---- hissing, facing us: ears flat, fur on end, mouth wide open ----
+const hissDown1 = sym([
+  '........',
+  '........',
+  '........',
+  '.oo.....',
+  '.obo....',
+  '..obbooo',
+  '.obdbbdb',
+  '.obobbbb',
+  '.obbebbb',
+  '.obbbbbb',
+  '.owwbprr',
+  '..owwwrr',
+  'o.oowwww',
+  '.obbbwww',
+  'obbwwobb',
+  'oooo....',
+]);
+const hissDown2 = patch(hissDown1, [
+  [0, 10, '.owwbbprrpbbwwo.'],
+  [0, 11, '..owwwwrrwwwwo..'],
+  [0, 12, '.o.owwwwwwwwo.o.'],
+]);
+// ---- hissing, facing away: the tail straight up and bristling, ears flat ----
+const hissUp1 = sym([
+  '........',
+  '......o.',
+  '.....obd',
+  '.oo..obb',
+  '.obooobd',
+  '..obbobb',
+  '.obdbobd',
+  '.obbbobb',
+  'o.bbbobd',
+  '.obbbobb',
+  'o.bbbobd',
+  '.obbbbob',
+  '..obbbbo',
+  '.obbbbbb',
+  '.obbobbb',
+  '.oooo...',
+]);
+const hissUp2 = patch(hissUp1, [
+  [0, 0, '.......oo.......'],
+  [0, 1, '......obbo......'],
+  [0, 8, '.obbbobddbobbbo.'],
+  [0, 9, 'o.bbbobbbbobbb.o'],
+]);
+
 // ---- rolling on back ----
 const roll1 = [
   '................',
@@ -253,10 +303,42 @@ const catch2 = patch(sitSide, [
   [0, 13, 'owwo.owbbbbbo...'],
   [0, 14, 'oooo.obbbbbbboo.'],
 ]);
+// facing us: a paw raised beside the face, then slammed down in front
+const catchDown1 = patch(sitDown, [
+  [0, 5, '.oo.'],
+  [0, 6, 'owwo'],
+  [0, 7, 'owwo'],
+  [0, 8, 'owwo'],
+  [0, 9, '.oo'],
+  [0, 14, '.obbbbbowwowwbbo'],
+]);
+const catchDown2 = patch(sitDown, [
+  [0, 13, '..obbwwwwwwbbo..'],
+  [0, 14, '.obbbbbowwowwbbo'],
+  [0, 15, '..ooowwwoooooddo'],
+  [3, 15, 'owwwo'],
+]);
+// facing away: a paw raised by the head, then reaching out ahead (up the screen)
+const catchUp1 = patch(upStand, [
+  [0, 2, '.oo'],
+  [0, 3, 'owwo'],
+  [0, 4, 'owwo'],
+  [0, 5, 'owo'],
+]);
+const catchUp2 = patch(upStand, [
+  [3, 0, 'oooo'],
+  [2, 1, 'owwwwo'],
+  [3, 2, 'owwo'],
+  [3, 3, 'obo'],
+]);
 // ---- eating: chewing with the mouth open ----
 const chew = patch(sitSide, [
   [0, 8, '.prbbbbbbo......'],
   [0, 9, '.orwbbbbbbo.....'],
+]);
+const chewDown = patch(sitDown, [
+  [0, 10, '.owwbbprrpbbwwo.'],
+  [0, 11, '..owwwwrrwwwwo..'],
 ]);
 
 // ---- crouching low and sneaking: belly to the ground, head forward, tail flat ----
@@ -327,10 +409,10 @@ export const FRAMES = {
   sideStand, sideWalk1, sideWalk2,
   sitDown, sitSide,
   lickDown1, lickDown2, lickSide1, lickSide2,
-  hiss1, hiss2,
+  hiss1, hiss2, hissDown1, hissDown2, hissUp1, hissUp2,
   roll1, roll2, roll3,
   sleep1, sleep2,
-  catch1, catch2, chew,
+  catch1, catch2, catchDown1, catchDown2, catchUp1, catchUp2, chew, chewDown,
   sideCrouch, sideSneak1, sideSneak2,
   downCrouch, downSneak1, downSneak2,
   upCrouch, upSneak1, upSneak2,

@@ -109,6 +109,26 @@ const SPEAKER = [
   '..oo..o.',
   '...o....',
 ];
+/** Four corners pointing out: go full screen. */
+const EXPAND = [
+  'ooo..ooo',
+  'oo....oo',
+  'o......o',
+  '........',
+  'o......o',
+  'oo....oo',
+  'ooo..ooo',
+];
+/** Four corners pointing in: leave full screen. */
+const SHRINK = [
+  '.o....o.',
+  'oo....oo',
+  '........',
+  '........',
+  '........',
+  'oo....oo',
+  '.o....o.',
+];
 
 /** A square paper button with an icon; muted, the icon fades and gets a red slash. 16×17. */
 function iconButton(icon: string[], muted: boolean): Raster {
@@ -141,5 +161,7 @@ export function applyPixelUI(): void {
   set('--px-music-off', iconButton(NOTE, true));
   set('--px-sound', iconButton(SPEAKER, false));
   set('--px-sound-off', iconButton(SPEAKER, true));
+  set('--px-fullscreen', iconButton(EXPAND, false));
+  set('--px-fullscreen-exit', iconButton(SHRINK, false));
   root.setProperty('--px-dpad', `url(${dpadURL('')})`);
 }

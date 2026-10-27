@@ -88,7 +88,12 @@ function tintFor(el: number): RGB {
 export function lightAt(ms: number): Light {
   const t = skyTime(ms);
   const sun = sunPosition(t);
-  const elevation = sun.elevation, azimuth = (sun.azimuth + 180) % 360;
+  const elevation = sun.elevation;
+  // The real sun in summer rises in the north-east and sets in the north-west,
+  // which on screen would be below the garden. Keep it on the left/top/right
+  // half instead, so shadows only ever fall left, down or right.
+  const bearing = (sun.azimuth + 180) % 360;
+  const azimuth = bearing > 90 && bearing < 270 ? (bearing < 180 ? 90 : 270) : bearing;
   // towards the sun: the screen's right and up (squashed, it's a 3/4 view), and up is up
   const A = azimuth * RAD, h = Math.max(0, elevation) * RAD;
   const right = Math.sin(A) * Math.cos(h), ahead = Math.cos(A) * Math.cos(h), up = Math.sin(h);

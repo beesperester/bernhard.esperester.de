@@ -4,6 +4,7 @@ import type { Prop } from '../art/tiles.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
 import { LEVEL, TILE, levelAt } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
+import { cullerFor } from './Culler.ts';
 
 /** The sun's direction is rounded to one of this many, so rims are only redrawn now and then. */
 const DIRECTIONS = 16;
@@ -38,7 +39,7 @@ export class RimLight {
   ) {
     const add = (key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']) => {
       const tex = scene.textures.createCanvas(key, w, h)!;
-      const img = scene.add.image(x, y, key).setOrigin(0).setDepth(depth).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+      const img = cullerFor(scene).add(scene.add.image(x, y, key).setOrigin(0).setDepth(depth).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
       this.overlays.push({ img, tex, w, h, rim });
     };
 

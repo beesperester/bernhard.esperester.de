@@ -19,7 +19,7 @@ const rebuildOnCommit = (): Plugin => ({
   apply: 'serve',
   configureServer(server) {
     const log = '.git/logs/HEAD';
-    if (!existsSync(log)) return;
+    if (!existsSync(log) || process.env.VITEST) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const watcher = watch(log, () => {
       clearTimeout(timer);

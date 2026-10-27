@@ -6,6 +6,7 @@ import type { CatView } from './CatView.ts';
 import { TILE, elevAt, furnished, iceAt, levelAt, tileAt } from '../world/map.ts';
 import { SEASON, rainfall, snowfall } from '../world/season.ts';
 import { sound, type Playing } from '../audio/sound.ts';
+import { isBridge, isLawnOrTall } from '../world/legend.ts';
 
 // What the weather and the season bring down from the sky and out of the
 // trees: showers of rain any time of year (splashing on the ground, ringing
@@ -16,7 +17,7 @@ import { sound, type Playing } from '../audio/sound.ts';
 
 type Img = Phaser.GameObjects.Image;
 
-const LEAF_COLOURS: RGB[] = ['#e8b030', '#e07828', '#c84828', '#a85a28', '#f0d058'].map(hex);
+export const LEAF_COLOURS: RGB[] = ['#e8b030', '#e07828', '#c84828', '#a85a28', '#f0d058'].map(hex);
 const PETAL = hex('#f9c0d8');
 
 /** Flakes in view when it snows hardest; raindrops when it pours. */
@@ -129,7 +130,7 @@ export class Weather {
           const side = hash2(i, k, 1704) < 0.5 ? -1 : 1;
           const x = Math.round(bx + side * (14 + hash2(i, k, 1705) * 16)), y = Math.round(by + 4 + hash2(i, k, 1706) * 12);
           const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
-          if (!'.,'.includes(tileAt(tx, ty)) || furnished(tx, ty) || levelAt(tx, ty) !== levelAt(Math.floor(bx / TILE), Math.floor(by / TILE))) continue;
+          if (!isLawnOrTall(tileAt(tx, ty)) || furnished(tx, ty) || levelAt(tx, ty) !== levelAt(Math.floor(bx / TILE), Math.floor(by / TILE))) continue;
           const img = scene.add.image(x, y - elevAt(x, y), 'leafpile').setOrigin(0.5, 1).setDepth(y - 2);
           this.piles.push({ x, y, img, scattered: -Infinity });
         }
@@ -326,7 +327,7 @@ export class Weather {
         last.x = c.x;
         last.y = c.y;
         // on the snow, on its feet: not mid-jump, on the ice or on the bridges
-        if (c.act === Act.Jump || Math.abs(c.z - ground) > 1 || iceAt(c.x, c.y) || tileAt(Math.floor(c.x / TILE), Math.floor(c.y / TILE)) === 'B' || d > 30) continue;
+        if (c.act === Act.Jump || Math.abs(c.z - ground) > 1 || iceAt(c.x, c.y) || isBridge(tileAt(Math.floor(c.x / TILE), Math.floor(c.y / TILE))) || d > 30) continue;
         last.side = -last.side;
         const px = c.x - (dy / d) * 2 * last.side, py = c.y + (dx / d) * 1.2 * last.side;
         let pr = this.prints[this.nextPrint];

@@ -5,8 +5,9 @@ import type { Raster } from '../art/raster.ts';
 const MOTES = 28;
 
 /**
- * Screen-space god rays from the top-left plus dust motes drifting through them.
- * Textures are built at world-pixel resolution so they match the game's pixels.
+ * Screen-space god rays from the sun's direction plus dust motes drifting
+ * through them. Textures are built at world-pixel resolution so they match the
+ * game's pixels, and rebuilt when the sun has moved on a step.
  */
 export class Sunlight {
   private readonly scene: Phaser.Scene;
@@ -17,6 +18,9 @@ export class Sunlight {
   private w = 0;
   private h = 0;
   private gen = 0;
+  /** The sun's direction on screen, in steps (rays are rebuilt when it moves on one). */
+  private sunStep = -1;
+  private sunDir: [number, number] = [-0.55, -0.85];
   /** Smoothed sunshine, dimmed while a cloud passes over the view. */
   private sun = 1;
 
@@ -31,16 +35,16 @@ export class Sunlight {
   }
 
   /** Rebuild the ray textures for the current camera size and zoom. */
-  resize(): void {
+  resize(force = false): void {
     const cam = this.scene.cameras.main;
     const w = Math.ceil(cam.width / cam.zoom), h = Math.ceil(cam.height / cam.zoom);
-    if (w === this.w && h === this.h) return;
+    if (w === this.w && h === this.h && !force) return;
     this.w = w;
     this.h = h;
     const old = this.layers;
     const gen = ++this.gen;
     this.layers = [0, 1].map((v) => {
-      const { raster, intensity } = buildRays(w, h, v);
+      const { raster, intensity } = buildRays(w, h, v, this.sunDir);
       if (v === 0) this.intensity = intensity;
       const key = `rays-${v}-${gen}`;
       this.scene.textures.addCanvas(key, this.toCanvas(raster));
@@ -55,6 +59,16 @@ export class Sunlight {
       img.destroy();
       this.scene.textures.remove(key);
     }
+  }
+
+  /** Point the rays away from the sun (`dir`: towards it on screen); rebuilt every 10 degrees it moves. */
+  setSun(dir: [number, number]): void {
+    const step = Math.round(((Math.atan2(dir[1], dir[0]) * 180) / Math.PI + 360) / 10) % 36;
+    if (step === this.sunStep) return;
+    this.sunStep = step;
+    const a = (step * 10 * Math.PI) / 180;
+    this.sunDir = [Math.cos(a), Math.sin(a)];
+    if (this.w) this.resize(true);
   }
 
   /** `shade` is the cloud cover over the view, 0 (clear) to 1 (overcast); `day` 0 at night to 1. */
@@ -73,10 +87,11 @@ export class Sunlight {
 
     const { w, h } = this;
     for (const m of this.motes) {
-      m.x += (dt * 3 * m.sp + Math.sin(t * 0.8 + m.ph) * dt * 2) / w;
-      m.y += (dt * 4 * m.sp + Math.cos(t * 0.6 + m.ph) * dt * 1.5) / h;
-      if (m.x > 1) m.x -= 1;
-      if (m.y > 1) m.y -= 1;
+      // drifting down the shafts, away from the sun
+      m.x += (-this.sunDir[0] * dt * 5 * m.sp + Math.sin(t * 0.8 + m.ph) * dt * 2) / w;
+      m.y += (-this.sunDir[1] * dt * 5 * m.sp + Math.cos(t * 0.6 + m.ph) * dt * 1.5) / h;
+      m.x -= Math.floor(m.x);
+      m.y -= Math.floor(m.y);
       const px = Math.floor(m.x * w), py = Math.floor(m.y * h);
       const light = this.intensity[py * w + px] ?? 0;
       const twinkle = 0.5 + 0.5 * Math.sin(t * 2.3 + m.ph * 3);

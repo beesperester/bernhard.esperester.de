@@ -2,7 +2,8 @@
 // (Trystero's default strategy); after that all traffic flows browser-to-browser
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
-import { Prey, type CatMsg } from '../game/state.ts';
+import type { Prey, CatMsg } from '../game/state.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeVote, type VoteMsg } from './protocol.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 
 // unversioned until the site is released; after that, version it when the protocol changes
@@ -23,6 +24,8 @@ export interface NetEvents {
   /** Scoreboard news from another cat. */
   onBoard: (peerId: string, msg: BoardMsg) => void;
   onStatus: (garden: number, peers: number, settled: boolean) => void;
+  /** Another cat's verdict on a catch or on a cat (see consensus.ts). */
+  onVote: (peerId: string, msg: VoteMsg) => void;
 }
 
 export class Net {
@@ -30,6 +33,7 @@ export class Net {
   private send: ((msg: CatMsg, target?: string) => void) | null = null;
   private sendCatch: ((kind: Prey, id: number) => void) | null = null;
   private sendBoard: ((msg: BoardMsg, target?: string) => void) | null = null;
+  private sendVote: ((msg: VoteMsg) => void) | null = null;
   /** Peer clock minus our clock, in ms, measured once when a peer joins. */
   private offsets = new Map<string, number>();
   readonly id = selfId;
@@ -60,6 +64,10 @@ export class Net {
     this.sendBoard?.(msg, target);
   }
 
+  vote(msg: VoteMsg): void {
+    this.sendVote?.(msg);
+  }
+
   /**
    * Shared garden clock (ms). Everyone follows the clock of the peer with the
    * lowest id, so seeded fauna plays out identically for all visitors.
@@ -87,15 +95,14 @@ export class Net {
     this.send = (msg, target) => void action.send(msg, target ? { target } : undefined).catch(() => {});
     action.onMessage = (data, { peerId }) => {
       if (this.room !== room) return;
-      const msg = sanitize(data);
+      const msg = sanitizeCat(data);
       if (msg) this.ev.onState(peerId, msg);
     };
     const prey = room.makeAction<[number, number]>('catch');
     this.sendCatch = (kind, id) => void prey.send([kind, id]).catch(() => {});
     prey.onMessage = (data, { peerId }) => {
-      if (this.room !== room || !Array.isArray(data) || data.length !== 2) return;
-      const [kind, id] = data;
-      if (Object.values(Prey).includes(kind as Prey) && Number.isInteger(id)) this.ev.onCatch(peerId, kind as Prey, id);
+      const caught = this.room === room ? sanitizeCatch(data) : null;
+      if (caught) this.ev.onCatch(peerId, ...caught);
     };
     const board = room.makeAction<BoardMsg>('board');
     this.sendBoard = (msg, target) => void board.send(msg, target ? { target } : undefined).catch(() => {});
@@ -103,6 +110,12 @@ export class Net {
       if (this.room !== room) return;
       const msg = sanitizeBoard(data);
       if (msg) this.ev.onBoard(peerId, msg);
+    };
+    const vote = room.makeAction<VoteMsg>('vote');
+    this.sendVote = (msg) => void vote.send(msg).catch(() => {});
+    vote.onMessage = (data, { peerId }) => {
+      const msg = this.room === room ? sanitizeVote(data) : null;
+      if (msg) this.ev.onVote(peerId, msg);
     };
     // clock sync: ask a new peer for its time, take the best of a few round trips
     const clock = room.makeAction<number, number>('clock', { kind: 'request', onRequest: () => Date.now() });
@@ -141,6 +154,7 @@ export class Net {
         this.send = null;
         this.sendCatch = null;
         this.sendBoard = null;
+        this.sendVote = null;
         this.offsets.clear();
         void room.leave();
         this.enter(garden + 1);
@@ -152,9 +166,3 @@ export class Net {
   }
 }
 
-/** Peers are untrusted: accept only a well-formed state tuple. */
-function sanitize(d: unknown): CatMsg | null {
-  if (!Array.isArray(d) || d.length !== 7 || !d.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
-  const [x, y, z, facing, act, seq, coat] = d as number[];
-  return [x, y, z, facing | 0, act | 0, seq | 0, coat | 0];
-}

@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
 import { CAT } from '../art/cat.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
+import type { Raster } from '../art/raster.ts';
 import type { CatView } from './CatView.ts';
 import { LEVEL, TILE, WORLD_H, WORLD_W, casterHeight, elevAt, levelAt } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
+import { cullerFor } from './Culler.ts';
 
 // Shadows that follow the sun. By day they are cast for real:
 //  - terrain, hedges, bushes, rocks, fences and the shed form a height map of the
@@ -46,6 +48,8 @@ export class Shadows {
   private readonly scene: Phaser.Scene;
   /** Height of the surface at every ground pixel (terrain plus whatever stands there). */
   private readonly height: Float32Array;
+  /** Where a shadow falls: the ground, or the top of something drawn standing there (not the bare edges of its tile). */
+  private readonly floor: Float32Array;
   private readonly level: Uint8Array;
   /** Swept: the highest a sunward obstacle reaches above each pixel, minus the ray's rise. */
   private readonly sky: Float32Array;
@@ -70,10 +74,11 @@ export class Shadows {
   /** 0 at night, 1 in full sun: how strong cast shadows are (soft ones take over as it fades). */
   strength = 0;
 
-  constructor(scene: Phaser.Scene, opts: { terrain: TerrainPiece[]; casters: Caster[]; blobs: { x: number; y: number; w: number; h: number; depth: number }[]; catSheet: HTMLCanvasElement }) {
+  constructor(scene: Phaser.Scene, opts: { terrain: TerrainPiece[]; casters: Caster[]; blobs: { x: number; y: number; w: number; h: number; depth: number }[]; catSheet: HTMLCanvasElement; upright: Raster }) {
     this.scene = scene;
     const W = WORLD_W, H = WORLD_H, n = W * H;
     this.height = new Float32Array(n);
+    this.floor = new Float32Array(n);
     this.level = new Uint8Array(n);
     this.sky = new Float32Array(n);
     this.outlines = new Uint8Array(n);
@@ -82,7 +87,10 @@ export class Shadows {
       for (let x = 0; x < W; x++) {
         const l = levelAt(Math.floor(x / TILE), Math.floor(y / TILE));
         this.level[y * W + x] = l;
-        this.height[y * W + x] = l * LEVEL + casterHeight(x, y);
+        const h = l * LEVEL + casterHeight(x, y);
+        this.height[y * W + x] = h;
+        // a rock is round but blocks the sun over its whole tile: the lawn round it still takes its shadow
+        this.floor[y * W + x] = opts.upright.isSet(x, y) ? h : l * LEVEL;
       }
     this.casters = opts.casters.map((c) => {
       const ctx = scratch(c.w, c.h);
@@ -99,7 +107,7 @@ export class Shadows {
     for (const [i, t] of opts.terrain.entries()) {
       if (t.stairs) continue;
       const tex = scene.textures.createCanvas(`sun-shadows-${i}`, t.raster.w, TILE)!;
-      this.overlays.push({ t, tex, img: scene.add.image(t.x, t.y, `sun-shadows-${i}`).setOrigin(0).setDepth(t.depth + 0.001).setVisible(false) });
+      this.overlays.push({ t, tex, img: cullerFor(scene).add(scene.add.image(t.x, t.y, `sun-shadows-${i}`).setOrigin(0).setDepth(t.depth + 0.001).setVisible(false)) });
     }
 
     // the cats' outlines (all coats share them)
@@ -122,7 +130,7 @@ export class Shadows {
     g.fillRect(0, 0, 64, 64);
     scene.textures.addCanvas('blob', blob);
     for (const b of opts.blobs)
-      this.blobs.push(scene.add.image(b.x, b.y, 'blob').setDisplaySize(b.w, b.h).setDepth(b.depth).setAlpha(0));
+      this.blobs.push(cullerFor(scene).add(scene.add.image(b.x, b.y, 'blob').setDisplaySize(b.w, b.h).setDepth(b.depth).setAlpha(0)));
   }
 
   /** How shaded the ground under (x, y) is right now, 0..1, for darkening cats standing there. */
@@ -162,8 +170,8 @@ export class Shadows {
     this.s = [-gx / rise, -gy / rise];
     this.sweep(gx, gy, rise);
     this.project();
-    const { height, sky, outlines, level, shade } = this;
-    for (let i = 0; i < shade.length; i++) shade[i] = sky[i] > height[i] + 0.5 || outlines[i] === level[i] + 1 ? 1 : 0;
+    const { floor, sky, outlines, level, shade } = this;
+    for (let i = 0; i < shade.length; i++) shade[i] = sky[i] > floor[i] + 0.5 || outlines[i] === level[i] + 1 ? 1 : 0;
 
     // the lawn...
     const img = new ImageData(W, H);
@@ -225,25 +233,38 @@ export class Shadows {
     }
   }
 
-  /** Lay each sprite's outline flat on the ground, away from the sun. */
+  /**
+   * Lay each sprite's outline on the ground, away from the sun. The ground
+   * isn't flat: a ray from a pixel h above the caster's foot reaches higher
+   * terrain sooner, so for every terrain level it lands at a different spot,
+   * and it counts where the ground there really is at that level. (So a
+   * tree's shadow runs on up a slope, or down off a plateau, instead of
+   * stopping at the edge.)
+   */
   private project(): void {
-    const W = WORLD_W, H = WORLD_H, out = this.outlines;
+    const W = WORLD_W, H = WORLD_H, out = this.outlines, level = this.level;
     out.fill(0);
     const [sx, sy] = this.s;
     const steps = Math.ceil(Math.hypot(sx, sy)) + 1;
+    let levels = 0;
+    for (let i = 0; i < level.length; i++) if (level[i] > levels) levels = level[i];
     for (const c of this.casters) {
       const foot = c.y + c.h - 1; // screen y of the bottom row
-      const tag = Math.round(c.lift / LEVEL) + 1;
       for (let y = 0; y < c.h; y++)
         for (let x = 0; x < c.w; x++) {
           if (!c.alpha[y * c.w + x]) continue;
           const h0 = Math.min(c.cap, foot - (c.y + y));
           // smear each pixel over its one-pixel slice of height, so long shadows have no gaps
-          for (let k = 0; k < steps; k++) {
-            const h = h0 + k / steps;
-            const px = Math.round(c.x + x + sx * h), py = Math.round(c.ground + sy * h);
-            if (px >= 0 && py >= 0 && px < W && py < H) out[py * W + px] = tag;
-          }
+          for (let k = 0; k < steps; k++)
+            for (let l = 0; l <= levels; l++) {
+              // how high the pixel is above ground at level l
+              const h = h0 + k / steps + c.lift - l * LEVEL;
+              if (h < 0) break;
+              const px = Math.round(c.x + x + sx * h), py = Math.round(c.ground + sy * h);
+              if (px < 0 || py < 0 || px >= W || py >= H) continue;
+              const i = py * W + px;
+              if (level[i] === l) out[i] = l + 1;
+            }
         }
     }
   }

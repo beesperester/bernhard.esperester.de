@@ -7,12 +7,18 @@
     <meta name="description" content="A tiny garden full of cats. Every visitor is one." />
     <title>bernhard.esperester.de</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- added to the home screen it opens full screen (iPhones can't go full screen from the browser) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Cat Garden" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="game"></div>
     <div id="status" class="hud">loading…</div>
-    <div id="help" class="hud">← ↑ ↓ → move · SPACE jump · SHIFT dash · X sneak · C catch · H hiss · R roll · E mew · M music · S sounds</div>
+    <div id="help" class="hud">← ↑ ↓ → move · SPACE jump · SHIFT dash · X sneak · C catch · H hiss · R roll · E mew · M music · S sounds · F full screen</div>
     <div id="touch" hidden>
       <div id="dpad"></div>
       <div id="buttons">
@@ -40,6 +46,8 @@
     <div id="credit" class="hud"></div>
     <button id="music" class="hud" aria-label="Toggle music"></button>
     <button id="sound" class="hud" aria-label="Toggle sounds"></button>
+    <button id="fullscreen" class="hud" aria-label="Toggle full screen"></button>
+    <div id="tip" class="hud" hidden></div>
     <noscript>This garden needs JavaScript to let the cats in.</noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>

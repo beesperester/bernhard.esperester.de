@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import type { Light } from '../world/sky.ts';
 import { DEPTH } from './Daylight.ts';
-import { seedRng } from './fauna.ts';
+import { seedRng } from './fauna/kit.ts';
+import { cullerFor } from './Culler.ts';
 
 type Box = { x: number; y: number; w: number; h: number };
 const MOON_R = 6;
@@ -42,7 +43,7 @@ export class NightWater {
         const x = Math.floor(r() * box.w), y = Math.floor(r() * box.h);
         if (wet(box.x + x, box.y + y)) stars.push([x, y, 0.6 + r() * 2, r() * 6.3]);
       }
-      const img = scene.add.image(box.x, box.y, key).setOrigin(0).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+      const img = cullerFor(scene).add(scene.add.image(box.x, box.y, key).setOrigin(0).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
       this.pools.push({ box, tex, img, mask, stars });
     });
   }
@@ -55,7 +56,8 @@ export class NightWater {
     const t = time / 1000;
     for (const p of this.pools) {
       const { box, tex, mask, stars } = p;
-      if (box.x > view.right || box.x + box.w < view.x || box.y > view.bottom || box.y + box.h < view.y) continue;
+      // on screen or just off it (so it's ready when the camera gets there)
+      if (box.x > view.right + 48 || box.x + box.w < view.x - 48 || box.y > view.bottom + 48 || box.y + box.h < view.y - 48) continue;
       const g = tex.getContext();
       g.globalCompositeOperation = 'source-over';
       g.clearRect(0, 0, box.w, box.h);

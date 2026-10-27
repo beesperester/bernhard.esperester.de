@@ -1,14 +1,13 @@
-import Phaser from 'phaser';
-import { BIRD_COLOURS } from '../art/critters.ts';
-import type { Prop } from '../art/tiles.ts';
-import { Act, Prey, SWIPE_AT_MS } from './state.ts';
-import type { CatView } from './CatView.ts';
-import type { PreyRef } from './Ambient.ts';
-import { BATH_H, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../world/map.ts';
-import { SEASON } from '../world/season.ts';
-import { Pool, seedRng, hash2, lerp, clamp01 } from './fauna.ts';
-import { lightAt } from '../world/sky.ts';
-import { sound } from '../audio/sound.ts';
+import { BIRD_COLOURS } from '../../art/critters.ts';
+import { Act, Prey, SWIPE_AT_MS } from '../state.ts';
+import type { CatView } from '../CatView.ts';
+import { BATH_H, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../../world/map.ts';
+import { SEASON } from '../../world/season.ts';
+import { Pool, seedRng, hash2, lerp, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
+import type { Effects } from './Effects.ts';
+import { lightAt } from '../../world/sky.ts';
+import { sound } from '../../audio/sound.ts';
+import { groundOf, isLawnOrTall, isOpenGround } from '../../world/legend.ts';
 
 // Birds drop in on a tree, sit in its crown, sometimes flutter down to peck
 // for food nearby, and fly off again. Like the other fauna every visit is a
@@ -44,7 +43,8 @@ interface Visit { id: number; colour: number; from: Pt3; to: Pt3; stops: Stop[];
 interface Flee { t: number; x: number; y: number; h: number; dir: number }
 interface Spot { x: number; y: number; h: number; depth: number; perch: boolean; bath?: boolean }
 
-export class Birds {
+export class Birds implements Fauna {
+  readonly catches = [Prey.Bird] as const;
   private readonly perches: Spot[][];
   private readonly lawns: Spot[][];
   private readonly visits = new Map<number, Visit | null>();
@@ -57,19 +57,16 @@ export class Birds {
   private readonly isCaught: (id: number) => boolean;
   /** Bird baths: places on the rim, and lawn around each. */
   private readonly baths: { rim: Spot[]; lawn: Spot[] }[];
-  private readonly splash: (x: number, y: number, depth: number, loud: boolean) => void;
+  private readonly fx: Effects;
   private readonly splashed = new Map<number, number>();
   /** Birds sitting in a tree right now, for birdsong. */
   private perched: { x: number; y: number }[] = [];
   /** This frame's catchable things, for birds on the wing. */
   private prey: PreyRef[] = [];
 
-  constructor(
-    scene: Phaser.Scene, trees: { p: Prop; canvas: HTMLCanvasElement }[], isCaught: (id: number) => boolean,
-    splash: (x: number, y: number, depth: number, loud: boolean) => void,
-  ) {
-    this.isCaught = isCaught;
-    this.splash = splash;
+  constructor({ scene, trees, isCaught, fx }: FaunaContext) {
+    this.isCaught = (id) => isCaught(Prey.Bird, id);
+    this.fx = fx;
     this.birds = new Pool(scene, 'bird-0');
     this.shadows = new Pool(scene, 'shadow');
     this.marks = new Pool(scene, 'alert');
@@ -102,8 +99,8 @@ export class Birds {
     const out: Spot[] = [];
     for (let y = ty - 3; y <= ty + 3; y++)
       for (let x = tx - 3; x <= tx + 3; x++) {
-        if ((x === tx && y === ty) || !'.,p'.includes(tileAt(x, y)) || levelAt(x, y) !== levelAt(tx, ty) || furnished(x, y)) continue;
-        if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !'.,pf'.includes(tileAt(x + dx, y + dy)))) continue;
+        if ((x === tx && y === ty) || !(isLawnOrTall(tileAt(x, y)) || groundOf(tileAt(x, y)) === 'path') || levelAt(x, y) !== levelAt(tx, ty) || furnished(x, y)) continue;
+        if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !isOpenGround(tileAt(x + dx, y + dy)))) continue;
         const cx = x * TILE + 8, cy = y * TILE + 10;
         out.push({ x: cx, y: cy, h: elevAt(cx, cy), depth: cy, perch: false });
       }
@@ -165,7 +162,12 @@ export class Birds {
     return near.length ? near[Math.floor(Math.random() * near.length)] : null;
   }
 
-  update(gt: number, now: number, cats: CatView[], prey: PreyRef[]): void {
+  /** Snatched in a puff of feathers. */
+  onCatch(p: PreyRef): void {
+    this.fx.feathers(p.x, p.y - p.h - 3, p.colour);
+  }
+
+  update({ gt, now, cats, prey }: FaunaFrame): void {
     this.prey = prey;
     this.birds.begin();
     this.shadows.begin();
@@ -299,7 +301,9 @@ export class Birds {
       if (gt - last > 260 || gt < last) {
         this.splashed.set(v.id, gt);
         if (this.splashed.size > 32) this.splashed.delete(this.splashed.keys().next().value!);
-        this.splash(x, y - s.h + 1, y + 0.6, gt - last > BATHE_EVERY);
+        // a few drops, now and then a little splish
+        this.fx.drops(x, y - s.h + 1, y + 0.6);
+        if (gt - last > BATHE_EVERY) this.fx.splashSound(x, y - s.h + 1, 0.12, 1.9);
       }
     }
     this.draw(v, [x, y, s.h + (alert ? 0 : hop)], bathing ? (Math.floor(gt / 60) % 2 ? 2 : 3) : u < 1 && !alert ? 2 : pecking ? 1 : 0, right, 1, y);

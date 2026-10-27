@@ -1,9 +1,10 @@
 // Raised ground. Each row of a plateau is cut out of the ground raster and
 // drawn shifted up by its height, with an earthy cliff face hanging below
 // wherever the ground in front is lower. Stairs bridge one level on south faces.
-import { Raster, hex, hash2 } from './raster.ts';
+import { Raster, hex, hash2, type RGB } from './raster.ts';
 import { applySeason, bayer } from './tiles.ts';
 import { LEVEL, MAP_H, MAP_W, TILE, levelAt, tileAt } from '../world/map.ts';
+import { isStairs } from '../world/legend.ts';
 
 const K = { lip: hex('#2e6e24'), lip2: hex('#4c9a34'), k0: hex('#e2c08a'), k1: hex('#c0965e'), k2: hex('#93693e'), k3: hex('#5c3e24'), k4: hex('#3a2616') };
 const S = { s0: hex('#e8e4d8'), s1: hex('#c4bfb0'), s2: hex('#94907f'), s3: hex('#56534a'), moss: hex('#5aaa3e') };
@@ -21,7 +22,13 @@ export interface TerrainPiece {
   stairs: boolean;
 }
 
-const isStair = (tx: number, ty: number) => tileAt(tx, ty) === 'S';
+const isStair = (tx: number, ty: number) => isStairs(tileAt(tx, ty));
+
+/** A ground colour up on level e: higher ground catches a little more sun. */
+export function raised(c: RGB, e: number): RGB {
+  const lift = 1 + 0.07 * e;
+  return [c[0] * lift + 4 * e, c[1] * lift, c[2] * (1 + 0.02 * e)];
+}
 /** The level a tile shows its top at (stairs reach the next level). */
 const topLevel = (tx: number, ty: number) => levelAt(tx, ty) + (isStair(tx, ty) ? 1 : 0);
 
@@ -95,9 +102,7 @@ export function buildTerrain(ground: Raster): TerrainPiece[] {
         for (let y = 0; y < TILE; y++)
           for (let x = 0; x < TILE; x++) {
             const i = ((ty * TILE + y) * ground.w + tx * TILE + x) * 4;
-            // higher ground catches a little more sun
-            const lift = 1 + 0.07 * e;
-            r.set(ox + x, y, [ground.data[i] * lift + 4 * e, ground.data[i + 1] * lift, ground.data[i + 2] * (1 + 0.02 * e)]);
+            r.set(ox + x, y, raised([ground.data[i], ground.data[i + 1], ground.data[i + 2]], e));
           }
         // rims: a sunlit lip on the far edge, darker grass where it drops to the sides
         if (levelAt(tx, ty - 1) < e) for (let x = 0; x < TILE; x++) r.set(ox + x, 0, RIM);
