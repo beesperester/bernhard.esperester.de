@@ -1,4 +1,4 @@
-// Full screen, on the button or F. Most browsers can take a page full screen;
+// Full screen, on the button. Most browsers can take a page full screen;
 // Safari on the iPhone can't (only videos), so there the button explains how to
 // put the garden on the home screen, which opens it full screen
 // (public/manifest.webmanifest).
@@ -12,7 +12,7 @@ const TIP_MS = 6000;
 const supported = () => !!(doc.fullscreenEnabled || doc.webkitFullscreenEnabled);
 const active = () => !!(doc.fullscreenElement || doc.webkitFullscreenElement);
 
-export function toggleFullscreen(): void {
+function toggleFullscreen(): void {
   if (!supported()) {
     showTip('For full screen, tap Share and then “Add to Home Screen”.');
     return;
@@ -28,7 +28,7 @@ export function toggleFullscreen(): void {
 export function setupFullscreen(button: HTMLElement): void {
   const update = () => {
     button.classList.toggle('on', active());
-    button.title = active() ? 'Leave full screen (F)' : 'Full screen (F)';
+    button.title = active() ? 'Leave full screen' : 'Full screen';
   };
   document.addEventListener('fullscreenchange', update);
   document.addEventListener('webkitfullscreenchange', update);

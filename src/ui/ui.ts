@@ -35,7 +35,6 @@ const KEYBOARD: Row[] = [
   [[['X'], 'sneak up on something, then'], [['SHIFT'], 'to pounce']],
   [[['C'], 'catch, splash to lure fish, paw at a tree or a monument']],
   [[['H'], 'hiss'], [['R'], 'roll'], [['E'], 'mew']],
-  [[['M'], 'music'], [['S'], 'sounds'], [['F'], 'full screen']],
 ];
 
 const TOUCH: Row[] = [

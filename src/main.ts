@@ -3,7 +3,7 @@ import { GardenScene } from './game/GardenScene.ts';
 import { Music } from './audio/music.ts';
 import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
-import { setupFullscreen, toggleFullscreen } from './ui/fullscreen.ts';
+import { setupFullscreen } from './ui/fullscreen.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
 import '@fontsource/pixelify-sans/latin-ext-400.css';
 import '@fontsource/pixelify-sans/latin-700.css';
@@ -28,17 +28,17 @@ const game = new Phaser.Game({
 });
 
 // music and sounds start on the first key press or tap (browsers require a gesture);
-// M / the note button mutes the music, S / the speaker button the sounds
+// the note button mutes the music, the speaker button the sounds
 const music = new Music();
 const musicBtn = document.getElementById('music')!;
 const soundBtn = document.getElementById('sound')!;
 music.onChange((muted, track) => {
   musicBtn.classList.toggle('muted', muted);
-  musicBtn.title = muted ? 'Music off (M)' : `♪ ${track?.title ?? 'Music'} (M to mute)`;
+  musicBtn.title = muted ? 'Music off' : `♪ ${track?.title ?? 'Music'}`;
 });
 sound.onChange((muted) => {
   soundBtn.classList.toggle('muted', muted);
-  soundBtn.title = muted ? 'Sounds off (S)' : 'Sounds on (S to mute)';
+  soundBtn.title = muted ? 'Sounds off' : 'Sounds on';
 });
 const unlock = () => {
   music.unlock();
@@ -46,16 +46,7 @@ const unlock = () => {
 };
 window.addEventListener('keydown', (e) => {
   // typing a name is not playing
-  if (e.target instanceof HTMLInputElement) return;
-  const k = e.key.toLowerCase();
-  if (k === 'f') {
-    if (!e.repeat) toggleFullscreen();
-    unlock();
-  } else if (k === 'm' || k === 's') {
-    if (!e.repeat) (k === 'm' ? music : sound).toggle();
-    if (k === 'm') sound.unlock();
-    else music.unlock();
-  } else unlock();
+  if (!(e.target instanceof HTMLInputElement)) unlock();
 });
 window.addEventListener('pointerdown', unlock);
 for (const [btn, target] of [[musicBtn, music], [soundBtn, sound]] as const) {
