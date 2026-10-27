@@ -3,7 +3,7 @@ import { GRAVITY, JUMP_V } from '../game/state.ts';
 import { DASH_SPEED, WALK_SPEED, step } from '../game/movement.ts';
 import { MoveWitness } from '../net/witness.ts';
 import { Act } from '../game/state.ts';
-import { FORK_Z, WALL, heightUnder } from './map.ts';
+import { FORK_Z, LEVEL, TILE, WALL, heightUnder, levelAt } from './map.ts';
 import { RISE, TREES, perchUnder, standingOn, surfaceAt, treeHolding, type TreePlan } from './trees.ts';
 
 const DT = 1 / 60;
@@ -98,6 +98,23 @@ describe('trees', () => {
     expect(treeHolding(up.x, up.y, up.z)).toBe(TREES.indexOf(t));
     // and dropping through it (perches below `under` only) comes down to the ground
     expect(surfaceAt(t.x, t.y, t.elev + FORK_Z, t.elev + FORK_Z)).toBe(t.elev);
+  });
+
+  it("doesn't count a cat walking on a plateau beside a tree down below as up that tree", () => {
+    // (it would be drawn at the tree's depth, behind the plateau it is standing on)
+    let checked = 0;
+    for (const [i, t] of TREES.entries()) {
+      if (t.elev) continue;
+      for (let x = t.x - t.w / 2; x <= t.x + t.w / 2; x += 2)
+        for (let y = t.y - 24; y <= t.y + 24; y += 2) {
+          if (levelAt(Math.floor(x / TILE), Math.floor(y / TILE)) !== 1) continue;
+          const ground = heightUnder(x - 5, y - 5, x + 5, y, Infinity);
+          if (ground !== LEVEL) continue;
+          checked++;
+          expect(treeHolding(x, y, ground)).not.toBe(i);
+        }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 
   it('is not cheating to stand on a branch', () => {

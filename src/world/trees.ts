@@ -162,7 +162,15 @@ export function standingOn(x: number, y: number, z: number): PerchAt | null {
   return p && Math.abs(p.z - z) < 1 && p.z > heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1, z + CATCH) ? p : null;
 }
 
-/** Index of the tree a cat at (x, y), height z, is up in (it is drawn in front of that tree), or -1. */
+/**
+ * Index of the tree a cat at (x, y), height z, is up in (it is drawn in front of that tree), or -1.
+ * It has to be off whatever it stands on too: a cat walking along a plateau or a folly
+ * next to a tree down below is not up that tree (sorted as if it were, it would vanish
+ * behind the plateau's own front).
+ */
 export function treeHolding(x: number, y: number, z: number): number {
-  return near(y).find((i) => { const t = TREES[i]; return z >= t.elev + 6 && inBand(t, y) && Math.abs(x - t.x) <= t.w / 2; }) ?? -1;
+  const found = near(y).find((i) => { const t = TREES[i]; return z >= t.elev + 6 && inBand(t, y) && Math.abs(x - t.x) <= t.w / 2; });
+  if (found === undefined) return -1;
+  // (trunks don't count as ground here: asked from high up, only terrain and furniture do)
+  return z >= heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1, Infinity) + 6 ? found : -1;
 }
