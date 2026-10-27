@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
-import { Act, ACT_MAX, EAT_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
+import { Act, ACT_MAX, EAT_MS, MEW_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { CAT, COATS } from '../art/cat.ts';
 import { WORLD_W, WORLD_H, groundAt, terrainCover } from '../world/map.ts';
 import { DEPTH } from './Daylight.ts';
@@ -52,6 +52,9 @@ export class CatView {
   heldKey = 'held-fish';
   /** Shown under the cat. */
   name = '';
+  /** How many times it has mewed, and when the last one began (it can mew walking, running or mid-jump). */
+  mews = 0;
+  mewAt = -Infinity;
 
   readonly shadow: Phaser.GameObjects.Image;
   private readonly sprite: Phaser.GameObjects.Sprite;
@@ -157,10 +160,11 @@ export class CatView {
       .setScale(1 / zoom).setPosition(x, y + 1 - Math.round(groundAt(this.x, this.y)));
 
     const content = ((this.act === Act.Eat || this.act === Act.Feast) && ms > EAT_MS - 700) || (this.act === Act.Munch && ms > MUNCH_MS - 500);
-    const emote = this.act === Act.Hiss ? 'bubble-hiss' : this.act === Act.Mew ? 'bubble-mew' : this.act === Act.Roll || content ? 'bubble-roll' : null;
+    const mewing = now - this.mewAt < MEW_MS;
+    const emote = this.act === Act.Hiss ? 'bubble-hiss' : mewing ? 'bubble-mew' : this.act === Act.Roll || content ? 'bubble-roll' : null;
     this.bubble.setVisible(!!emote);
     if (emote) {
-      const bob = Math.floor(ms / 250) % 2;
+      const bob = Math.floor((mewing ? now - this.mewAt : ms) / 250) % 2;
       const top = (this.act === Act.Roll ? y - 12 : y - 17) - Math.round(z);
       this.bubble.setTexture(emote).setPosition(x + 4, top - bob).setDepth(100000);
     }
@@ -190,11 +194,17 @@ export class RemoteCat extends CatView {
     this.tx = msg[0];
     this.ty = msg[1];
     this.z = this.tz = msg[2];
+    // mews from before we arrived aren't heard
+    this.mews = msg[7];
     this.apply(msg, now);
   }
 
   apply(msg: CatMsg, now: number): void {
-    const [x, y, z, facing, act, seq] = msg;
+    const [x, y, z, facing, act, seq, , mews] = msg;
+    if (mews !== this.mews) {
+      this.mews = mews;
+      this.mewAt = now;
+    }
     this.tx = Phaser.Math.Clamp(x, 0, WORLD_W);
     this.ty = Phaser.Math.Clamp(y, 0, WORLD_H);
     this.tz = Phaser.Math.Clamp(z, 0, 40);

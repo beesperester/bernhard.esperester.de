@@ -4,16 +4,16 @@ import { sanitizeCat, sanitizeCatch, sanitizeVote } from './protocol.ts';
 
 describe('sanitizeCat', () => {
   it('accepts a well-formed state and truncates the integer fields', () => {
-    expect(sanitizeCat([10.5, 20.25, 0, 2.7, 1.9, 5.5, 3.1])).toEqual([10.5, 20.25, 0, 2, 1, 5, 3]);
+    expect(sanitizeCat([10.5, 20.25, 0, 2.7, 1.9, 5.5, 3.1, 4.2])).toEqual([10.5, 20.25, 0, 2, 1, 5, 3, 4]);
   });
 
   it.each([
     ['not an array', { x: 1 }],
     ['too short', [1, 2, 3]],
-    ['too long', [1, 2, 3, 4, 5, 6, 7, 8]],
-    ['a string inside', [1, 2, 3, 4, '5', 6, 7]],
-    ['NaN', [1, 2, NaN, 4, 5, 6, 7]],
-    ['Infinity', [1, Infinity, 3, 4, 5, 6, 7]],
+    ['too long', [1, 2, 3, 4, 5, 6, 7, 8, 9]],
+    ['a string inside', [1, 2, 3, 4, '5', 6, 7, 8]],
+    ['NaN', [1, 2, NaN, 4, 5, 6, 7, 8]],
+    ['Infinity', [1, Infinity, 3, 4, 5, 6, 7, 8]],
     ['null', null],
   ])('rejects %s', (_, msg) => {
     expect(sanitizeCat(msg)).toBeNull();

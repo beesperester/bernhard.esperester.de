@@ -2,11 +2,11 @@
 // message is validated here before the game sees it.
 import { Prey, type CatMsg } from '../game/state.ts';
 
-/** Accept only a well-formed cat state tuple: [x, y, z, facing, act, seq, coat]. */
+/** Accept only a well-formed cat state tuple: [x, y, z, facing, act, seq, coat, mews]. */
 export function sanitizeCat(d: unknown): CatMsg | null {
-  if (!Array.isArray(d) || d.length !== 7 || !d.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
-  const [x, y, z, facing, act, seq, coat] = d as number[];
-  return [x, y, z, facing | 0, act | 0, seq | 0, coat | 0];
+  if (!Array.isArray(d) || d.length !== 8 || !d.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
+  const [x, y, z, facing, act, seq, coat, mews] = d as number[];
+  return [x, y, z, facing | 0, act | 0, seq | 0, coat | 0, mews | 0];
 }
 
 const PREY_KINDS = new Set<number>(Object.values(Prey));

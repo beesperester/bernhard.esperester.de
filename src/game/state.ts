@@ -36,8 +36,11 @@ export function pawAt(x: number, y: number, facing: Facing): [number, number] {
 export const Prey = { Fish: 0, Fly: 1, Bee: 2, Bird: 3, Firefly: 4, Frog: 5, Beetle: 6, Dragonfly: 7, Bat: 8, Mouse: 9 } as const;
 export type Prey = (typeof Prey)[keyof typeof Prey];
 
-/** Everything other visitors need to draw a cat: [x, y, z, facing, act, seq, coat]. */
-export type CatMsg = [number, number, number, number, number, number, number];
+/**
+ * Everything other visitors need to draw a cat: [x, y, z, facing, act, seq, coat, mews].
+ * `mews` counts the cat's mews: it can mew whatever it's doing, so a mew isn't an act.
+ */
+export type CatMsg = [number, number, number, number, number, number, number, number];
 
 const cycle = <T>(frames: T[], fps: number, ms: number): T => frames[Math.floor((ms / 1000) * fps) % frames.length];
 

@@ -324,7 +324,7 @@ export class GardenScene extends Phaser.Scene {
   private state(): CatMsg {
     const m = this.me;
     const r = (v: number) => Math.round(v * 10) / 10;
-    return [r(m.x), r(m.y), r(m.z), m.facing, m.act, m.seq, m.coat];
+    return [r(m.x), r(m.y), r(m.z), m.facing, m.act, m.seq, m.coat, m.mews];
   }
 
   private sendState(): void {
@@ -534,8 +534,13 @@ export class GardenScene extends Phaser.Scene {
       return;
     }
     const grounded = me.act !== Act.Jump;
+    // a mew, whatever the cat is doing (one standing about sits up for it)
+    if (mew) {
+      me.mews = (me.mews + 1) & 0xffff;
+      me.mewAt = now;
+      if (!moving && (me.act === Act.Idle || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep)) begin(Act.Mew);
+    }
     if (hiss && grounded) begin(Act.Hiss);
-    else if (mew && grounded) begin(Act.Mew);
     else if (roll && grounded) begin(Act.Roll);
     else if (jump && grounded) {
       begin(Act.Jump);
