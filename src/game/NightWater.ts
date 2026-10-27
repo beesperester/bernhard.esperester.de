@@ -6,7 +6,9 @@ import { cullerFor } from './Culler.ts';
 import type { Occluder } from './Lanterns.ts';
 
 type Box = { x: number; y: number; w: number; h: number };
-const MOON_R = 6;
+const MOON_R = 6, HALO_R = MOON_R * 3;
+/** Slack at the edge between the moon's lit and dark side (as a fraction of its radius). */
+const TERMINATOR = 0.5 / MOON_R;
 
 /**
  * Stars, and the moon in its current phase, mirrored in the ponds at night.
@@ -92,8 +94,10 @@ export class NightWater {
   /** The moon's reflection: its lit part for today's phase, gently rippling. */
   private drawMoon(g: CanvasRenderingContext2D, box: Box, phase: number, t: number): void {
     const mx = this.moon!.x - box.x, my = this.moon!.y - box.y;
-    if (mx < -MOON_R - 2 || my < -MOON_R - 2 || mx > box.w + MOON_R + 2 || my > box.h + MOON_R + 2) return;
-    const k = Math.cos(phase * Math.PI * 2);
+    // (the halo reaches into the boxes next to the moon's: each draws its part)
+    if (mx < -HALO_R || my < -HALO_R || mx > box.w + HALO_R || my > box.h + HALO_R) return;
+    // within a couple of days of full it's drawn round: at this size a sliver of shadow only looks like a bite
+    const k = Math.abs(phase - 0.5) < 0.08 ? -1 : Math.cos(phase * Math.PI * 2);
     for (let y = -MOON_R; y <= MOON_R; y++) {
       const half = Math.sqrt(Math.max(0, MOON_R * MOON_R - y * y));
       const wobble = Math.round(Math.sin((this.moon!.y + y) * 0.9 + t * 2.2) * 0.8);
@@ -101,16 +105,17 @@ export class NightWater {
         if (Math.abs(x) > half) continue;
         const u = x / MOON_R, s = half / MOON_R;
         // waxing: lit from the right; waning: from the left
-        const lit = phase < 0.5 ? u > k * s : u < -k * s;
+        // (by pixel centres, give or take half a pixel, so the round edge stays round)
+        const lit = phase < 0.5 ? u > k * s - TERMINATOR : u < -k * s + TERMINATOR;
         g.fillStyle = lit ? 'rgba(255, 248, 210, 0.9)' : 'rgba(120, 130, 170, 0.18)';
         g.fillRect(mx + x + wobble, my + y, 1, 1);
       }
     }
     // a soft halo around it
-    const halo = g.createRadialGradient(mx, my, MOON_R, mx, my, MOON_R * 3);
+    const halo = g.createRadialGradient(mx, my, MOON_R, mx, my, HALO_R);
     halo.addColorStop(0, 'rgba(200, 210, 255, 0.25)');
     halo.addColorStop(1, 'rgba(200, 210, 255, 0)');
     g.fillStyle = halo;
-    g.fillRect(mx - MOON_R * 3, my - MOON_R * 3, MOON_R * 6, MOON_R * 6);
+    g.fillRect(mx - HALO_R, my - HALO_R, HALO_R * 2, HALO_R * 2);
   }
 }
