@@ -298,19 +298,19 @@ export class GardenScene extends Phaser.Scene {
     props.forEach((p, i) => {
       const c = canvases.props[i];
       const lift = p.plan.elev;
-      casters.push({ src: c, sx: 0, sy: 0, w: c.width, h: c.height, x: p.x, y: p.y, ground: p.depthY, lift, cap: Infinity });
+      casters.push({ src: c, sx: 0, sy: 0, w: c.width, h: c.height, x: p.x, y: p.y, ground: p.depthY, lift, cap: Infinity, depth: 'round' });
       blobs.push({ x: p.plan.x, y: p.depthY - lift - 1, w: Math.round(p.raster.w * 0.65), h: 14, depth: p.depthY - 0.01 });
     });
     const lantern = this.textures.get('lantern').getSourceImage() as HTMLCanvasElement;
     for (const [x, y] of LANTERNS) {
       const top = y - elevAt(x, y);
-      casters.push({ src: lantern, sx: 0, sy: 0, w: LANTERN_W, h: LANTERN_H, x: x - LANTERN_W / 2, y: top - LANTERN_H, ground: y, lift: elevAt(x, y), cap: LANTERN_H });
+      casters.push({ src: lantern, sx: 0, sy: 0, w: LANTERN_W, h: LANTERN_H, x: x - LANTERN_W / 2, y: top - LANTERN_H, ground: y, lift: elevAt(x, y), cap: LANTERN_H, depth: 1 });
       blobs.push({ x, y: top - 1, w: 12, h: 5, depth: y - 0.01 });
     }
     for (const { p, canvas } of furniture.pieces) {
       const w = canvas.width, h = canvas.height;
       // the shed is in the height map; the low things cast their outlines (their tops are deep, not tall)
-      if (h < 40) casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.y + h - 1, lift: 0, cap: 14 });
+      if (h < 40) casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.y + h - 1, lift: 0, cap: 14, depth: 3 });
       blobs.push({ x: p.x + w / 2, y: p.y + h - 2, w: w + 8, h: h < 40 ? 10 : 18, depth: p.depthY - 0.01 });
     }
     // bushes and rocks in the ground art
