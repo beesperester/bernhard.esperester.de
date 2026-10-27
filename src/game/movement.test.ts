@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LEVEL, MAP_H, MAP_W, TILE, groundAt, spawnPoints, tileAt } from '../world/map.ts';
-import { DASH_COOLDOWN_MIN_MS, DASH_COOLDOWN_MS, DASH_MS, Dash, JUMP_HEIGHT, STEP_UP, blocked, step, type Body } from './movement.ts';
+import { DASH_COOLDOWN_MIN_MS, DASH_COOLDOWN_MS, DASH_MS, Dash, JUMP_HEIGHT, STEP_UP, alignDiagonal, blocked, step, type Body } from './movement.ts';
 
 const onFoot = (x: number, y: number): Body => ({ x, y, z: groundAt(x, y), airborne: false });
 
@@ -83,5 +83,24 @@ describe('the dash', () => {
     expect(d.active).toBe(false);
     d.update(true, true, 10 + DASH_COOLDOWN_MIN_MS);
     expect(d.active).toBe(true);
+  });
+});
+
+describe('diagonal steps', () => {
+  it('get x and y onto whole pixels at the same moment, whichever way', () => {
+    const [x, y] = spawnPoints()[0];
+    for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]])
+      for (const [ox, oy] of [[0.1, 0.8], [0.45, 0.2], [0.9, 0.5]]) {
+        const b = onFoot(Math.floor(x) + ox, Math.floor(y) + oy);
+        alignDiagonal(b, dx, dy);
+        expect(Math.abs(b.y - (Math.floor(y) + oy))).toBeLessThanOrEqual(0.5);
+        // walk on: the rounded position must change on both axes in the same steps
+        for (let i = 0; i < 40; i++) {
+          const rx = Math.round(b.x), ry = Math.round(b.y);
+          b.x += dx * 0.37;
+          b.y += dy * 0.37;
+          expect(Math.round(b.x) !== rx).toBe(Math.round(b.y) !== ry);
+        }
+      }
   });
 });

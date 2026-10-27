@@ -22,7 +22,7 @@ import { berlinClock } from '../world/sky.ts';
 import { SEASON, rainfall } from '../world/season.ts';
 import { Weather } from './Weather.ts';
 import { Ambient } from './Ambient.ts';
-import { DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, step } from './movement.ts';
+import { DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { Net } from '../net/net.ts';
@@ -103,6 +103,8 @@ export class GardenScene extends Phaser.Scene {
   private lastDry = { x: 0, y: 0 };
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
   private vel = { x: 0, y: 0 };
+  /** The way we were last pushed ("dx,dy"), to notice a new diagonal. */
+  private heading = '';
   private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number } | null = null;
   private catching: { swiped: boolean; got: Prey | null } | null = null;
   /** A swipe made in mid-jump (one per jump), and what it got, to eat on landing. */
@@ -555,6 +557,10 @@ export class GardenScene extends Phaser.Scene {
     if (Math.abs(this.vel.x) + Math.abs(this.vel.y) > (icy ? 1.5 : 0)) {
       const [bx, by] = [me.x, me.y];
       const body = { x: me.x, y: me.y, z: me.z, airborne: me.act === Act.Jump };
+      // a fresh diagonal: get x and y stepping in time, so the view doesn't staircase
+      const heading = `${Math.sign(wx)},${Math.sign(wy)}`;
+      if (heading !== this.heading && wx && wy && !icy) alignDiagonal(body, wx, wy);
+      this.heading = heading;
       step(body, this.vel.x * dt, this.vel.y * dt);
       me.x = body.x; me.y = body.y; me.z = body.z;
       // sliding into something stops the slide that way

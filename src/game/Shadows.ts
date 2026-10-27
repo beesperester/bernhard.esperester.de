@@ -226,25 +226,38 @@ export class Shadows {
     }
   }
 
-  /** Lay each sprite's outline flat on the ground, away from the sun. */
+  /**
+   * Lay each sprite's outline on the ground, away from the sun. The ground
+   * isn't flat: a ray from a pixel h above the caster's foot reaches higher
+   * terrain sooner, so for every terrain level it lands at a different spot,
+   * and it counts where the ground there really is at that level. (So a
+   * tree's shadow runs on up a slope, or down off a plateau, instead of
+   * stopping at the edge.)
+   */
   private project(): void {
-    const W = WORLD_W, H = WORLD_H, out = this.outlines;
+    const W = WORLD_W, H = WORLD_H, out = this.outlines, level = this.level;
     out.fill(0);
     const [sx, sy] = this.s;
     const steps = Math.ceil(Math.hypot(sx, sy)) + 1;
+    let levels = 0;
+    for (let i = 0; i < level.length; i++) if (level[i] > levels) levels = level[i];
     for (const c of this.casters) {
       const foot = c.y + c.h - 1; // screen y of the bottom row
-      const tag = Math.round(c.lift / LEVEL) + 1;
       for (let y = 0; y < c.h; y++)
         for (let x = 0; x < c.w; x++) {
           if (!c.alpha[y * c.w + x]) continue;
           const h0 = Math.min(c.cap, foot - (c.y + y));
           // smear each pixel over its one-pixel slice of height, so long shadows have no gaps
-          for (let k = 0; k < steps; k++) {
-            const h = h0 + k / steps;
-            const px = Math.round(c.x + x + sx * h), py = Math.round(c.ground + sy * h);
-            if (px >= 0 && py >= 0 && px < W && py < H) out[py * W + px] = tag;
-          }
+          for (let k = 0; k < steps; k++)
+            for (let l = 0; l <= levels; l++) {
+              // how high the pixel is above ground at level l
+              const h = h0 + k / steps + c.lift - l * LEVEL;
+              if (h < 0) break;
+              const px = Math.round(c.x + x + sx * h), py = Math.round(c.ground + sy * h);
+              if (px < 0 || py < 0 || px >= W || py >= H) continue;
+              const i = py * W + px;
+              if (level[i] === l) out[i] = l + 1;
+            }
         }
     }
   }

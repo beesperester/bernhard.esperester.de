@@ -79,6 +79,22 @@ export function step(body: Body, mx: number, my: number): void {
   if (!blocked(body, x, y)) { body.x = x; body.y = y; }
 }
 
+/**
+ * Moving diagonally, both axes go at the same speed, but the cat (and the
+ * camera on it) is drawn at whole pixels. Unless x and y reach a whole pixel
+ * at the same moment, it steps right, then down, then right: a staircase.
+ * Call when a diagonal move starts: nudges y (by less than half a pixel) into
+ * step with x, given the direction of travel (dx, dy).
+ */
+export function alignDiagonal(body: Body, dx: number, dy: number): void {
+  const fx = body.x - Math.floor(body.x), fy = body.y - Math.floor(body.y);
+  // how far x is past its last whole pixel, going its way; y should be just as far along going its way
+  const past = dx > 0 ? fx : 1 - fx;
+  let d = (dy > 0 ? past : 1 - past) - fy;
+  d -= Math.round(d);
+  if (d && !blocked(body, body.x, body.y + d)) body.y += d;
+}
+
 /** The dash: runs while held for up to DASH_MS, then needs a rest that grows with how long it ran. */
 export class Dash {
   active = false;
