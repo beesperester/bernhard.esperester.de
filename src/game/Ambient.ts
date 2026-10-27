@@ -32,7 +32,8 @@ export class Ambient {
   private readonly birds: Birds;
   /** Which module looks after each kind of prey's catches. */
   private readonly keepers = new Map<Prey, Fauna>();
-  private readonly fx: Effects;
+  /** Splashes, ripples and other short effects, shared with the rest of the garden. */
+  readonly fx: Effects;
   private readonly caught = new Set<number>();
   private prey: PreyRef[] = [];
   /** Everything catchable seen lately, and when (local time), to check other cats' catches. */

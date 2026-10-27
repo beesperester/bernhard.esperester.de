@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { CAT } from '../art/cat.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
+import type { Raster } from '../art/raster.ts';
 import type { CatView } from './CatView.ts';
 import { LEVEL, TILE, WORLD_H, WORLD_W, casterHeight, elevAt, levelAt } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
@@ -47,6 +48,8 @@ export class Shadows {
   private readonly scene: Phaser.Scene;
   /** Height of the surface at every ground pixel (terrain plus whatever stands there). */
   private readonly height: Float32Array;
+  /** Where a shadow falls: the ground, or the top of something drawn standing there (not the bare edges of its tile). */
+  private readonly floor: Float32Array;
   private readonly level: Uint8Array;
   /** Swept: the highest a sunward obstacle reaches above each pixel, minus the ray's rise. */
   private readonly sky: Float32Array;
@@ -71,10 +74,11 @@ export class Shadows {
   /** 0 at night, 1 in full sun: how strong cast shadows are (soft ones take over as it fades). */
   strength = 0;
 
-  constructor(scene: Phaser.Scene, opts: { terrain: TerrainPiece[]; casters: Caster[]; blobs: { x: number; y: number; w: number; h: number; depth: number }[]; catSheet: HTMLCanvasElement }) {
+  constructor(scene: Phaser.Scene, opts: { terrain: TerrainPiece[]; casters: Caster[]; blobs: { x: number; y: number; w: number; h: number; depth: number }[]; catSheet: HTMLCanvasElement; upright: Raster }) {
     this.scene = scene;
     const W = WORLD_W, H = WORLD_H, n = W * H;
     this.height = new Float32Array(n);
+    this.floor = new Float32Array(n);
     this.level = new Uint8Array(n);
     this.sky = new Float32Array(n);
     this.outlines = new Uint8Array(n);
@@ -83,7 +87,10 @@ export class Shadows {
       for (let x = 0; x < W; x++) {
         const l = levelAt(Math.floor(x / TILE), Math.floor(y / TILE));
         this.level[y * W + x] = l;
-        this.height[y * W + x] = l * LEVEL + casterHeight(x, y);
+        const h = l * LEVEL + casterHeight(x, y);
+        this.height[y * W + x] = h;
+        // a rock is round but blocks the sun over its whole tile: the lawn round it still takes its shadow
+        this.floor[y * W + x] = opts.upright.isSet(x, y) ? h : l * LEVEL;
       }
     this.casters = opts.casters.map((c) => {
       const ctx = scratch(c.w, c.h);
@@ -163,8 +170,8 @@ export class Shadows {
     this.s = [-gx / rise, -gy / rise];
     this.sweep(gx, gy, rise);
     this.project();
-    const { height, sky, outlines, level, shade } = this;
-    for (let i = 0; i < shade.length; i++) shade[i] = sky[i] > height[i] + 0.5 || outlines[i] === level[i] + 1 ? 1 : 0;
+    const { floor, sky, outlines, level, shade } = this;
+    for (let i = 0; i < shade.length; i++) shade[i] = sky[i] > floor[i] + 0.5 || outlines[i] === level[i] + 1 ? 1 : 0;
 
     // the lawn...
     const img = new ImageData(W, H);

@@ -50,9 +50,9 @@ export class Effects {
 
   // ---------------------------------------------------------------- water
 
-  /** A ring spreading on the water, starting after `delay` seconds. */
-  ripple(x: number, y: number, delay = 0): void {
-    const img = this.image('ripple', 0).setPosition(Math.round(x), Math.round(y)).setDepth(-99980).setVisible(false);
+  /** A ring spreading on the water, starting after `delay` seconds (`scale` < 1 for a little one, as in a puddle). */
+  ripple(x: number, y: number, delay = 0, scale = 1): void {
+    const img = this.image('ripple', 0).setPosition(Math.round(x), Math.round(y)).setDepth(-99980).setScale(scale).setVisible(false);
     this.add(img, { kind: 'ripple', x, y, life: 1.2, delay });
   }
 

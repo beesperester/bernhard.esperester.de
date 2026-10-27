@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activity, dayOfYear, inSeason, rainfall, seasonAt, snowfall } from './season.ts';
+import { activity, dayOfYear, inSeason, rainfall, seasonAt, snowfall, wetness } from './season.ts';
 
 /** Noon in Berlin on the given date (2026). */
 const on = (month: number, day: number, hour = 12) => Date.UTC(2026, month - 1, day, hour - 1);
@@ -98,6 +98,26 @@ describe('weather', () => {
     for (let i = 0; i < n; i++) if (snowfall(on(1, 1) + i * 3600000) > 0) snowy++;
     expect(snowy / n).toBeGreaterThan(0.2);
     expect(snowy / n).toBeLessThan(0.9);
+  });
+
+  it('leaves puddles that fill in the rain and dry up after it', () => {
+    // find a shower in May, and a dry spell long enough for the ground to dry out
+    const step = 60000;
+    let start = -1;
+    for (let t = on(5, 1); t < on(6, 1) && start < 0; t += step)
+      if (rainfall(t) > 0 && [...Array(240)].every((_, i) => rainfall(t - i * step - step) === 0)) start = t;
+    expect(start).toBeGreaterThan(0);
+    expect(wetness(start - 30 * step)).toBe(0);
+    // fuller after it has rained a while than at the start
+    let end = start;
+    while (rainfall(end) > 0) end += step;
+    expect(wetness(end)).toBeGreaterThan(wetness(start));
+    // drying up again in the dry hours after
+    expect(wetness(end + 3 * 3600000)).toBeLessThan(wetness(end));
+    for (let t = start; t < end + 3600000; t += 7 * step) {
+      expect(wetness(t)).toBeGreaterThanOrEqual(0);
+      expect(wetness(t)).toBeLessThanOrEqual(1);
+    }
   });
 
   it('is the same for everybody at the same moment and stays in 0..1', () => {

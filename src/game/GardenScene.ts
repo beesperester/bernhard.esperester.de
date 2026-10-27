@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
 import { buildProps, buildUprightMask, TREE_W, type Prop } from '../art/tiles.ts';
+import type { Raster } from '../art/raster.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, wetAt, iceAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
@@ -19,6 +20,7 @@ import { RimLight } from './RimLight.ts';
 import { Lanterns } from './Lanterns.ts';
 import { NightWater } from './NightWater.ts';
 import { Streams } from './Streams.ts';
+import { Puddles } from './Puddles.ts';
 import { berlinClock } from '../world/sky.ts';
 import { SEASON, rainfall } from '../world/season.ts';
 import { Weather } from './Weather.ts';
@@ -101,6 +103,7 @@ export class GardenScene extends Phaser.Scene {
   private referee!: Referee;
   private weather!: Weather;
   private streams!: Streams;
+  private puddles!: Puddles;
   private readonly dash = new Dash();
   private lastDry = { x: 0, y: 0 };
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
@@ -157,8 +160,10 @@ export class GardenScene extends Phaser.Scene {
     this.vignette = new Vignette(this);
     // time of day: tint, sunlit rims, lanterns, and stars and moon in the water
     this.daylight = new Daylight(this, Date.now());
+    // which pixels of the ground art stand up from it: for sunlit rims, and for where shadows can't fall
+    const upright = buildUprightMask();
     this.rims = new RimLight(this, {
-      trees: [...reflect.props, ...furniture.pieces], upright: buildUprightMask(), terrain: canvases.terrain,
+      trees: [...reflect.props, ...furniture.pieces], upright, terrain: canvases.terrain,
       catSheet: canvases.cats[0], catFrames: FRAME_NAMES.length * 2, catSize: CAT,
     });
     // what can stand in front of a lantern's light
@@ -168,7 +173,7 @@ export class GardenScene extends Phaser.Scene {
       ...furniture.pieces.map(({ p, canvas }) => ({ canvas, x: p.x, y: p.y, w: canvas.width, h: canvas.height, depth: p.depthY })),
       ...canvases.terrain.map((t, i) => ({ canvas: source(`terrain-${i}`), x: t.x, y: t.y, w: t.raster.w, h: t.raster.h, depth: t.depth })),
     ]);
-    this.shadows = this.makeShadows(props, canvases, furniture);
+    this.shadows = this.makeShadows(props, canvases, furniture, upright);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
     catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
@@ -178,6 +183,7 @@ export class GardenScene extends Phaser.Scene {
     this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: reflect.props });
     this.weather = new Weather(this, props, water);
     this.streams = new Streams(this, water);
+    this.puddles = new Puddles(this, this.ambient.fx);
 
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
@@ -272,7 +278,7 @@ export class GardenScene extends Phaser.Scene {
   }
 
   /** Who casts what shadow: trees, lanterns and furniture by their outlines, and soft blobs under everything for the night. */
-  private makeShadows(props: Prop[], canvases: ReturnType<typeof makeTextures>, furniture: Furniture): Shadows {
+  private makeShadows(props: Prop[], canvases: ReturnType<typeof makeTextures>, furniture: Furniture, upright: Raster): Shadows {
     const casters: Caster[] = [];
     const blobs: { x: number; y: number; w: number; h: number; depth: number }[] = [];
     props.forEach((p, i) => {
@@ -300,7 +306,7 @@ export class GardenScene extends Phaser.Scene {
           const l = levelAt(tx, ty);
           blobs.push({ x: tx * TILE + 8, y: ty * TILE + 13 - l * LEVEL, w: 20, h: 8, depth: l ? ty * TILE + 0.0012 : -99992 });
         }
-    return new Shadows(this, { terrain: canvases.terrain, casters, blobs, catSheet: canvases.cats[0] });
+    return new Shadows(this, { terrain: canvases.terrain, casters, blobs, catSheet: canvases.cats[0], upright });
   }
 
   private fitZoom(): void {
@@ -393,6 +399,7 @@ export class GardenScene extends Phaser.Scene {
     this.ambient.update(gt, dt, cats, view);
     this.weather.update(gt, time, dt, cats, view);
     this.streams.update(gt, light.night, view);
+    this.puddles.update(gt, time, dt, cats, view);
     this.clouds.update(gt);
     this.clouds.setDaylight(light.day);
     this.sun.update(time, dt, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), light.day);
