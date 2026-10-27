@@ -4,7 +4,8 @@ import { deflateSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { Raster, hex } from '../src/art/raster.ts';
 import { buildCatSheet, COATS, FRAMES, CAT } from '../src/art/cat.ts';
-import { buildGround, buildProps } from '../src/art/tiles.ts';
+import { buildGround } from '../src/art/tiles.ts';
+import { buildProps } from '../src/art/trees.ts';
 import { buildTerrain } from '../src/art/terrain.ts';
 
 const out = process.argv[2] ?? 'preview';

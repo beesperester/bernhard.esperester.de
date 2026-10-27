@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_LIGHT, screenLight, sunLight } from './lighting.ts';
-import { buildProps, groundTile, relightProp, SUNLIT_TILES } from './tiles.ts';
+import { groundTile, SUNLIT_TILES } from './tiles.ts';
+import { buildProps, relightProp } from './trees.ts';
 import { buildRays } from './rays.ts';
 import { seasonAt } from '../world/season.ts';
 import { MAP_H, MAP_W, TILE, tileAt } from '../world/map.ts';

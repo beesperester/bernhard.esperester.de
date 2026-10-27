@@ -1,10 +1,12 @@
 import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
-import { buildProps, buildUprightMask, TREE_W, type Prop } from '../art/tiles.ts';
+import { buildUprightMask } from '../art/tiles.ts';
+import { buildProps, type Prop } from '../art/trees.ts';
 import type { Raster } from '../art/raster.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, wetAt, iceAt, groundAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
+import { HOUSES, standingOn, surfaceAt } from '../world/trees.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow } from './Meadow.ts';
@@ -44,6 +46,8 @@ import { castsNightBlob, groundOf } from '../world/legend.ts';
 // a cat that lands in the pond hops straight back out to dry land
 const HOP_MS = 480;
 const HOP_HEIGHT = 16;
+/** How quickly a cat that landed on a branch settles onto its line (px/s). */
+const SETTLE_SPEED = 60;
 /** How often the pond reflections are redrawn, ms. */
 const REFLECTION_MS = 33;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
@@ -100,6 +104,8 @@ export class GardenScene extends Phaser.Scene {
   private camAnchor!: Phaser.GameObjects.Zone;
   /** Smoothed terrain height under the cat, so the view rises with the hills. */
   private camZ = 0;
+  /** Height of what the cat last stood on (the ground, a hedge, a branch): the view rises with it. */
+  private camFloor = 0;
   private vz = 0;
   private ambient!: Ambient;
   private referee!: Referee;
@@ -109,7 +115,9 @@ export class GardenScene extends Phaser.Scene {
   private waterSurface!: WaterSurface;
   private lighting!: Lighting;
   private readonly dash = new Dash();
-  private lastDry = { x: 0, y: 0 };
+  private lastDry = { x: 0, y: 0, z: 0 };
+  /** Dropping down out of a tree: perches from this height up don't catch the cat. */
+  private dropFrom = Infinity;
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
   private vel = { x: 0, y: 0 };
   /** The way we were last pushed ("dx,dy"), to notice a new diagonal. */
@@ -142,9 +150,9 @@ export class GardenScene extends Phaser.Scene {
       if (this.daylight && this.daylight.light.night > 0.5) return null;
       const bird = this.ambient?.perchedBird(x, y, 220);
       if (bird) return bird;
-      const near = props.filter((p) => Math.hypot(p.x + TREE_W / 2 - x, p.depthY - 40 - y) < 220);
+      const near = props.filter((p) => Math.hypot(p.plan.x - x, p.depthY - 40 - y) < 220);
       const p = near[Math.floor(Math.random() * near.length)];
-      return p ? { x: p.x + TREE_W / 2, y: p.depthY - 40 } : null;
+      return p ? { x: p.plan.x, y: p.depthY - 40 } : null;
     });
     this.meadow = new Meadow(this);
     const water = canvases.water;
@@ -195,7 +203,7 @@ export class GardenScene extends Phaser.Scene {
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
     const now = this.time.now;
     this.me = new CatView(this, sx, sy, loadCoat(), true);
-    this.lastDry = { x: sx, y: sy };
+    this.lastDry = { x: sx, y: sy, z: 0 };
     this.lastInput = now;
 
     this.youMarker = this.add.image(sx, sy, 'you').setOrigin(0.5, 1).setDepth(100001);
@@ -289,9 +297,9 @@ export class GardenScene extends Phaser.Scene {
     const blobs: { x: number; y: number; w: number; h: number; depth: number }[] = [];
     props.forEach((p, i) => {
       const c = canvases.props[i];
-      const lift = levelAt(Math.floor((p.x + TREE_W / 2) / TILE), Math.floor(p.depthY / TILE)) * LEVEL;
+      const lift = p.plan.elev;
       casters.push({ src: c, sx: 0, sy: 0, w: c.width, h: c.height, x: p.x, y: p.y, ground: p.depthY, lift, cap: Infinity });
-      blobs.push({ x: p.x + TREE_W / 2, y: p.depthY - lift - 1, w: 46, h: 14, depth: p.depthY - 0.01 });
+      blobs.push({ x: p.plan.x, y: p.depthY - lift - 1, w: Math.round(p.raster.w * 0.65), h: 14, depth: p.depthY - 0.01 });
     });
     const lantern = this.textures.get('lantern').getSourceImage() as HTMLCanvasElement;
     for (const [x, y] of LANTERNS) {
@@ -355,6 +363,8 @@ export class GardenScene extends Phaser.Scene {
     this.referee.update(performance.now());
 
     this.me.name = this.board.me.name;
+    // the garden clock is shared by all visitors, so wind and fauna line up
+    const gt = this.net.now();
     for (const [id, cat] of this.remotes) {
       cat.name = this.board.nameOf(id);
       if (time - cat.lastSeen > STALE_MS) {
@@ -368,20 +378,19 @@ export class GardenScene extends Phaser.Scene {
     }
     this.me.render(time);
 
-    // follow the cat's feet on the terrain (not mid-jump), so the view climbs the hills smoothly
-    this.camZ += (elevAt(this.me.x, this.me.y) - this.camZ) * Math.min(1, dt * 6);
+    // follow the cat's feet on the terrain or up a tree (not mid-jump), so the view climbs the hills smoothly
+    if (this.me.act !== Act.Jump) this.camFloor = this.me.z;
+    this.camZ += (Math.max(elevAt(this.me.x, this.me.y), this.camFloor) - this.camZ) * Math.min(1, dt * (this.camFloor > this.camZ + 4 ? 3 : 6));
     // in whole pixels like the cat sprite, or the cat wobbles against the view by a sub-pixel each frame
     this.camAnchor.setPosition(Math.round(this.me.x), Math.round(this.me.y) - Math.round(this.camZ));
     sound.setListener({ x: this.me.x, y: this.me.y });
 
     const cats: CatView[] = [this.me, ...this.remotes.values()];
     // only your own cat shows through the trees; the others are simply behind them
-    this.trees.update([this.me]);
-    this.catSounds.update(cats, time);
-    // the garden clock is shared by all visitors, so wind and fauna line up
-    const gt = this.net.now();
     // only animate plants and redraw reflections that are on screen
     const view = this.cameras.main.worldView;
+    this.trees.update([this.me], view);
+    this.catSounds.update(cats, time);
     cullerFor(this).update(view);
     this.meadow.update(gt, cats, view);
     // the ripple is slow, so trees' reflections only need redrawing about 30 times a second;
@@ -444,6 +453,13 @@ export class GardenScene extends Phaser.Scene {
     const grab = JD(k.catch) || touch.pressed.has('catch');
     const sneakHeld = k.sneak.isDown || touch.held.has('sneak');
     touch.pressed.clear();
+    // up a tree the cat walks along the branch it is on: up looks up, down drops it onto the one below
+    const perch = this.hop || me.act === Act.Jump ? null : standingOn(me.x, me.y, me.z);
+    if (perch && dy !== 0) {
+      if (dy > 0) this.dropFrom = perch.z;
+      else if (dx === 0) me.facing = Facing.Up;
+      dy = 0;
+    }
     const moving = dx !== 0 || dy !== 0;
     if (moving || jump || hiss || roll || mew || dash || grab || sneakHeld) {
       this.lastInput = now;
@@ -553,6 +569,7 @@ export class GardenScene extends Phaser.Scene {
     else if (jump && grounded) {
       begin(Act.Jump);
       this.vz = JUMP_V;
+      this.dropFrom = Infinity;
     }
 
     // holding sneak: belly to the ground, creeping slowly (and quietly); dashing from it is a pounce
@@ -599,15 +616,17 @@ export class GardenScene extends Phaser.Scene {
       }
     } else if (icy) this.vel.x = this.vel.y = 0;
 
-    // vertical: fall onto whatever surface is below (also when walking off a hedge)
-    const ground = groundAt(me.x, me.y);
+    // vertical: fall onto whatever surface is below (also when walking off a hedge or a branch);
+    // on the way up, branches are jumped through
+    const ground = surfaceAt(me.x, me.y, me.z, this.dropFrom);
     if (me.z > ground || this.vz > 0) {
       if (me.act !== Act.Jump) me.setAct(Act.Jump, now);
       this.vz -= GRAVITY * dt;
       me.z += this.vz * dt;
-      if (me.z <= ground) {
+      if (me.z <= ground && this.vz <= 0) {
         me.z = ground;
         this.vz = 0;
+        this.dropFrom = Infinity;
         me.setAct(moving ? Act.Walk : Act.Idle, now);
         // landing with something caught on the way: eat it
         const got = this.airCatch?.got ?? null;
@@ -618,9 +637,9 @@ export class GardenScene extends Phaser.Scene {
         }
         if (wetAt(me.x, me.y)) {
           // splash! straight back out to where we last stood on dry land
-          const { x, y } = this.lastDry;
+          const { x, y, z } = this.lastDry;
           if (Math.abs(x - me.x) > 0.5) me.facing = x < me.x ? Facing.Left : Facing.Right;
-          this.hop = { fx: me.x, fy: me.y, tx: x, ty: y, tz: groundAt(x, y), t0: now };
+          this.hop = { fx: me.x, fy: me.y, tx: x, ty: y, tz: z, t0: now };
           begin(Act.Jump);
           return;
         }
@@ -631,7 +650,11 @@ export class GardenScene extends Phaser.Scene {
       this.airCatch = null;
     }
 
-    if (me.act !== Act.Jump && !wetAt(me.x, me.y)) this.lastDry = { x: me.x, y: me.y };
+    if (me.act !== Act.Jump && !wetAt(me.x, me.y)) this.lastDry = { x: me.x, y: me.y, z: me.z };
+
+    // on a branch, settle onto its line (where it was landed on anywhere in front of or behind the trunk)
+    const on = me.act === Act.Jump ? null : standingOn(me.x, me.y, me.z);
+    if (on && me.y !== on.y) me.y += Math.sign(on.y - me.y) * Math.min(Math.abs(on.y - me.y), SETTLE_SPEED * dt);
 
     if (me.act === Act.Idle && now - this.lastInput > SIT_AFTER_MS && Math.abs(this.vel.x) + Math.abs(this.vel.y) < 2) {
       if (me.facing === Facing.Up) me.facing = Facing.Down;
@@ -641,6 +664,8 @@ export class GardenScene extends Phaser.Scene {
     if (me.act === Act.Sit && now >= this.nextLick) begin(Act.Lick);
     // after a long while the cat curls up and falls asleep
     if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS) me.setAct(Act.Sleep, now);
+    // a rest in a bird house or the tree house: ready to dash again
+    if (on && HOUSES.has(on.kind) && (me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep)) this.dash.rest(now);
   }
 
   /** Count a catch (bigger prey, more points), and at NAME_AT snacks offer a name of our own. */

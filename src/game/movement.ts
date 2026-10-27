@@ -1,4 +1,5 @@
-import { FEET, groundAt, heightUnder, waterUnder } from '../world/map.ts';
+import { FEET, heightUnder, waterUnder } from '../world/map.ts';
+import { surfaceAt } from '../world/trees.ts';
 import { GRAVITY, JUMP_V } from './state.ts';
 
 // How a cat moves through the garden: speeds, the dash and its cooldown,
@@ -35,13 +36,13 @@ export interface Body { x: number; y: number; z: number; airborne: boolean }
 /** Would a cat with its feet at (x, y) bump into something (or step into water, on foot)? */
 export function blocked(body: Body, x: number, y: number): boolean {
   const x0 = x + FEET.x0, y0 = y + FEET.y0, x1 = x + FEET.x1, y1 = y + FEET.y1;
-  return heightUnder(x0, y0, x1, y1) > body.z + (body.airborne ? AIR_CLIMB : STEP_UP) || (!body.airborne && waterUnder(x0, y0, x1, y1));
+  return heightUnder(x0, y0, x1, y1, body.z) > body.z + (body.airborne ? AIR_CLIMB : STEP_UP) || (!body.airborne && waterUnder(x0, y0, x1, y1));
 }
 
 /**
  * Move `body` by (mx, my), but only onto surfaces no higher than the cat can
- * get: a step on foot, nothing in the air. Cats won't walk into the pond, but
- * they can jump in. Walking straight into an edge next to an opening slips
+ * get: a step on foot, nothing in the air (branches never block: they are
+ * jumped through from below). Cats won't walk into the pond, but they can jump in. Walking straight into an edge next to an opening slips
  * the cat sideways into it.
  */
 export function step(body: Body, mx: number, my: number): void {
@@ -51,7 +52,7 @@ export function step(body: Body, mx: number, my: number): void {
   for (let i = 0; i < n; i++) {
     if (mx && !blocked(body, body.x + mx / n, body.y)) { body.x += mx / n; moved = true; }
     if (my && !blocked(body, body.x, body.y + my / n)) { body.y += my / n; moved = true; }
-    if (!body.airborne) body.z = Math.max(body.z, groundAt(body.x, body.y));
+    if (!body.airborne) body.z = Math.max(body.z, surfaceAt(body.x, body.y, body.z + STEP_UP));
   }
   // only a straight move that got nowhere slips
   if (moved || (mx !== 0) === (my !== 0)) return;
@@ -116,6 +117,11 @@ export class Dash {
     this.active = false;
     const used = Math.min(1, (now - this.start) / DASH_MS);
     this.readyAt = now + Math.max(DASH_COOLDOWN_MIN_MS, used * DASH_COOLDOWN_MS);
+  }
+
+  /** A good rest: the dash is ready again (unless it is running). */
+  rest(now: number): void {
+    if (!this.active) this.readyAt = Math.min(this.readyAt, now);
   }
 
   /** ms until the next dash. */

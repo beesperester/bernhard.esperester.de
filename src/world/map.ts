@@ -62,11 +62,20 @@ const NO_INSET: [number, number, number, number] = [0, 0, 0, 0];
 /** The cat's feet box, relative to its (x, y) = bottom centre. */
 export const FEET = { x0: -5, x1: 5, y0: -5, y1: 0 };
 
-/** Tree trunks block movement only where they meet the ground. */
-const TRUNKS: [number, number, number, number][] = [];
+/**
+ * Height of a tree's fork above its foot: the trunk is solid up to there, and
+ * the lowest perch (world/trees.ts) spans it, so a cat over the trunk is on it.
+ */
+export const FORK_Z = 13;
 
-/** Highest surface under a world-space box: terrain level plus whatever stands on it. */
-export function heightUnder(x0: number, y0: number, x1: number, y1: number): number {
+/** Tree trunks and lantern posts block movement only where they meet the ground, up to a height. */
+const TRUNKS: [number, number, number, number, number][] = [];
+
+/**
+ * Highest surface under a world-space box: terrain level plus whatever stands
+ * on it. `z` is how high the thing asking is: a tree trunk only counts below its fork.
+ */
+export function heightUnder(x0: number, y0: number, x1: number, y1: number, z = 0): number {
   let h = 0;
   const tx0 = Math.floor(x0 / TILE), tx1 = Math.floor((x1 - 0.01) / TILE);
   const ty0 = Math.floor(y0 / TILE), ty1 = Math.floor((y1 - 0.01) / TILE);
@@ -84,7 +93,7 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number): num
       const fx0 = tx * TILE + l, fy0 = ty * TILE + t, fx1 = (tx + 1) * TILE - r, fy1 = (ty + 1) * TILE - b;
       if (x1 > fx0 && x0 < fx1 && y1 > fy0 && y0 < fy1) h = base + standing;
     }
-  for (const [ax, ay, bx, by] of TRUNKS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
+  for (const [ax, ay, bx, by, top] of TRUNKS) if (z < top && x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
   for (const [ax, ay, bx, by, sh] of SOLIDS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by && sh > h) h = sh;
   return h;
 }
@@ -188,7 +197,7 @@ export function pondBounds(): { x: number; y: number; w: number; h: number } {
 
 for (const [tx, ty] of treeTiles()) {
   const [x, y] = trunkBase(tx, ty);
-  TRUNKS.push([x - 6, y - 5, x + 6, y + 1]);
+  TRUNKS.push([x - 6, y - 5, x + 6, y + 1, levelAt(tx, ty) * LEVEL + FORK_Z]);
 }
 
 // ---- garden furniture ----
@@ -300,4 +309,4 @@ function placeLanterns(): [number, number][] {
 
 /** Lantern posts (bottom centre), the same for every visitor. */
 export const LANTERNS = placeLanterns();
-for (const [x, y] of LANTERNS) TRUNKS.push([x - 2, y - 3, x + 2, y + 1]);
+for (const [x, y] of LANTERNS) TRUNKS.push([x - 2, y - 3, x + 2, y + 1, Infinity]);

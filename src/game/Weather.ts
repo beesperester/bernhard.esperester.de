@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Raster, hex, hash2, type RGB } from '../art/raster.ts';
-import { SNOW, TREE_W, type Prop } from '../art/tiles.ts';
+import { SNOW } from '../art/tiles.ts';
+import type { Prop } from '../art/trees.ts';
 import { Act } from './state.ts';
 import type { CatView } from './CatView.ts';
 import { TILE, elevAt, furnished, iceAt, levelAt, tileAt } from '../world/map.ts';
@@ -124,7 +125,7 @@ export class Weather {
     // leaf piles on the grass beside the trees, while there are leaves about and no snow
     if (SEASON.litter > 0.35 && SEASON.snow < 0.3)
       trees.forEach((t, i) => {
-        const bx = t.x + TREE_W / 2, by = t.depthY;
+        const bx = t.plan.x, by = t.depthY;
         for (let k = 0; k < 2; k++) {
           if (hash2(i, k, 1703) > 0.75) continue;
           const side = hash2(i, k, 1704) < 0.5 ? -1 : 1;
@@ -250,12 +251,13 @@ export class Weather {
     const leafy = SEASON.falling, petals = SEASON.petals;
     if (leafy <= 0.02 && petals <= 0.02) return;
     for (const t of this.trees) {
-      if (t.x + TREE_W < view.x || t.x > view.right || t.y > view.bottom || t.depthY < view.y) continue;
+      // (pines keep their needles)
+      if (t.kind === 4 || t.x + t.raster.w < view.x || t.x > view.right || t.y > view.bottom || t.depthY < view.y) continue;
       const petal = t.kind === 2 && petals > leafy;
       const rate = LEAF_RATE * (petal ? petals * 2 : leafy);
       if (Math.random() > rate * dt) continue;
       // from somewhere in the crown, to the ground around the trunk
-      const x = t.x + 12 + Math.random() * (TREE_W - 24), cy = t.y + 12 + Math.random() * 36;
+      const x = t.x + 12 + Math.random() * (t.raster.w - 24), cy = t.y + 12 + Math.random() * 36;
       const y = t.depthY - 10 + Math.random() * 26;
       const img = this.scene.add.image(0, 0, petal ? 'petal' : `leaf-${Math.floor(Math.random() * LEAF_COLOURS.length)}`, 0).setOrigin(0.5, 1);
       this.leaves.push({ img, x, y, h: y - cy + elevAt(x, y), vx: Math.random() * 6 - 3, vh: petal ? 9 : 12 + Math.random() * 6, t: 0, lie: 0, phase: Math.random() * 6.3, petal });

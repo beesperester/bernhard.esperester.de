@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { bayer, type Prop } from '../art/tiles.ts';
+import { bayer } from '../art/tiles.ts';
+import type { Prop } from '../art/trees.ts';
 import type { CatView } from './CatView.ts';
 import { cullerFor } from './Culler.ts';
 
@@ -14,6 +15,8 @@ interface Tree {
   orig: ImageData;
   work: ImageData;
   holed: boolean;
+  /** Shaded again for another sun: redraw it. */
+  dirty: boolean;
 }
 
 /**
@@ -28,20 +31,16 @@ export class Trees {
       const { width: w, height: h } = canvases[i];
       const tex = scene.textures.createCanvas(`tree-${i}`, w, h)!;
       const orig = canvases[i].getContext('2d')!.getImageData(0, 0, w, h);
-      tex.getContext().putImageData(orig, 0, 0);
-      tex.refresh();
       cullerFor(scene).add(scene.add.image(p.x, p.y, `tree-${i}`).setOrigin(0).setDepth(p.depthY));
-      return { p, tex, orig, work: new ImageData(w, h), holed: false };
+      return { p, tex, orig, work: new ImageData(w, h), holed: false, dirty: true };
     });
   }
 
-  /** Tree i has been shaded for another sun: show it (with its hole, if a cat is behind it, from the next update). */
+  /** Tree i has been shaded for another sun: show it from the next update. */
   relight(i: number, img: ImageData): void {
     const t = this.trees[i];
     t.orig.data.set(img.data);
-    if (t.holed) return;
-    t.tex.getContext().putImageData(t.orig, 0, 0);
-    t.tex.refresh();
+    t.dirty = true;
   }
 
   /** True if a tree's crown is drawn over world point (x, y) for something whose feet are at feetY. */
@@ -55,27 +54,23 @@ export class Trees {
     return false;
   }
 
-  /** Open a see-through hole wherever one of these cats is behind a tree. */
-  update(cats: CatView[]): void {
+  /** Open a see-through hole wherever one of these cats is behind a tree in view. */
+  update(cats: CatView[], view: Phaser.Geom.Rectangle): void {
     for (const t of this.trees) {
       const { p, orig } = t;
       const w = orig.width, h = orig.height;
-      // cats behind this tree (feet above its base) whose body overlaps it
+      if (p.x + w < view.x || p.x > view.right || p.y > view.bottom || p.y + h < view.y) continue;
+      // cats behind this tree (drawn before it: feet above its base, and not up in it) whose body overlaps it
       const holes: [number, number][] = [];
       for (const c of cats) {
-        if (c.y >= p.depthY) continue;
+        if (c.depth >= p.depthY) continue;
         const hx = Math.round(c.x) - p.x, hy = Math.round(c.y - 8 - c.z) - p.y;
         if (hx < -HOLE_R || hy < -HOLE_R || hx > w + HOLE_R || hy > h + HOLE_R) continue;
         holes.push([hx, hy]);
       }
-      if (!holes.length) {
-        if (t.holed) {
-          t.tex.getContext().putImageData(orig, 0, 0);
-          t.tex.refresh();
-          t.holed = false;
-        }
-        continue;
-      }
+      if (!t.dirty && !holes.length && !t.holed) continue;
+      t.dirty = false;
+      t.holed = holes.length > 0;
       const src = orig.data, dst = t.work.data;
       dst.set(src);
       for (const [hx, hy] of holes)
@@ -89,7 +84,6 @@ export class Trees {
           }
       t.tex.getContext().putImageData(t.work, 0, 0);
       t.tex.refresh();
-      t.holed = true;
     }
   }
 }

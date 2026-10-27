@@ -2,7 +2,8 @@ import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { Act, ACT_MAX, EAT_MS, MEW_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { CAT, COATS } from '../art/cat.ts';
-import { WORLD_W, WORLD_H, groundAt, terrainCover } from '../world/map.ts';
+import { WORLD_W, WORLD_H, terrainCover } from '../world/map.ts';
+import { TREES, surfaceAt, treeHolding } from '../world/trees.ts';
 import { DEPTH } from './Daylight.ts';
 
 /** Colour of a cat hidden behind a hill. */
@@ -45,6 +46,8 @@ export class CatView {
   frame = 0;
   /** Smoothed ground speed in px/s (dashing cats kick up dust). */
   speed = 0;
+  /** Where it is drawn among things standing in the garden (its feet, or in front of the tree it is up). */
+  depth = 0;
   private last = { x: 0, y: 0, t: -1 };
   /** Our own cat: shown through trees and hills. Others hide behind them like anything else. */
   readonly local: boolean;
@@ -109,11 +112,16 @@ export class CatView {
       this.speed += (inst - this.speed) * Math.min(1, dtm / 150);
     }
     this.last = { x: this.x, y: this.y, t: now };
+    // up a tree, it is drawn in front of the tree (and of the branches it walks on)
+    const tree = treeHolding(this.x, this.y, z);
+    const d = tree < 0 ? y : TREES[tree].y + 0.6;
+    this.depth = d;
     // the shadow lies on whatever surface is below the cat
-    this.shadow.setPosition(x, y - 1 - groundAt(this.x, this.y)).setDepth(y - 0.5).setAlpha(catLight.soft);
+    const below = Math.round(surfaceAt(this.x, this.y, z));
+    this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft);
     // standing in the shade of something
     const shade = catLight.shade(this.x, this.y);
-    this.sprite.setPosition(x, y - Math.round(z)).setDepth(y);
+    this.sprite.setPosition(x, y - Math.round(z)).setDepth(d);
     this.frame = frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
     if (shade > 0) this.sprite.setTint(Phaser.Display.Color.GetColor(255 - 90 * shade, 255 - 80 * shade, 255 - 50 * shade));
@@ -121,7 +129,7 @@ export class CatView {
     const top = y - Math.round(z);
     const rim = catLight.rim * (1 - shade);
     this.rim.setVisible(rim > 0);
-    if (rim > 0) this.rim.setPosition(x, top).setDepth(y + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour);
+    if (rim > 0) this.rim.setPosition(x, top).setDepth(d + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour);
     // eyes shine in the dark, unless something stands in front of this cat
     const glow = catLight.night > 0.05 && (this.local || !catLight.occluded(x, top - 9, y));
     this.eyes.setVisible(glow);
@@ -141,7 +149,7 @@ export class CatView {
     if (eating) {
       const right = this.facing === Facing.Right;
       const sideways = right || this.facing === Facing.Left;
-      this.held.setTexture(this.act === Act.Feast ? this.heldKey : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2).setDepth(y + 0.5);
+      this.held.setTexture(this.act === Act.Feast ? this.heldKey : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2).setDepth(d + 0.5);
       // side on, the art faces left with the head at x=0: the head goes in the mouth, tail sticking out;
       // facing us, it is held crosswise in the mouth
       if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5), y - 6 - Math.round(z));
@@ -157,7 +165,7 @@ export class CatView {
     this.labelT = now;
     this.labelAlpha = Math.max(0, Math.min(1, this.labelAlpha + (hiding ? -step : step)));
     this.label.setVisible(!!this.name && this.labelAlpha > 0).setAlpha(this.labelAlpha)
-      .setScale(1 / zoom).setPosition(x, y + 1 - Math.round(groundAt(this.x, this.y)));
+      .setScale(1 / zoom).setPosition(x, y + 1 - below);
 
     const content = ((this.act === Act.Eat || this.act === Act.Feast) && ms > EAT_MS - 700) || (this.act === Act.Munch && ms > MUNCH_MS - 500);
     const mewing = now - this.mewAt < MEW_MS;

@@ -50,6 +50,8 @@ export const LEGEND: Record<string, TileKind> = {
   // taller than a jump, so the labyrinth can't be hopped over
   m: { name: 'maze hedge', height: 20 },
   T: { name: 'tree', tree: true },
+  P: { name: 'pine', tree: true },
+  H: { name: 'tree with a tree house', tree: true },
   b: { name: 'bush', height: 7, inset: [1, 2, 1, 1], nightBlob: true },
   r: { name: 'rock', height: 5, inset: [1, 4, 1, 2], nightBlob: true },
   o: { name: 'fountain', height: 6, inset: [0, 1, 0, 1], span: 2 },

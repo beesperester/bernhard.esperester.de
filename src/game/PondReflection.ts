@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CAT } from '../art/cat.ts';
 import { FLORA } from '../art/flora.ts';
-import type { Prop } from '../art/tiles.ts';
+import type { Prop } from '../art/trees.ts';
 import type { CatView } from './CatView.ts';
 import type { LivePlant } from './Meadow.ts';
 import { cullerFor } from './Culler.ts';

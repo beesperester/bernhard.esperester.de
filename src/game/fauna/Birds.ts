@@ -1,7 +1,8 @@
 import { BIRD_COLOURS } from '../../art/critters.ts';
 import { Act, Prey, SWIPE_AT_MS } from '../state.ts';
 import type { CatView } from '../CatView.ts';
-import { BATH_H, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../../world/map.ts';
+import { BATH_H, FORK_Z, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../../world/map.ts';
+import { RISE } from '../../world/trees.ts';
 import { SEASON } from '../../world/season.ts';
 import { Pool, seedRng, hash2, lerp, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
 import type { Effects } from './Effects.ts';
@@ -35,6 +36,8 @@ const NOTICE = 32, REACT_MS = 650;
 /** Time to freeze once spotted; creeping on after that scares the bird off. */
 const FREEZE_MS = 300;
 const DASH_SPEED = 110;
+/** Up in a tree, a cat this close along the branches (and this near its height) that isn't creeping is noticed. */
+const TREE_NOTICE = 26, TREE_NOTICE_Z = 12;
 
 type Pt3 = [number, number, number];
 /** A place a bird sits: x, ground line y and height h above it (crowns are high, the lawn is not). */
@@ -70,15 +73,12 @@ export class Birds implements Fauna {
     this.birds = new Pool(scene, 'bird-0');
     this.shadows = new Pool(scene, 'shadow');
     this.marks = new Pool(scene, 'alert');
-    // perches: the top edge of each crown
-    this.perches = trees.map(({ p, canvas }) => {
-      const { width: w, height: h } = canvas;
-      const a = canvas.getContext('2d')!.getImageData(0, 0, w, h).data;
+    // perches: along the tree's branches, boughs and roofs (the ones a cat can climb to as well), above a cat's leap from the ground
+    this.perches = trees.map(({ p }) => {
       const out: Spot[] = [];
-      for (let x = 10; x < w - 10; x += 3) {
-        let top = 0;
-        while (top < h && a[(top * w + x) * 4 + 3] === 0) top++;
-        if (top < 40) out.push({ x: p.x + x, y: p.depthY, h: p.depthY - (p.y + top + 1), depth: p.depthY + 0.5, perch: true });
+      for (const q of p.plan.perches) {
+        if (q.z < FORK_Z + RISE) continue;
+        for (let x = q.x0 + 2; x <= q.x1 - 2; x += 3) out.push({ x: p.plan.x + x, y: p.depthY, h: p.plan.elev + q.z, depth: p.depthY + 0.5, perch: true });
       }
       return out;
     });
@@ -230,22 +230,29 @@ export class Birds implements Fauna {
         }
         continue;
       }
-      if (s.perch) this.sit(v, s, gt, cats);
+      if (s.perch) this.sit(v, s, gt, cats, prey);
       else this.peck(v, s, gt, now, cats, prey);
       return;
     }
   }
 
-  /** In the crown: looks around now and then; only a dashing or hissing cat right below scares it off. */
-  private sit(v: Visit, s: Stop, gt: number, cats: CatView[]): void {
+  /**
+   * In a tree: looks around now and then; a dashing or hissing cat right below
+   * scares it off, and so does one up on the branches with it that isn't
+   * creeping (a cat that sneaks along the branch can catch it).
+   */
+  private sit(v: Visit, s: Stop, gt: number, cats: CatView[], prey: PreyRef[]): void {
     const look = Math.floor((gt - s.t0) / 2600);
     const right = hash2(v.id, look, 921) < 0.5;
     this.perched.push({ x: s.x, y: s.y - s.h });
     for (const c of cats) {
       const d = Math.hypot(c.x - s.x, c.y - s.y);
       if ((c.speed > DASH_SPEED && d < 40) || (c.act === Act.Hiss && d < 56)) return this.scare(v, [s.x, s.y, s.h], c, gt);
+      const creeping = c.act === Act.Crouch || c.act === Act.Sneak || c.act === Act.Catch;
+      if (Math.abs(c.z - s.h) < TREE_NOTICE_Z && Math.abs(c.x - s.x) < TREE_NOTICE && !creeping && c.speed > 5) return this.scare(v, [s.x, s.y, s.h], c, gt);
     }
     this.draw(v, [s.x, s.y, s.h], 0, right, 1, s.depth);
+    prey.push({ kind: Prey.Bird, id: v.id, x: s.x, y: s.y, h: s.h, colour: v.colour });
   }
 
   /** On the lawn: pecks, hops about, and keeps an eye on the cats. */
