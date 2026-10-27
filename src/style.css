@@ -39,22 +39,12 @@ html, body {
 
 #status { top: max(12px, env(safe-area-inset-top)); }
 
-#help {
-  bottom: max(12px, env(safe-area-inset-bottom));
-  transition: opacity 1s;
-}
-#help.hidden { opacity: 0; }
-
 #credit {
   left: auto;
   right: 12px;
   bottom: max(12px, env(safe-area-inset-bottom));
   font-size: 12px;
   opacity: 0.9;
-}
-/* narrow windows: stack above the key help */
-@media (max-width: 760px) {
-  #credit { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 36px); }
 }
 /* on touch devices the buttons own the bottom: tuck it under the status line */
 #touch:not([hidden]) ~ #credit {
@@ -64,7 +54,7 @@ html, body {
   top: calc(max(12px, env(safe-area-inset-top)) + 40px);
 }
 
-#music, #sound, #fullscreen {
+#music, #sound, #fullscreen, #help-btn {
   left: auto;
   right: 12px;
   top: max(12px, env(safe-area-inset-top));
@@ -83,10 +73,19 @@ html, body {
 #sound.muted { background-image: var(--px-sound-off); }
 #fullscreen { right: 88px; background-image: var(--px-fullscreen); }
 #fullscreen.on { background-image: var(--px-fullscreen-exit); }
-#music:active, #sound:active, #fullscreen:active { transform: translateY(2px); }
+#help-btn { right: 126px; background-image: var(--px-help); }
+#music:active, #sound:active, #fullscreen:active, #help-btn:active { transform: translateY(2px); }
 /* (installed on the home screen it is full screen already) */
 @media (display-mode: fullscreen), (display-mode: standalone) {
   #fullscreen { display: none; }
+  #help-btn { right: 88px; }
+}
+/* until the cat gets going, the ? bobs to say it's there */
+#help-btn.nudge { animation: nudge 1.6s steps(1) infinite; }
+@keyframes nudge {
+  0%, 60%, 100% { translate: 0 0; }
+  70%, 90% { translate: 0 -2px; }
+  80% { translate: 0 -4px; }
 }
 
 /* a short note under the buttons, e.g. how to get full screen on an iPhone */
@@ -111,7 +110,6 @@ html, body {
   pointer-events: none;
 }
 #touch[hidden] { display: none; }
-body:has(#touch:not([hidden])) #help { bottom: 210px; }
 
 #dpad {
   width: 132px;
@@ -282,3 +280,129 @@ body:has(#touch:not([hidden])) #help { bottom: 210px; }
 #name-dialog button[type='submit'] { border-image-source: var(--px-pill-pink); color: #fff; text-shadow: 0 1px 0 #401020; }
 #name-dialog button[type='submit']:active { border-image-source: var(--px-pill-pink-down); }
 #credit a { color: inherit; pointer-events: auto; }
+
+/* how to play: a wooden sign with the keys on it */
+#help-dialog {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(10, 20, 10, 0.45);
+  z-index: 10;
+}
+#help-dialog[hidden] { display: none; }
+#help-dialog .sign {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 30px 16px 14px;
+  font: 15px/1.3 'Pixelify Sans', ui-monospace, monospace;
+  letter-spacing: 0.03em;
+  color: #fbecc8;
+  text-shadow: 0 1px 0 #24140a;
+  /* src/art/plank.ts, every pixel doubled; the boards in the middle repeat */
+  border: 16px solid transparent;
+  border-image: var(--px-sign) 8 fill / 16px round;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 4px 0 rgba(20, 12, 4, 0.5));
+}
+#help-dialog h2 {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  translate: -50% 0;
+  margin: 0;
+  padding: 3px 18px 5px;
+  white-space: nowrap;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #ffe08a;
+  text-shadow: 1px 1px 0 #120a04;
+  border: 0 solid transparent;
+  border-image: var(--px-plank-walnut) 4 7 fill / 8px 14px stretch;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 0 rgba(20, 12, 4, 0.45));
+}
+#help-dialog .rows { display: grid; gap: 10px; }
+#help-dialog .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
+#help-dialog .item { display: inline-flex; align-items: center; gap: 4px; }
+#help-dialog .what { margin-left: 4px; }
+/* key caps: 12×14 art at 2x, the letter on the cap above its skirt */
+#help-dialog kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 2px 4px;
+  font: bold 13px 'Pixelify Sans', ui-monospace, monospace;
+  line-height: 0;
+  color: var(--ink);
+  text-shadow: none;
+  border: 8px solid transparent;
+  border-width: 8px 8px 12px;
+  border-image: var(--px-key) 4 4 6 4 fill / 8px 8px 12px stretch;
+  image-rendering: pixelated;
+}
+#help-dialog kbd.wide { min-width: 70px; }
+/* the arrow keys carry a drawn arrow (the font has none), 7×7 at 2x */
+#help-dialog kbd.arrow::after { content: ''; width: 14px; height: 14px; background: var(--px-arrow-up) 0 0 / 100% 100%; image-rendering: pixelated; }
+#help-dialog kbd.arrow.down::after { background-image: var(--px-arrow-down); }
+#help-dialog kbd.arrow.left::after { background-image: var(--px-arrow-left); }
+#help-dialog kbd.arrow.right::after { background-image: var(--px-arrow-right); }
+#help-dialog .arrows {
+  display: inline-grid;
+  grid-template: 'a up b' auto 'left down right' auto / auto auto auto;
+  gap: 1px;
+}
+#help-dialog .arrows .up { grid-area: up; }
+#help-dialog .arrows .left { grid-area: left; }
+#help-dialog .arrows .down { grid-area: down; }
+#help-dialog .arrows .right { grid-area: right; }
+/* on touch: the on-screen buttons themselves */
+#help-dialog kbd.pill {
+  min-width: 56px;
+  height: 26px;
+  padding: 0 0 5px;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 1px 0 #282838;
+  border-width: 10px;
+  border-image: var(--px-pill-grey) 5 fill / 10px stretch;
+}
+#help-dialog kbd.round {
+  min-width: 0;
+  width: 33px;
+  height: 36px;
+  padding: 0 0 4px;
+  font-size: 14px;
+  color: #fff;
+  text-shadow: 0 2px 0 #401020;
+  border: 0;
+  background: var(--px-round) 0 0 / 100% 100%;
+}
+#help-dialog kbd.dpad {
+  width: 44px;
+  height: 46px;
+  border: 0;
+  background: var(--px-dpad) 0 0 / 100% 100%;
+}
+#help-dialog .close {
+  display: grid;
+  place-items: center;
+  margin: 14px 0 0 auto;
+  height: 22px;
+  padding: 0 6px 4px;
+  font: 14px 'Pixelify Sans', ui-monospace, monospace;
+  line-height: 0;
+  color: #fff;
+  text-shadow: 0 1px 0 #401020;
+  background: none;
+  border: 10px solid transparent;
+  border-image: var(--px-pill-pink) 5 fill / 10px stretch;
+  image-rendering: pixelated;
+  cursor: pointer;
+}
+#help-dialog .close:active { border-image-source: var(--px-pill-pink-down); padding: 4px 6px 0; }

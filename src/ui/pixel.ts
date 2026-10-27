@@ -2,7 +2,7 @@
 // sound icons, drawn in code like everything else and handed to the CSS as
 // image variables (each shown at a whole multiple of its pixels).
 import { Raster, hex, type RGB } from '../art/raster.ts';
-import { rasterURL } from '../art/plank.ts';
+import { WOODS, buildPlank, buildSign, rasterURL } from '../art/plank.ts';
 
 /** The pixel font of the UI and the in-game text (bundled with the site). */
 export const PIXEL_FONT = "'Pixelify Sans', ui-monospace, monospace";
@@ -130,6 +130,39 @@ const SHRINK = [
   '.o....o.',
 ];
 
+/** A question mark: open the help. */
+const QUESTION = [
+  '..oooo..',
+  '.oo..oo.',
+  '.....oo.',
+  '....oo..',
+  '...oo...',
+  '........',
+  '...oo...',
+];
+
+/** A little arrow for the arrow keys, pointing up; the rest are turned from it. 7×7. */
+function arrowIcon(dir: 'up' | 'down' | 'left' | 'right'): Raster {
+  const r = new Raster(7, 7);
+  const up = ['...o...', '..ooo..', '.ooooo.', 'ooooooo', '..ooo..', '..ooo..', '..ooo..'];
+  for (let y = 0; y < 7; y++)
+    for (let x = 0; x < 7; x++) {
+      const [ux, uy] = dir === 'up' ? [x, y] : dir === 'down' ? [x, 6 - y] : dir === 'left' ? [y, x] : [y, 6 - x];
+      if (up[uy][ux] === 'o') r.set(x, y, INK);
+    }
+  return r;
+}
+
+/** A keyboard key: a pale cap on a darker skirt, seen a little from the front; pressed it sinks. 12×14, slice 4 4 6 4. */
+function keycap(pressed: boolean): Raster {
+  const r = new Raster(12, 14);
+  const cap = rounded(12, 11, 2);
+  const top = pressed ? 2 : 0;
+  if (!pressed) paint(r, cap, INK, () => hex('#a8a090'), 0, 3);
+  paint(r, cap, INK, (x, y) => (y === 1 && x > 1 && x < 10 ? WHITE : y >= 9 || x >= 10 ? SHADE : PAPER), 0, top);
+  return r;
+}
+
 /** A square paper button with an icon; muted, the icon fades and gets a red slash. 16×17. */
 function iconButton(icon: string[], muted: boolean): Raster {
   const r = new Raster(16, 17);
@@ -163,5 +196,11 @@ export function applyPixelUI(): void {
   set('--px-sound-off', iconButton(SPEAKER, true));
   set('--px-fullscreen', iconButton(EXPAND, false));
   set('--px-fullscreen-exit', iconButton(SHRINK, false));
+  set('--px-help', iconButton(QUESTION, false));
+  set('--px-key', keycap(false));
+  for (const d of ['up', 'down', 'left', 'right'] as const) set(`--px-arrow-${d}`, arrowIcon(d));
+  set('--px-key-down', keycap(true));
+  set('--px-sign', buildSign(7));
+  set('--px-plank-walnut', buildPlank(WOODS.walnut, 3));
   root.setProperty('--px-dpad', `url(${dpadURL('')})`);
 }

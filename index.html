@@ -18,7 +18,6 @@
   <body>
     <div id="game"></div>
     <div id="status" class="hud">loading…</div>
-    <div id="help" class="hud">← ↑ ↓ → move · SPACE jump (up trees too, ↓ to drop) · SHIFT dash · X sneak · C catch (or paw at a tree or a monument) · H hiss · R roll · E mew · M music · S sounds · F full screen</div>
     <div id="touch" hidden>
       <div id="dpad"></div>
       <div id="buttons">
@@ -47,6 +46,14 @@
     <button id="music" class="hud" aria-label="Toggle music"></button>
     <button id="sound" class="hud" aria-label="Toggle sounds"></button>
     <button id="fullscreen" class="hud" aria-label="Toggle full screen"></button>
+    <button id="help-btn" class="hud" aria-label="How to play" title="How to play (?)"></button>
+    <div id="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+      <div class="sign">
+        <h2 id="help-title">how to play</h2>
+        <div class="rows"></div>
+        <button type="button" class="close">Got it</button>
+      </div>
+    </div>
     <div id="tip" class="hud" hidden></div>
     <noscript>This garden needs JavaScript to let the cats in.</noscript>
     <script type="module" src="/src/main.ts"></script>

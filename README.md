@@ -2,7 +2,7 @@
 
 A tiny Game Boy Color–style garden. Every visitor is a cat.
 
-- **Arrow keys** move · **Space** jump · **Shift** (hold) dash · **X** (hold) sneak · **C** catch · **H** hiss · **R** roll on your back · **E** mew
+- **Arrow keys** move · **Space** jump · **Shift** (hold) dash · **X** (hold) sneak · **C** catch · **H** hiss · **R** roll on your back · **E** mew · **?** or the ? button shows all the keys on a wooden sign
 - Dash lasts while Shift is held (max 2.5 s); recovery takes as long as it was used, ×12 (a full dash needs 30 s, at least 2 s)
 - Koi drift about out in the open water. Stand at the shore and press **C** to slap the water: on calm water the splash may make one curious (best at dawn and dusk, and where there's plenty of open water; slapping again and again only keeps them away), and it swims over to wait a little way off. Now hold **X** to crouch and keep still: it creeps up to your paws and noses about there for a few seconds — swipe again to catch it. Splash again too soon, get up and walk, hiss or jump, and it's gone (and the water has to calm down before the next one comes)
 - Beetles (ladybirds, rose chafers, and black ground beetles at night) crawl about the lawns and paths; they can't fly, so a scared one skitters off into the grass. By day dragonflies dart about over the ponds, hovering here and there; catch one while it hovers low.

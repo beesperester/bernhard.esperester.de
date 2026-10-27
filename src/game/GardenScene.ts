@@ -228,7 +228,11 @@ export class GardenScene extends Phaser.Scene {
       jump: kb.addKey(K.SPACE), hiss: kb.addKey(K.H), roll: kb.addKey(K.R), dash: kb.addKey(K.SHIFT), catch: kb.addKey(K.C), sneak: kb.addKey(K.X), mew: kb.addKey(K.E),
     };
 
-    this.ui = setupUI();
+    // the keys belong to the help sign while it is up
+    this.ui = setupUI((open) => {
+      kb.enabled = !open;
+      kb.resetKeys();
+    });
     this.ui.setStatus('looking for other cats…');
     setCatCount(1);
     this.board = new Board(this.me.coat, (msg, target) => this.net.board(msg, target), () => renderBoard(this.board.ranking(), this.board.id));

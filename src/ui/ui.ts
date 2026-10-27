@@ -1,4 +1,4 @@
-// DOM overlay: status line, key help, and Game Boy style touch controls.
+// DOM overlay: status line, the how-to-play sign, and Game Boy style touch controls.
 import { dpadURL } from './pixel.ts';
 
 export type Button = 'jump' | 'hiss' | 'roll' | 'dash' | 'catch' | 'sneak' | 'mew';
@@ -17,29 +17,110 @@ const isTouch = () => matchMedia('(pointer: coarse)').matches || 'ontouchstart' 
 
 export interface UI {
   setStatus: (s: string) => void;
+  /** The player has started playing: stop nudging them towards the help. */
   hideHelp: () => void;
   /** Seconds until dash can be used again (0 = ready). */
   setDashCooldown: (s: number) => void;
 }
 
-export function setupUI(): UI {
+/** A key (or, on touch, a button) as drawn on the help sign: 'arrows' and 'dpad' are whole clusters. */
+type Key = string;
+/** Each row of the help: one or more keys with what they do. */
+type Row = [Key[], string][];
+
+const KEYBOARD: Row[] = [
+  [[['arrows'], 'walk about']],
+  [[['SPACE'], 'jump, up onto things and into trees'], [['down'], 'drops back down']],
+  [[['SHIFT'], 'dash (hold it; it needs a breather after)']],
+  [[['X'], 'sneak up on something, then'], [['SHIFT'], 'to pounce']],
+  [[['C'], 'catch, splash to lure fish, paw at a tree or a monument']],
+  [[['H'], 'hiss'], [['R'], 'roll'], [['E'], 'mew']],
+  [[['M'], 'music'], [['S'], 'sounds'], [['F'], 'full screen']],
+];
+
+const TOUCH: Row[] = [
+  [[['dpad'], 'walk about']],
+  [[['A'], 'jump, up onto things and into trees (down drops back down)']],
+  [[['B'], 'dash (it needs a breather after)']],
+  [[['SNEAK'], 'hold to creep up, then'], [['B'], 'to pounce']],
+  [[['CATCH'], 'splash to lure fish, paw at a tree or a monument']],
+  [[['HISS'], ''], [['ROLL'], ''], [['MEW'], 'to talk']],
+];
+
+function keyEl(key: Key, onTouch: boolean): HTMLElement {
+  if (key === 'arrows') {
+    // the inverted T
+    const t = document.createElement('span');
+    t.className = 'arrows';
+    for (const name of ['up', 'left', 'down', 'right']) t.append(keyEl(name, false));
+    return t;
+  }
+  if (['up', 'down', 'left', 'right'].includes(key)) return Object.assign(document.createElement('kbd'), { className: `arrow ${key}`, title: `arrow ${key}` });
+  const k = document.createElement('kbd');
+  if (key === 'dpad') k.className = 'dpad';
+  else if (onTouch) k.className = key.length === 1 ? 'round' : 'pill';
+  k.textContent = key === 'dpad' ? '' : key;
+  if (key === 'SPACE' || key === 'SHIFT') k.classList.add('wide');
+  return k;
+}
+
+/** The how-to-play sign behind the ? button (or the ? key); Esc, a tap outside or "Got it" puts it away. */
+function setupHelp(onTouch: boolean, onOpen: (open: boolean) => void): { nudged: () => void } {
+  const btn = document.getElementById('help-btn')!;
+  const dialog = document.getElementById('help-dialog')!;
+  const rows = dialog.querySelector('.rows')!;
+  for (const row of onTouch ? TOUCH : KEYBOARD) {
+    const r = document.createElement('div');
+    r.className = 'row';
+    for (const [keys, text] of row) {
+      const item = document.createElement('span');
+      item.className = 'item';
+      for (const key of keys) item.append(keyEl(key, onTouch));
+      if (text) item.append(Object.assign(document.createElement('span'), { className: 'what', textContent: text }));
+      r.append(item);
+    }
+    rows.append(r);
+  }
+  const isOpen = () => !dialog.hidden;
+  const show = (open: boolean) => {
+    if (isOpen() === open) return;
+    dialog.hidden = !open;
+    btn.classList.remove('nudge');
+    onOpen(open);
+  };
+  btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+  btn.addEventListener('click', () => show(!isOpen()));
+  dialog.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    if (e.target === dialog) show(false);
+  });
+  dialog.querySelector('.close')!.addEventListener('click', () => show(false));
+  window.addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLInputElement) return;
+    if (e.key === '?') show(!isOpen());
+    else if (isOpen() && (e.key === 'Escape' || e.key === 'Enter')) show(false);
+  });
+  // a little wobble on the button until the cat gets going
+  btn.classList.add('nudge');
+  let timer = 0;
+  return { nudged: () => { if (!timer) timer = window.setTimeout(() => btn.classList.remove('nudge'), 6000); } };
+}
+
+/** `onHelp` hears when the help sign opens and closes (the game holds still meanwhile). */
+export function setupUI(onHelp: (open: boolean) => void = () => {}): UI {
   const status = document.getElementById('status')!;
-  const help = document.getElementById('help')!;
   const pad = document.getElementById('touch')!;
   // the park is laid out after Berlin from OpenStreetMap data (ODbL), which asks for this credit
   const credit = document.getElementById('credit')!;
   const osm = Object.assign(document.createElement('a'), { href: 'https://www.openstreetmap.org/copyright', target: '_blank', rel: 'noopener', textContent: 'OpenStreetMap contributors' });
   credit.append(`© ${__BUILD_YEAR__} Bernhard Esperester · build ${__BUILD__} · map © `, osm);
 
-  let helpTimer = 0;
-  const hideHelp = () => {
-    if (helpTimer) return;
-    helpTimer = window.setTimeout(() => help.classList.add('hidden'), 6000);
-  };
+  const onTouch = isTouch();
+  const help = setupHelp(onTouch, onHelp);
+  const hideHelp = help.nudged;
 
-  if (isTouch()) {
+  if (onTouch) {
     pad.hidden = false;
-    help.textContent = 'D-pad to move · A jump (up trees too, down to drop) · B dash · hold SNEAK to creep up, then B to pounce · CATCH (splash the water to lure fish, paw at a tree or a monument) · hiss, roll & mew to talk';
     setupDpad(document.getElementById('dpad')!);
     for (const btn of pad.querySelectorAll<HTMLElement>('[data-btn]')) {
       btn.addEventListener('pointerdown', (e) => {
