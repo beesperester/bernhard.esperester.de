@@ -153,7 +153,9 @@ class Sketch {
     const { crown, t } = this;
     const px: LitPixel = {
       leaf: true, pal, nx, ny, cx: (x - crown.x) / crown.rx, cy: (y - crown.y) / crown.ry,
-      jit: (bayer(x, y) - 0.5) * 0.2 + (hash2(x, y, t.seed + salt) - 0.5) * 0.08, speck: 0.5, rim,
+      // (needles keep their old grain; leaves are smoother)
+      jit: t.shape === 'pine' ? (bayer(x, y) - 0.5) * 0.35 + (hash2(x, y, t.seed + salt) - 0.5) * 0.25 : (bayer(x, y) - 0.5) * 0.2 + (hash2(x, y, t.seed + salt) - 0.5) * 0.08,
+      speck: t.shape === 'pine' ? hash2(x, y, t.seed * 7 + salt) : 0.5, rim,
     };
     this.lit.set(y * this.W + x, px);
     this.r.set(x, y, litColour(px, DEFAULT_LIGHT));
@@ -449,25 +451,21 @@ function pine(t: TreePlan, season: Season): Prop {
   s.crown = { x: s.cx, y: s.row(tip / 2), rx: 22, ry: tip / 2 };
   s.trunk(tip - 2, (z) => Math.max(1, 3.5 - (z / tip) * 2.5));
   const { r } = s;
-  // from the bottom up, so each tier's hem hangs over the one below
-  for (const p of tiers) {
+  // from the top down, so the lower boughs hang over the trunk between them
+  for (const p of [...tiers].reverse()) {
     const top = s.row(p.z);
     const mid = s.cx + (p.x0 + p.x1) / 2, half = (p.x1 - p.x0) / 2 + 2;
-    // deep enough to hang over the tier below, so the cone is closed
-    const thick = p.kind === 'top' ? 10 : 14;
+    const thick = p.kind === 'top' ? 8 : 10;
     s.leaves();
     for (let dy = 0; dy < thick; dy++) {
-      // narrow at the top where it meets the trunk, spreading to the hem
-      const w = half * (0.5 + 0.5 * Math.min(1, dy / 4)) + dy * 0.3;
+      // narrow at the top where it meets the trunk, spreading and drooping to the hem
+      const w = half * (0.55 + 0.45 * Math.min(1, dy / 3)) + dy * 0.6;
       for (let x = Math.floor(mid - w); x < Math.ceil(mid + w); x++) {
         const u = (x + 0.5 - mid) / w;
-        // the hem: a row of drooping points of needles
-        const k = (((x - Math.round(mid)) % 5) + 5) % 5, hem = thick - 1 - [2, 1, 0, 1, 2][k];
-        if (dy > hem) continue;
-        if (Math.abs(u) > 0.88 && dy < 3) continue;
-        s.leaf(x, top + dy, NEEDLES, u * 0.9, (dy / (thick - 1)) * 1.2 - 0.6, dy >= thick - 3 || Math.abs(u) > 0.94, p.z);
-        // its edge shows dark over the tier below
-        if (dy === hem) r.set(x, top + dy, NEEDLES[4]);
+        // ragged, drooping ends and a scalloped hem
+        if (dy >= thick - 3 && hash2(x, top + dy, t.seed + 1311) < 0.25 + (dy - thick + 3) * 0.25) continue;
+        if (Math.abs(u) > 0.85 && dy < 2 && hash2(x, dy, t.seed + 1312) < 0.5) continue;
+        s.leaf(x, top + dy, NEEDLES, u * 0.9, (dy / (thick - 1)) * 1.2 - 0.5, dy === thick - 1 || Math.abs(u) > 0.94, p.z);
       }
     }
     // a cone or two hanging under the bough
