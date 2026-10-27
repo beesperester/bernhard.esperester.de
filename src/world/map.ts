@@ -1,26 +1,28 @@
 // Questions about the park's geometry: what is on a tile, how high the ground
-// is, where a cat can stand, where the water is. The park itself (map,
-// hills, furniture) is data in garden.ts; tile kinds are in legend.ts.
+// is, where a cat can stand, where the water is. The fixed park (water, paths,
+// hills, follies) is data in garden.ts; what grows on it is laid out from the
+// garden's seed (layout.ts, seed.ts) when this is first loaded. Tile kinds are
+// in legend.ts.
 
 import { hash2 } from '../art/raster.ts';
 import { SEASON } from './season.ts';
-import { ROWS, ELEV, FURNITURE, LANDMARK_SPOTS, SPAWN } from './garden.ts';
+import { ELEV, LANDMARK_SPOTS, SPAWN } from './garden.ts';
+import { FURNITURE_SIZE, layOut, type FurnitureKind } from './layout.ts';
+import { worldSeed } from './seed.ts';
+import { TILE, MAP_W, MAP_H, WORLD_W, WORLD_H } from './size.ts';
 import { LANDMARK_SIZE, LANDMARK_SOLIDS, LANDMARK_SPRITE } from './landmarks.ts';
 import { LEGEND, WALL, groundOf, isPond, isRunning, isStairs, isTree, isWaterway } from './legend.ts';
 
-export const TILE = 16;
+export { TILE, MAP_W, MAP_H, WORLD_W, WORLD_H };
 /** Height of one terrain level in px: more than a jump (~14px), so cliffs can't be hopped up. */
 export const LEVEL = 16;
 
 export { WALL };
 
-export const MAP_W = ROWS[0].length;
-export const MAP_H = ROWS.length;
+/** This garden: the fixed park with what grew from its seed. */
+const { rows: ROWS, furniture: FURNITURE } = layOut(worldSeed().seed);
 for (const [i, r] of ROWS.entries()) if (r.length !== MAP_W) throw new Error(`map row ${i} is ${r.length} wide`);
 if (ELEV.length !== MAP_H || ELEV.some((r) => r.length !== MAP_W)) throw new Error('elevation map size mismatch');
-
-export const WORLD_W = MAP_W * TILE;
-export const WORLD_H = MAP_H * TILE;
 
 export function tileAt(tx: number, ty: number): string {
   if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return 'F';
@@ -214,16 +216,10 @@ for (const [tx, ty] of treeTiles()) {
 // ---- garden furniture ----
 // Things people left in the park: a shed, benches, a picnic table, a bistro
 // set, a picnic blanket and a bird bath. Each stands on a patch of plain lawn
-// (`tx`, `ty` is its top-left tile); low ones can be jumped onto, the shed can't.
+// (`tx`, `ty` is its top-left tile; layout.ts places them); low ones can be
+// jumped onto, the shed can't.
 
-export type FurnitureKind = 'shed' | 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath';
-
-/** Tiles each kind takes up. */
-export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
-  shed: [3, 2], bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3], birdbath: [1, 1],
-};
-
-export { FURNITURE };
+export { FURNITURE, FURNITURE_SIZE, type FurnitureKind };
 
 export { LANDMARK_SPOTS };
 

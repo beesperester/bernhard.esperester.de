@@ -2,6 +2,7 @@ import { Bees } from './Bees.ts';
 import { Birds } from './Birds.ts';
 import { Bugs } from './Bugs.ts';
 import { Butterflies } from './Butterflies.ts';
+import { Finds } from './Finds.ts';
 import { Fish } from './Fish.ts';
 import { Mice } from './Mice.ts';
 import { Squirrels } from './Squirrels.ts';
@@ -28,6 +29,7 @@ export const FAUNA: ((ctx: FaunaContext) => Fauna)[] = [
   (ctx) => new Bugs(ctx),
   (ctx) => new Mice(ctx),
   (ctx) => new Squirrels(ctx),
+  (ctx) => new Finds(ctx),
 ];
 
 export { Birds, Squirrels };

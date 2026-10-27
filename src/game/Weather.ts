@@ -4,7 +4,8 @@ import { SNOW } from '../art/tiles.ts';
 import type { Prop } from '../art/trees.ts';
 import { Act } from './state.ts';
 import type { CatView } from './CatView.ts';
-import { TILE, elevAt, furnished, iceAt, levelAt, tileAt } from '../world/map.ts';
+import { LANTERNS, TILE, elevAt, furnished, iceAt, levelAt, tileAt } from '../world/map.ts';
+import type { Light } from '../world/sky.ts';
 import { SEASON, rainfall, snowfall } from '../world/season.ts';
 import { sound, type Playing } from '../audio/sound.ts';
 import { isBridge, isLawnOrTall } from '../world/legend.ts';
@@ -25,6 +26,10 @@ const PETAL = hex('#f9c0d8');
 const FLAKES = 320, DROPS = 280;
 /** How much a downpour dims the garden. */
 const OVERCAST = 0.3;
+/** Rain at night: barely there in the dark (its colour and how much shows), bright where a lantern shines on it. */
+const NIGHT_RAIN = [72, 84, 112] as const, NIGHT_RAIN_ALPHA = 0.3, LAMP_RAIN = [255, 226, 170] as const;
+/** How far a lantern lights the rain round its glass (px across, px up and down). */
+const LAMP_RX = 40, LAMP_RY = 34, LAMP_CELL = 64;
 /** Leaves (or petals) let go per tree per second at the height of the fall. */
 const LEAF_RATE = 0.5;
 /** Fallen leaves lie this long (s) before they fade. */
@@ -111,6 +116,10 @@ export class Weather {
   private nextPrint = 0;
   private readonly lastPrint = new WeakMap<CatView, { x: number; y: number; side: number }>();
   private wind = 0;
+  /** The lanterns' glass by 64px cell, for the rain they light up; how dark it is and how much the lanterns are on. */
+  private readonly lamps = new Map<number, [number, number][]>();
+  private night = 0;
+  private lampsOn = 0;
   /** The patter of the rain, while it rains; and when to try starting it again (the audio may not be unlocked yet). */
   private rainSound: Playing | null = null;
   private rainSoundStarting = false;
@@ -121,6 +130,11 @@ export class Weather {
     this.trees = trees;
     this.water = water;
     // grey rain clouds over everything (under the lights of the night, which shine through them)
+    for (const [x, y] of LANTERNS) {
+      const glass: [number, number] = [x, y - elevAt(x, y) - 13];
+      const k = this.cell(glass[0], glass[1]);
+      this.lamps.set(k, [...(this.lamps.get(k) ?? []), glass]);
+    }
     this.overcast = scene.add.rectangle(0, 0, 1, 1, 0xffffff).setDepth(99995).setBlendMode(Phaser.BlendModes.MULTIPLY).setVisible(false);
     // leaf piles on the grass beside the trees, while there are leaves about and no snow
     if (SEASON.litter > 0.35 && SEASON.snow < 0.3)
@@ -138,7 +152,10 @@ export class Weather {
       });
   }
 
-  update(gt: number, now: number, dt: number, cats: CatView[], view: Phaser.Geom.Rectangle): void {
+  update(gt: number, now: number, dt: number, cats: CatView[], view: Phaser.Geom.Rectangle, light: Light): void {
+    this.night = light.night;
+    // (the lanterns come on as in Lanterns.ts)
+    this.lampsOn = Math.max(0, Math.min(1, (-2 - light.elevation) / 4));
     this.wind = Math.sin(gt / 9000) * 8 + Math.sin(gt / 2300) * 4;
     this.updateSnow(gt, dt, view);
     this.updateRain(gt, dt, view);
@@ -189,6 +206,7 @@ export class Weather {
         Object.assign(d, this.drop(view, false, d.img));
       }
       d.img.setPosition(Math.round(d.x), Math.round(d.y - d.h)).setDepth(99500 + d.y);
+      this.lightRain(d.img, d.x, d.y - d.h);
     }
     this.hits = this.hits.filter((h) => {
       h.t += dt;
@@ -233,7 +251,38 @@ export class Weather {
     const img = ring
       ? this.scene.add.image(Math.round(x), Math.round(y), 'ripple', 0).setScale(0.5).setDepth(-99980)
       : this.scene.add.image(Math.round(x), Math.round(y - elevAt(x, y)), 'rainsplash', 0).setOrigin(0.5, 1).setDepth(y + 0.5);
+    if (!ring) this.lightRain(img, x, y - elevAt(x, y));
     this.hits.push({ img, t: 0, ring });
+  }
+
+  private cell(x: number, y: number): number {
+    return Math.floor(y / LAMP_CELL) * 1000 + Math.floor(x / LAMP_CELL);
+  }
+
+  /**
+   * Rain falls in front of the night's darkness, so it is darkened here: at
+   * night a drop is a faint grey streak, unless it falls through a lantern's
+   * light, where it shines warm and bright. (x, y) is where it is on screen.
+   */
+  private lightRain(img: Img, x: number, y: number): void {
+    if (this.night <= 0) {
+      img.clearTint().setAlpha(1);
+      return;
+    }
+    let lamp = 0;
+    if (this.lampsOn > 0) {
+      const cx = Math.floor(x / LAMP_CELL), cy = Math.floor(y / LAMP_CELL);
+      for (let j = -1; j <= 1; j++)
+        for (let i = -1; i <= 1; i++)
+          for (const [lx, ly] of this.lamps.get((cy + j) * 1000 + cx + i) ?? []) {
+            const d = ((x - lx) / LAMP_RX) ** 2 + ((y - ly) / LAMP_RY) ** 2;
+            if (d < 1) lamp = Math.max(lamp, (1 - d) * (1 - d));
+          }
+      lamp *= this.lampsOn;
+    }
+    const n = this.night;
+    const mix = (k: number) => Math.round((255 + (NIGHT_RAIN[k] - 255) * n) * (1 - lamp) + LAMP_RAIN[k] * lamp);
+    img.setTint((mix(0) << 16) | (mix(1) << 8) | mix(2)).setAlpha(Math.min(1, 1 - (1 - NIGHT_RAIN_ALPHA) * n + lamp * 1.5));
   }
 
   private flake(view: Phaser.Geom.Rectangle, anywhere: boolean, img?: Img): Flake {

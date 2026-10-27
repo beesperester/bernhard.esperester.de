@@ -4,9 +4,9 @@ import type { Prop } from '../art/trees.ts';
 import type { CatView } from './CatView.ts';
 import { cullerFor } from './Culler.ts';
 
-const HOLE_R = 16;
+const HOLE_R = 12;
 /** Fraction of pixels removed at the centre of the hole; the tree never fully disappears. */
-const HOLE_MAX = 0.8;
+const HOLE_MAX = 0.55;
 
 interface Tree {
   p: Prop;
@@ -79,7 +79,7 @@ export class Trees {
             const d2 = ((x - hx) ** 2 + (y - hy) ** 2) / (HOLE_R * HOLE_R);
             if (d2 >= 1) continue;
             // world-space dither so the pattern stays put while the cat moves
-            const strength = HOLE_MAX * (1 - d2) ** 0.7;
+            const strength = HOLE_MAX * (1 - d2) ** 1.2;
             if (bayer(p.x + x, p.y + y) < strength) dst[(y * w + x) * 4 + 3] = 0;
           }
       t.tex.getContext().putImageData(t.work, 0, 0);

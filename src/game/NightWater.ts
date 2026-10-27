@@ -3,20 +3,22 @@ import type { Light } from '../world/sky.ts';
 import { DEPTH } from './Daylight.ts';
 import { seedRng } from './fauna/kit.ts';
 import { cullerFor } from './Culler.ts';
+import type { Occluder } from './Lanterns.ts';
 
 type Box = { x: number; y: number; w: number; h: number };
 const MOON_R = 6;
 
 /**
  * Stars, and the moon in its current phase, mirrored in the ponds at night.
- * Drawn above the night tint so they twinkle; clipped to open water.
+ * Drawn above the night tint so they twinkle; clipped to open water, less
+ * whatever stands in front of it (a tree leaning over, a bank, a shed).
  */
 export class NightWater {
   private readonly pools: { box: Box; tex: Phaser.Textures.CanvasTexture; img: Phaser.GameObjects.Image; mask: HTMLCanvasElement; stars: [number, number, number, number][] }[] = [];
   private readonly moon: { x: number; y: number } | null;
   private next = 0;
 
-  constructor(scene: Phaser.Scene, boxes: Box[], waterMask: HTMLCanvasElement) {
+  constructor(scene: Phaser.Scene, boxes: Box[], waterMask: HTMLCanvasElement, occluders: Occluder[]) {
     const wm = waterMask.getContext('2d')!.getImageData(0, 0, waterMask.width, waterMask.height);
     const wet = (x: number, y: number) => x >= 0 && y >= 0 && x < wm.width && y < wm.height && wm.data[(y * wm.width + x) * 4 + 3] > 0;
     // the moon sits in the widest stretch of open water
@@ -36,7 +38,19 @@ export class NightWater {
       const mask = document.createElement('canvas');
       mask.width = box.w;
       mask.height = box.h;
-      mask.getContext('2d')!.drawImage(waterMask, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+      const mg = mask.getContext('2d')!;
+      mg.drawImage(waterMask, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+      // (only the water behind it: above the line its foot stands on)
+      mg.globalCompositeOperation = 'destination-out';
+      for (const o of occluders)
+        if (o.depth > box.y && o.x < box.x + box.w && o.x + o.w > box.x && o.y < box.y + box.h && o.y + o.h > box.y) {
+          mg.save();
+          mg.beginPath();
+          mg.rect(0, 0, box.w, Math.ceil(o.depth) - box.y);
+          mg.clip();
+          mg.drawImage(o.canvas, o.x - box.x, o.y - box.y);
+          mg.restore();
+        }
       const r = seedRng(box.x, box.y, 77);
       const stars: [number, number, number, number][] = [];
       for (let n = 0; n < (box.w * box.h) / 140; n++) {

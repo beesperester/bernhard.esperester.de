@@ -33,7 +33,7 @@ const KEYBOARD: Row[] = [
   [[['SPACE'], 'jump, up onto things and into trees'], [['down'], 'drops back down']],
   [[['SHIFT'], 'dash (hold it; it needs a breather after)']],
   [[['X'], 'sneak up on something, then'], [['SHIFT'], 'to pounce']],
-  [[['C'], 'catch, splash to lure fish, paw at a tree or a monument']],
+  [[['C'], 'catch, splash to lure fish, paw at a tree, a monument or a find']],
   [[['H'], 'hiss'], [['R'], 'roll'], [['E'], 'mew']],
 ];
 
