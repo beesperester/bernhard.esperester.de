@@ -54,6 +54,8 @@ const HOP_MS = 480;
 const HOP_HEIGHT = 16;
 /** How quickly a cat that landed on a branch settles onto its line (px/s). */
 const SETTLE_SPEED = 60;
+/** A cat this far in front of a trunk's foot is clear of it. */
+const TRUNK_CLEAR = 6;
 /** How often the pond reflections are redrawn, ms. */
 const REFLECTION_MS = 33;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
@@ -531,7 +533,11 @@ export class GardenScene extends Phaser.Scene {
     // up a tree the cat walks along the branch it is on: up looks up, down drops it onto the one below
     const perch = this.hop || me.act === Act.Jump ? null : standingOn(me.x, me.y, me.z);
     if (perch && dy !== 0) {
-      if (dy > 0) this.dropFrom = perch.z;
+      if (dy > 0) {
+        this.dropFrom = perch.z;
+        // (off the fork, the cat jumps down in front of the trunk, not onto it)
+        if (perch.kind === 'fork' && heightUnder(me.x + FEET.x0, perch.y + TRUNK_CLEAR + FEET.y0, me.x + FEET.x1, perch.y + TRUNK_CLEAR + FEET.y1, me.z) <= me.z) me.y = Math.max(me.y, perch.y + TRUNK_CLEAR);
+      }
       else if (dx === 0) me.facing = Facing.Up;
       dy = 0;
     }
@@ -733,6 +739,7 @@ export class GardenScene extends Phaser.Scene {
       }
     } else {
       me.z = ground;
+      this.vz = 0;
       if (me.act === Act.Jump) me.setAct(moving ? Act.Walk : Act.Idle, now);
       this.airCatch = null;
     }

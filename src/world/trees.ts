@@ -11,7 +11,7 @@
 // perch the cat stands on the trunk's line.
 
 import { hash2, mulberry32 } from '../art/raster.ts';
-import { FEET, FORK_Z, LEVEL, TILE, heightUnder, levelAt, tileAt, treeTiles, trunkBase } from './map.ts';
+import { FEET, FORK_Z, LEVEL, TILE, heightUnder, levelAt, tileAt, treeTiles, trunkBase, trunkTop } from './map.ts';
 
 /** How far a branch is above the one below it: a jump (~14px) gets there, but not much higher. */
 export const RISE = 11;
@@ -151,7 +151,10 @@ export function perchUnder(x: number, y: number, z: number, under = Infinity): P
 
 /** What a cat at (x, y), with its paws at height z, would stand on: the ground or a perch (not one at or above `under`). */
 export function surfaceAt(x: number, y: number, z: number, under = Infinity): number {
-  const ground = heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1, z + CATCH);
+  const x0 = x + FEET.x0, y0 = y + FEET.y0, x1 = x + FEET.x1, y1 = y + FEET.y1;
+  // over a trunk (below its fork a wall to walk into), a cat dropping down comes to rest on its top
+  const trunk = trunkTop(x0, y0, x1, y1);
+  const ground = trunk > z + CATCH ? Math.max(trunk, heightUnder(x0, y0, x1, y1, trunk)) : heightUnder(x0, y0, x1, y1, z + CATCH);
   const p = perchUnder(x, y, z, under);
   return p && p.z > ground ? p.z : ground;
 }

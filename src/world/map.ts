@@ -111,6 +111,13 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number, z = 
   return h;
 }
 
+/** The top of the tree trunk a world-space box is over, if any (its fork: a cat dropping onto it stops there). */
+export function trunkTop(x0: number, y0: number, x1: number, y1: number): number {
+  let top = -Infinity;
+  for (const [ax, ay, bx, by, t] of TRUNKS) if (t < Infinity && x1 > ax && x0 < bx && y1 > ay && y0 < by) top = Math.max(top, t);
+  return top;
+}
+
 /** True if any tile the box touches passes `test`. */
 function anyTileUnder(x0: number, y0: number, x1: number, y1: number, test: (tx: number, ty: number) => boolean): boolean {
   const tx0 = Math.floor(x0 / TILE), tx1 = Math.floor((x1 - 0.01) / TILE);
