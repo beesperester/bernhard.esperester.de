@@ -161,6 +161,18 @@ describe('ponds through the year', () => {
     expect(m.wetAt(x, y)).toBe(false);
     expect(m.iceAt(x, y)).toBe(true);
   });
+
+  it('but the streams keep running through the winter', async () => {
+    const m = await load('2026-01-15T12:00:00+01:00');
+    let stream: [number, number] | null = null;
+    for (let ty = 0; ty < MAP_H && !stream; ty++)
+      for (let tx = 0; tx < MAP_W && !stream; tx++)
+        if (tileAt(tx, ty) === 'w' && m.isChannel(tx, ty) && m.isChannel(tx, ty + 1) && m.isChannel(tx, ty - 1)) stream = [tx, ty];
+    expect(stream).not.toBeNull();
+    const x = stream![0] * TILE + 8, y = stream![1] * TILE + 12;
+    expect(m.wetAt(x, y)).toBe(true);
+    expect(m.iceAt(x, y)).toBe(false);
+  });
 });
 
 /** The first tile with this character, in the middle of a run of them where possible. */

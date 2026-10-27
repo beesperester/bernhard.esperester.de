@@ -1,5 +1,5 @@
 import { Raster, hex, hash2, mulberry32, type RGB } from './raster.ts';
-import { TILE, MAP_W, MAP_H, LEVEL, tileAt, levelAt, treeTiles, trunkBase } from '../world/map.ts';
+import { TILE, MAP_W, MAP_H, LEVEL, isChannel, tileAt, levelAt, treeTiles, trunkBase } from '../world/map.ts';
 import { SEASON, type Season } from '../world/season.ts';
 import { LEGEND, isPath, isStairs, isWaterway } from '../world/legend.ts';
 
@@ -366,9 +366,9 @@ function drawTile(r: Raster, ox: number, oy: number, tx: number, ty: number, pha
 
 /** The static ground of the garden. `phase` alternates the water ripples (still while frozen). */
 export function buildGround(phase: number, season: Season = SEASON): Raster {
-  if (season.frozen) phase = 0;
   const r = new Raster(MAP_W * TILE, MAP_H * TILE);
-  for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) drawTile(r, tx * TILE, ty * TILE, tx, ty, phase);
+  for (let ty = 0; ty < MAP_H; ty++)
+    for (let tx = 0; tx < MAP_W; tx++) drawTile(r, tx * TILE, ty * TILE, tx, ty, season.frozen && !isChannel(tx, ty) ? 0 : phase);
   shadeUnderCliffs(r);
   applySeason(r, 0, 0, season);
   scatterLitter(r, season);
@@ -382,8 +382,6 @@ export function buildGround(phase: number, season: Season = SEASON): Raster {
  */
 export function buildGrounds(season: Season = SEASON): [Raster, Raster] {
   const still = buildGround(0, season);
-  // frozen ponds don't ripple
-  if (season.frozen) return [still, still];
   const rippled = new Raster(still.w, still.h);
   rippled.data.set(still.data);
   // each water tile is drawn together with its left neighbour, whose fallen
@@ -391,7 +389,8 @@ export function buildGrounds(season: Season = SEASON): [Raster, Raster] {
   const pair = new Raster(2 * TILE, TILE);
   for (let ty = 0; ty < MAP_H; ty++)
     for (let tx = 0; tx < MAP_W; tx++) {
-      if (!isWaterway(tileAt(tx, ty))) continue;
+      // frozen ponds don't ripple (the streams still run)
+      if (!isWaterway(tileAt(tx, ty)) || (season.frozen && !isChannel(tx, ty))) continue;
       pair.data.fill(0);
       drawTile(pair, 0, 0, tx - 1, ty, 1);
       drawTile(pair, TILE, 0, tx, ty, 1);
@@ -452,7 +451,7 @@ export function applySeason(r: Raster, ox: number, oy: number, s: Season = SEASO
       const k = (r.data[i] << 16) | (r.data[i + 1] << 8) | r.data[i + 2];
       const wx = ox + x, wy = oy + y;
       let c: RGB | undefined;
-      if (s.frozen) c = ice.get(k);
+      if (s.frozen && !isChannel(Math.floor(wx / TILE), Math.floor(wy / TILE))) c = ice.get(k);
       // snow settles patchily at first, then everywhere
       if (!c && s.snow > 0 && noise(wx / 20, wy / 20, 1203) * 0.8 + bayer(wx, wy) * 0.2 < s.snow * 1.25 - 0.1) c = snowy.get(k);
       // flowers: some still out, some gone over

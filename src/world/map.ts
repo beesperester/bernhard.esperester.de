@@ -26,6 +26,20 @@ export function tileAt(tx: number, ty: number): string {
   return ROWS[ty][tx];
 }
 
+/**
+ * Water in a channel one tile wide: a stream (see streams.ts). Wider water,
+ * any tile of a 2x2 block of water, is a pond. `tile` is the map to look at.
+ */
+export function isChannel(tx: number, ty: number, tile: (tx: number, ty: number) => string = tileAt): boolean {
+  const wet = (x: number, y: number) => isWaterway(tile(x, y));
+  if (!wet(tx, ty)) return false;
+  return ![[0, 0], [-1, 0], [0, -1], [-1, -1]].some(([ox, oy]) =>
+    wet(tx + ox, ty + oy) && wet(tx + ox + 1, ty + oy) && wet(tx + ox, ty + oy + 1) && wet(tx + ox + 1, ty + oy + 1));
+}
+
+/** Ice on this tile: the ponds freeze over in winter, but running water doesn't. */
+export const frozenAt = (tx: number, ty: number): boolean => SEASON.frozen && isPond(tileAt(tx, ty)) && !isChannel(tx, ty);
+
 /** Terrain level of a tile (stairs report their lower end). */
 export function levelAt(tx: number, ty: number): number {
   if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return 0;
@@ -75,19 +89,20 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number): num
   return h;
 }
 
-/** True if any part of the box is over the pond (frozen or not). */
-function pondUnder(x0: number, y0: number, x1: number, y1: number): boolean {
+/** True if any tile the box touches passes `test`. */
+function anyTileUnder(x0: number, y0: number, x1: number, y1: number, test: (tx: number, ty: number) => boolean): boolean {
   const tx0 = Math.floor(x0 / TILE), tx1 = Math.floor((x1 - 0.01) / TILE);
   const ty0 = Math.floor(y0 / TILE), ty1 = Math.floor((y1 - 0.01) / TILE);
-  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if (isPond(tileAt(tx, ty))) return true;
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if (test(tx, ty)) return true;
   return false;
 }
 
 /** True if any part of the box is over open water (a frozen pond is solid ground). */
-export const waterUnder = (x0: number, y0: number, x1: number, y1: number): boolean => !SEASON.frozen && pondUnder(x0, y0, x1, y1);
+export const waterUnder = (x0: number, y0: number, x1: number, y1: number): boolean =>
+  anyTileUnder(x0, y0, x1, y1, (tx, ty) => isPond(tileAt(tx, ty)) && !frozenAt(tx, ty));
 
 /** True if a cat standing at (x, y) is out on the ice. */
-export const iceAt = (x: number, y: number): boolean => SEASON.frozen && pondUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1);
+export const iceAt = (x: number, y: number): boolean => SEASON.frozen && anyTileUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1, frozenAt);
 
 /** True if a cat standing at (x, y) has a paw in the water. */
 export const wetAt = (x: number, y: number): boolean => waterUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1);

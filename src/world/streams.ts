@@ -3,7 +3,8 @@
 // other: downhill on the screen, from the end higher up the map to the one
 // further down (the big lake at the bottom). Nothing has to be marked on the
 // map: any run of water one tile wide is a stream, and wider water is a pond.
-import { MAP_H, MAP_W, TILE, tileAt } from './map.ts';
+// Running water never freezes: in winter the ponds ice over and the streams keep flowing.
+import { MAP_H, MAP_W, TILE, isChannel, tileAt } from './map.ts';
 import { isWaterway } from './legend.ts';
 
 type Pt = [number, number];
@@ -26,11 +27,9 @@ const BEND = 6;
 
 /** Find the streams on a map. `tile` gives the map character at a tile (the garden's, unless testing). */
 export function findStreams(tile: (tx: number, ty: number) => string = tileAt, w = MAP_W, h = MAP_H): Stream[] {
-  const wet = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && isWaterway(tile(x, y));
-  // pond water belongs to a 2x2 block of water; everything else wet is a channel
-  const pond = (x: number, y: number) =>
-    wet(x, y) && [[0, 0], [-1, 0], [0, -1], [-1, -1]].some(([ox, oy]) => wet(x + ox, y + oy) && wet(x + ox + 1, y + oy) && wet(x + ox, y + oy + 1) && wet(x + ox + 1, y + oy + 1));
-  const channel = (x: number, y: number) => wet(x, y) && !pond(x, y);
+  const inside = (x: number, y: number) => (x >= 0 && y >= 0 && x < w && y < h ? tile(x, y) : 'F');
+  const channel = (x: number, y: number) => isChannel(x, y, inside);
+  const pond = (x: number, y: number) => isWaterway(inside(x, y)) && !channel(x, y);
   const key = (x: number, y: number) => y * w + x;
 
   const seen = new Set<number>();

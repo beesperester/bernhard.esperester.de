@@ -6,7 +6,7 @@ import { buildGround, buildGrounds, buildProps, buildWaterMask } from './tiles.t
 import { buildTerrain } from './terrain.ts';
 import { placeFlora } from './flora.ts';
 import { seasonAt } from '../world/season.ts';
-import { MAP_H, MAP_W, TILE } from '../world/map.ts';
+import { MAP_H, MAP_W, TILE, isChannel } from '../world/map.ts';
 import { Raster } from './raster.ts';
 
 const opaque = (r: Raster) => {
@@ -51,15 +51,17 @@ describe('the garden through the seasons', () => {
     expect(buildProps(season).length).toBeGreaterThan(20);
   });
 
-  it('has no open water to reflect in when the ponds are frozen', () => {
+  it('has open water only in the streams when the ponds are frozen', () => {
     const winter = seasonAt(dates.winter);
-    const frozen = buildGround(0, winter);
-    expect(opaque(buildWaterMask(frozen, frozen))).toBe(0);
+    const mask = buildWaterMask(buildGround(0, winter), buildGround(1, winter));
+    expect(opaque(mask)).toBeGreaterThan(500);
+    for (let y = 0; y < mask.h; y += 2)
+      for (let x = 0; x < mask.w; x += 2) if (mask.isSet(x, y)) expect(isChannel(Math.floor(x / TILE), Math.floor(y / TILE))).toBe(true);
     const summer = seasonAt(dates.summer);
     expect(opaque(buildWaterMask(buildGround(0, summer), buildGround(1, summer)))).toBeGreaterThan(1000);
   });
 
-  it.each(['summer', 'autumn'] as const)('copies the still ground and redraws only the water for the ripple in %s', (when) => {
+  it.each(['summer', 'autumn', 'winter'] as const)('copies the still ground and redraws only the water for the ripple in %s', (when) => {
     const season = seasonAt(dates[when]);
     const [, rippled] = buildGrounds(season);
     expect(Buffer.from(rippled.data).equals(Buffer.from(buildGround(1, season).data))).toBe(true);

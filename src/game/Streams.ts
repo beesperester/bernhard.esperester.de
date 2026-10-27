@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Raster, type RGB } from '../art/raster.ts';
 import { toCanvas } from './textures.ts';
 import { STREAMS, along, type Stream } from '../world/streams.ts';
-import { SEASON, seasonAt } from '../world/season.ts';
+import { seasonAt } from '../world/season.ts';
 import { Pool, clamp01, hash2, remember, seedRng } from './fauna/kit.ts';
 import { LEAF_COLOURS } from './Weather.ts';
 
@@ -57,11 +57,10 @@ export class Streams {
   update(gt: number, night: number, view: Phaser.Geom.Rectangle): void {
     this.glints.begin();
     this.drifting.begin();
-    if (!SEASON.frozen)
-      STREAMS.forEach((s, i) => {
-        this.updateGlints(s, i, gt, night, view);
-        this.updateDrifters(s, i, gt, view);
-      });
+    STREAMS.forEach((s, i) => {
+      this.updateGlints(s, i, gt, night, view);
+      this.updateDrifters(s, i, gt, view);
+    });
     this.glints.end();
     this.drifting.end();
   }
