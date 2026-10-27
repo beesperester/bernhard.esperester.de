@@ -21,7 +21,7 @@ import { Shadows, type Caster } from './Shadows.ts';
 import { Vignette } from './Vignette.ts';
 import { Daylight } from './Daylight.ts';
 import { RimLight } from './RimLight.ts';
-import { Lanterns } from './Lanterns.ts';
+import { Lanterns, type Occluder } from './Lanterns.ts';
 import { NightWater } from './NightWater.ts';
 import { Streams } from './Streams.ts';
 import { Puddles } from './Puddles.ts';
@@ -207,13 +207,14 @@ export class GardenScene extends Phaser.Scene {
     });
     // what can stand in front of a lantern's light
     const source = (key: string) => this.textures.get(key).getSourceImage() as HTMLCanvasElement;
-    this.lanterns = new Lanterns(this, [
+    const occluders: Occluder[] = [
       ...props.map((p, i) => ({ canvas: canvases.props[i], x: p.x, y: p.y, w: canvases.props[i].width, h: canvases.props[i].height, depth: p.depthY })),
       ...standing.map(({ p, canvas }) => ({ canvas, x: p.x, y: p.y, w: canvas.width, h: canvas.height, depth: p.depthY })),
       ...canvases.terrain.map((t, i) => ({ canvas: source(`terrain-${i}`), x: t.x, y: t.y, w: t.raster.w, h: t.raster.h, depth: t.depth })),
-    ]);
+    ];
+    this.lanterns = new Lanterns(this, occluders);
     this.shadows = this.makeShadows(props, canvases, furniture, upright);
-    this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask);
+    this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
     this.lighting = new Lighting(this, reflect.props, this.trees, canvases.terrain);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
