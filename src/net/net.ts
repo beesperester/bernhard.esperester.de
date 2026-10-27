@@ -33,6 +33,9 @@ export interface NetEvents {
   onVote: (peerId: string, msg: VoteMsg) => void;
 }
 
+/** This visit's connection id (what our signed scoreboard entry is bound to). */
+export const PEER = selfId;
+
 export class Net {
   private room: Room | null = null;
   private send: ((msg: CatMsg, target?: string) => void) | null = null;

@@ -5,6 +5,7 @@ import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
 import { setupFullscreen } from './ui/fullscreen.ts';
 import { loading } from './ui/loading.ts';
+import { Identity, useIdentity } from './net/identity.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
 import '@fontsource/pixelify-sans/latin-ext-400.css';
 import '@fontsource/pixelify-sans/latin-700.css';
@@ -12,6 +13,8 @@ import '@fontsource/pixelify-sans/latin-ext-700.css';
 
 applyPixelUI();
 loading(0.15, 600);
+// who we are: this browser's key pair (made on the first visit)
+useIdentity(await Identity.load());
 // text drawn into the game (names, scores) needs the font ready; don't wait forever for it
 await Promise.race([
   Promise.all([document.fonts.load('16px "Pixelify Sans"'), document.fonts.load('bold 16px "Pixelify Sans"')]),

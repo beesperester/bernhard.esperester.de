@@ -34,13 +34,14 @@ import { Ambient } from './Ambient.ts';
 import { DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
-import { Net } from '../net/net.ts';
+import { Net, PEER } from '../net/net.ts';
 import { Referee } from './Referee.ts';
 import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
 import { touch, setupUI, type Button } from '../ui/ui.ts';
 import { setCatCount } from '../ui/favicon.ts';
-import { Board, NAME_AT, type Pose } from './Board.ts';
+import { Board, NAME_AT, verifyBoard, type Pose } from './Board.ts';
+import { identity, verify } from '../net/identity.ts';
 import { RESUME_MS } from '../net/witness.ts';
 import { askName, renderBoard } from '../ui/board.ts';
 import { cullerFor } from './Culler.ts';
@@ -271,7 +272,13 @@ export class GardenScene extends Phaser.Scene {
     });
     this.ui.setStatus('looking for other cats…');
     setCatCount(1);
-    this.board = new Board(this.me.coat, (msg, target) => this.net.board(msg, target), () => renderBoard(this.board.ranking(), this.board.id));
+    const me = identity();
+    this.board = new Board(
+      this.me.coat,
+      { id: me.id, peer: PEER, sign: (d) => me.sign(d), now: () => this.net.now() },
+      (msg, target) => this.net.board(msg, target),
+      () => renderBoard(this.board.ranking(), this.board.id),
+    );
     this.board.onBack = (pose) => this.resume(pose);
     renderBoard(this.board.ranking(), this.board.id);
     this.net = new Net(() => this.state(), {
@@ -298,11 +305,9 @@ export class GardenScene extends Phaser.Scene {
       onVote: (id, msg) => this.referee.receiveVote(id, msg, performance.now()),
       onLeave: (id) => {
         this.referee.leave(id);
-        const cat = this.remotes.get(id);
-        cat?.destroy();
+        this.remotes.get(id)?.destroy();
         this.remotes.delete(id);
-        // (remembering where it was, should it come back)
-        this.board.leave(id, cat && [cat.tx, cat.ty, cat.tz, cat.facing]);
+        this.board.leave(id);
         this.updateStatus();
       },
       onJoin: (id) => {
@@ -317,8 +322,11 @@ export class GardenScene extends Phaser.Scene {
       onWorld: (id, msg) => {
         if (!this.referee.ignored(id)) this.ambient.recall(msg.caught, msg.shakes);
       },
+      // (only what checks out: signed by whom it says, the sender's own entry for this very connection)
       onBoard: (id, msg) => {
-        if (!this.referee.ignored(id)) this.board.receive(id, msg);
+        void verifyBoard(id, msg, this.net.now(), verify).then((ok) => {
+          if (ok && !this.referee.ignored(id)) this.board.receive(id, ok);
+        });
       },
       onStatus: (garden) => {
         // every garden keeps its own scoreboard
@@ -570,6 +578,8 @@ export class GardenScene extends Phaser.Scene {
     // dash runs while the key is held (up to DASH_MS), then needs a long rest
     this.dash.update(dash, dashHeld, now);
     this.ui.setDashCooldown(Math.ceil(this.dash.cooldown(now) / 1000));
+    // where we are, signed now and then, for the cats to remember should we leave and come back
+    if (this.revealed) this.board.moved(me.x, me.y, me.z, me.facing, now);
     if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || mew || grab)) me.setAct(Act.Idle, now);
 
