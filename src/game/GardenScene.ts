@@ -123,8 +123,6 @@ export class GardenScene extends Phaser.Scene {
   private dropFrom = Infinity;
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
   private vel = { x: 0, y: 0 };
-  /** The way we were last pushed ("dx,dy"), to notice a new diagonal. */
-  private heading = '';
   private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number } | null = null;
   private catching: { swiped: boolean; got: Prey | null } | null = null;
   /** A swipe made in mid-jump (one per jump), and what it got, to eat on landing. */
@@ -629,11 +627,12 @@ export class GardenScene extends Phaser.Scene {
     if (Math.abs(this.vel.x) + Math.abs(this.vel.y) > (icy ? 1.5 : 0)) {
       const [bx, by] = [me.x, me.y];
       const body = { x: me.x, y: me.y, z: me.z, airborne: me.act === Act.Jump };
-      // a fresh diagonal: get x and y stepping in time, so the view doesn't staircase
-      const heading = `${Math.sign(wx)},${Math.sign(wy)}`;
-      if (heading !== this.heading && wx && wy && !icy) alignDiagonal(body, wx, wy);
-      this.heading = heading;
       step(body, this.vel.x * dt, this.vel.y * dt);
+      // going diagonally, keep x and y stepping in time so the view doesn't staircase: whenever
+      // the cat moved freely both ways (not on the first frame only: sliding along a bush or
+      // a fence holds one of them back and puts them out of step)
+      const free = Math.abs(body.x - bx - this.vel.x * dt) < 1e-6 && Math.abs(body.y - by - this.vel.y * dt) < 1e-6;
+      if (wx && wy && !icy && free) alignDiagonal(body, wx, wy);
       me.x = body.x; me.y = body.y; me.z = body.z;
       // sliding into something stops the slide that way
       if (icy) {

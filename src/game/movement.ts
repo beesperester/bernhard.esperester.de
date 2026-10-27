@@ -84,8 +84,9 @@ export function step(body: Body, mx: number, my: number): void {
  * Moving diagonally, both axes go at the same speed, but the cat (and the
  * camera on it) is drawn at whole pixels. Unless x and y reach a whole pixel
  * at the same moment, it steps right, then down, then right: a staircase.
- * Call when a diagonal move starts: nudges y (by less than half a pixel) into
- * step with x, given the direction of travel (dx, dy).
+ * Call while moving diagonally: nudges y (by less than half a pixel) into
+ * step with x, given the direction of travel (dx, dy). Once they are in step
+ * it changes nothing.
  */
 export function alignDiagonal(body: Body, dx: number, dy: number): void {
   const fx = body.x - Math.floor(body.x), fy = body.y - Math.floor(body.y);
