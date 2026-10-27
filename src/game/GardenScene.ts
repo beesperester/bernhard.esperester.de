@@ -26,6 +26,7 @@ import { DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { Net } from '../net/net.ts';
+import { Referee } from './Referee.ts';
 import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
 import { touch, setupUI } from '../ui/ui.ts';
@@ -96,6 +97,7 @@ export class GardenScene extends Phaser.Scene {
   private camZ = 0;
   private vz = 0;
   private ambient!: Ambient;
+  private referee!: Referee;
   private weather!: Weather;
   private readonly dash = new Dash();
   private lastDry = { x: 0, y: 0 };
@@ -205,6 +207,7 @@ export class GardenScene extends Phaser.Scene {
     renderBoard(this.board.ranking(), this.board.id);
     this.net = new Net(() => this.state(), {
       onState: (id, msg) => {
+        if (!this.referee.observe(id, msg, performance.now())) return;
         const cat = this.remotes.get(id);
         if (cat) cat.apply(msg, this.time.now);
         else {
@@ -216,16 +219,23 @@ export class GardenScene extends Phaser.Scene {
       },
       onCatch: (id, kind, preyId) => {
         const cat = this.remotes.get(id);
-        if (cat) this.ambient.catchPrey(kind, preyId, cat);
+        if (cat && this.referee.claim(id, kind, preyId, performance.now())) this.ambient.catchPrey(kind, preyId, cat);
       },
+      onVote: (id, msg) => this.referee.receiveVote(id, msg, performance.now()),
       onLeave: (id) => {
+        this.referee.leave(id);
         this.remotes.get(id)?.destroy();
         this.remotes.delete(id);
         this.board.leave(id);
         this.updateStatus();
       },
-      onJoin: (id) => this.board.greet(id),
-      onBoard: (id, msg) => this.board.receive(id, msg),
+      onJoin: (id) => {
+        this.referee.join(id);
+        this.board.greet(id);
+      },
+      onBoard: (id, msg) => {
+        if (!this.referee.ignored(id)) this.board.receive(id, msg);
+      },
       onStatus: (garden) => {
         // every garden keeps its own scoreboard
         if (garden !== this.garden) this.board.reset();
@@ -234,6 +244,23 @@ export class GardenScene extends Phaser.Scene {
       },
     });
     this.me.id = this.net.id;
+    this.referee = new Referee(this.net.id, {
+      vote: (msg) => this.net.vote(msg),
+      judgeCatch: (peer, kind, id) => {
+        // in a background tab nothing moves: we haven't been watching
+        if (document.hidden) return null;
+        const cat = this.remotes.get(peer);
+        const seen = cat ? this.ambient.sawWithinReach(kind, id, cat.tx, cat.ty, cat.tz) : null;
+        return { ok: !!seen, points: preyPoints(kind, seen?.colour ?? 0) };
+      },
+      confirmed: (peer, points) => this.board.credit(peer, points),
+      ignore: (peer) => {
+        this.remotes.get(peer)?.destroy();
+        this.remotes.delete(peer);
+        this.board.drop(peer);
+        this.updateStatus();
+      },
+    });
     this.net.start();
     // timers keep running while the tab is in the background, so others still see us
     window.setInterval(() => this.sendState(), TICK_MS);
@@ -307,6 +334,8 @@ export class GardenScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     const dt = Math.min(delta, 100) / 1000;
     this.updateLocal(time, dt);
+    // (the referee goes by the page clock: messages keep coming while the tab is hidden and Phaser's clock stands still)
+    this.referee.update(performance.now());
 
     this.me.name = this.board.me.name;
     for (const [id, cat] of this.remotes) {

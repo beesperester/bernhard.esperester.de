@@ -33,16 +33,19 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 ## How it works
 
 - **Phaser 4 + TypeScript + Vite**, built to static files.
-- **All art is drawn in code** (`src/art/`): sprites are character maps, recoloured per coat; the garden ground is generated from `src/world/map.ts`.
+- **All art is drawn in code** (`src/art/`): sprites are character maps, recoloured per coat; the garden ground is generated from the park map in `src/world/garden.ts`, whose characters are explained in `src/world/legend.ts` (one entry per kind of tile) and drawn by `TILE_ART` in `src/art/tiles.ts`.
 - **The UI is pixel art too** (`src/ui/pixel.ts`): text boxes, buttons, the d-pad and the music and sound icons are drawn in code and handed to the CSS as image variables. The text is set in [Pixelify Sans](https://fontsource.org/fonts/pixelify-sans) (SIL Open Font License), bundled with the site rather than loaded from Google Fonts.
 - **Height map** (`src/world/map.ts`): every tile has a terrain level (16px each, more than a jump) plus whatever stands on it; cats only move onto surfaces no higher than they are, so jumping (real gravity) gets them onto hedges but not up a cliff. Walking climbs up to 3px, which is what makes stairs work. Tree trunks block only at their base.
 - **Terrain** (`src/art/terrain.ts`): each row of raised ground is cut from the ground image and drawn lifted by its height, with a stone retaining wall below and depth-sorted like everything else; a cat that ends up behind a hill shows through as a solid green silhouette where the hill covers it.
 - **Trees** (`src/game/Trees.ts`): big procedural crowns; a cat behind one is shown through a round dithered window in the foliage.
-- **Atmosphere** (`src/game/`): `Meadow` sways ~600 grass/flower/reed sprites in a rolling wind and bends them away from cats; `Sunlight` overlays dithered god rays that breathe and dim under passing clouds, plus dust motes; `Clouds` drifts soft dithered cloud shadows across the ground; `PondReflection` mirrors nearby cats, trees and reeds onto the water with a ripple (split into chunks, only those on screen are redrawn); `Vignette` softly darkens the screen edges; `Ambient` adds butterflies, bees, jumping and surfacing koi with ripples, sleep Zs and dash dust; `Birds` handles the birds visiting the trees and lawns.
+- **Atmosphere** (`src/game/`): `Meadow` sways ~600 grass/flower/reed sprites in a rolling wind and bends them away from cats; `Sunlight` overlays dithered god rays that breathe and dim under passing clouds, plus dust motes; `Clouds` drifts soft dithered cloud shadows across the ground; `PondReflection` mirrors nearby cats, trees and reeds onto the water with a ripple (split into chunks, only those on screen are redrawn); `Vignette` softly darkens the screen edges. Static things off screen are skipped by `Culler`.
+- **Fauna** (`src/game/fauna/`): one module per animal family (fish, bees, butterflies, birds, fireflies and frogs, bats and owls, beetles and dragonflies, mice), all behind one small interface and listed in `fauna/index.ts`; what each kind of prey is worth and how it's eaten is in `fauna/prey.ts`; splashes, feathers, Zs and dust are pooled in `fauna/Effects.ts`. `Ambient` runs them all and settles catches. To add an animal: write a module, list it, give new prey an entry in `PREY`.
+- **Cat movement** (`src/game/movement.ts`): speeds, the dash and its cooldown, stepping up, corner slip and jump height, free of Phaser so it is tested and used by the anti-cheat checks.
 - **Networking is peer-to-peer** (`src/net/net.ts`) via [Trystero](https://github.com/dmotz/trystero): visitors find each other through public Nostr relays, then exchange cat states directly over WebRTC. The web server only serves files.
 - **Fauna and clouds are synced without traffic**: peers agree on a shared garden clock (a few request/response pings to the lowest peer id), and every butterfly, bee, bird, fish and cloud is a pure function of that clock and a seed. The only fauna message is "fish/butterfly/bee/bird N was caught"; birds and butterflies taking flight are worked out from the (synced) cat states.
 - Each cat broadcasts `[x, y, z, facing, act, seq, coat]` ~10×/s while something changes (20×/s mid-jump), otherwise once per second.
 - A garden holds 20 cats; later visitors are moved into `garden-2`, `garden-3`, …
+- **Fair play without a server** (`src/net/witness.ts`, `src/net/consensus.ts`, `src/game/Referee.ts`): every visitor checks every other cat against the rules: no faster than a dash (with leeway for network jitter), no more dashing than the cooldown allows, never inside a fence or a trunk, no higher than a jump, not floating. A rule broken is a strike; three within a minute and that visitor accuses the cat to everyone. A cat that most of the others accuse is ignored for the rest of the visit (its states, catches, votes and scoreboard entry are dropped). Catches are put to a vote too: each visitor says whether it saw that prey within the catcher's reach just then, and a catch only counts on the scoreboard with a strict majority (the catcher doesn't vote; a background tab abstains). Other cats' scores show only what checks out: the median of what the others vouch it had when it arrived, plus its confirmed catches since.
 
 ## Music
 
@@ -72,7 +75,8 @@ ffmpeg -i "birds.wav" -ac 1 -af volume=9dB -c:a libmp3lame -q:a 3 src/sounds/bir
 ```sh
 npm install
 npm run dev        # http://localhost:5173
-npm run build      # → dist/
+npm test           # unit tests (Vitest)
+npm run build      # typecheck, tests, → dist/
 node tools/preview.ts /tmp/preview   # render sprite sheets & garden to PNG
 ```
 

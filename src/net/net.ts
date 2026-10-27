@@ -3,7 +3,7 @@
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
 import type { Prey, CatMsg } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeVote, type VoteMsg } from './protocol.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 
 // unversioned until the site is released; after that, version it when the protocol changes
@@ -24,6 +24,8 @@ export interface NetEvents {
   /** Scoreboard news from another cat. */
   onBoard: (peerId: string, msg: BoardMsg) => void;
   onStatus: (garden: number, peers: number, settled: boolean) => void;
+  /** Another cat's verdict on a catch or on a cat (see consensus.ts). */
+  onVote: (peerId: string, msg: VoteMsg) => void;
 }
 
 export class Net {
@@ -31,6 +33,7 @@ export class Net {
   private send: ((msg: CatMsg, target?: string) => void) | null = null;
   private sendCatch: ((kind: Prey, id: number) => void) | null = null;
   private sendBoard: ((msg: BoardMsg, target?: string) => void) | null = null;
+  private sendVote: ((msg: VoteMsg) => void) | null = null;
   /** Peer clock minus our clock, in ms, measured once when a peer joins. */
   private offsets = new Map<string, number>();
   readonly id = selfId;
@@ -59,6 +62,10 @@ export class Net {
 
   board(msg: BoardMsg, target?: string): void {
     this.sendBoard?.(msg, target);
+  }
+
+  vote(msg: VoteMsg): void {
+    this.sendVote?.(msg);
   }
 
   /**
@@ -104,6 +111,12 @@ export class Net {
       const msg = sanitizeBoard(data);
       if (msg) this.ev.onBoard(peerId, msg);
     };
+    const vote = room.makeAction<VoteMsg>('vote');
+    this.sendVote = (msg) => void vote.send(msg).catch(() => {});
+    vote.onMessage = (data, { peerId }) => {
+      const msg = this.room === room ? sanitizeVote(data) : null;
+      if (msg) this.ev.onVote(peerId, msg);
+    };
     // clock sync: ask a new peer for its time, take the best of a few round trips
     const clock = room.makeAction<number, number>('clock', { kind: 'request', onRequest: () => Date.now() });
     const syncClock = async (peerId: string) => {
@@ -141,6 +154,7 @@ export class Net {
         this.send = null;
         this.sendCatch = null;
         this.sendBoard = null;
+        this.sendVote = null;
         this.offsets.clear();
         void room.leave();
         this.enter(garden + 1);

@@ -17,3 +17,19 @@ export function sanitizeCatch(d: unknown): [Prey, number] | null {
   const [kind, id] = d;
   return PREY_KINDS.has(kind) && Number.isInteger(id) ? [kind as Prey, id as number] : null;
 }
+
+/** A verdict on a catch ('c': catcher, kind, id, confirmed) or on a cat ('a': suspect, accused). */
+export type VoteMsg = ['c', string, Prey, number, boolean] | ['a', string, boolean];
+
+const PEER_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Accept only a well-formed vote about a plausible peer id. */
+export function sanitizeVote(d: unknown): VoteMsg | null {
+  if (!Array.isArray(d) || typeof d[1] !== 'string' || !PEER_ID.test(d[1])) return null;
+  if (d[0] === 'c' && d.length === 5 && typeof d[4] === 'boolean') {
+    const caught = sanitizeCatch([d[2], d[3]]);
+    return caught ? ['c', d[1], caught[0], caught[1], d[4]] : null;
+  }
+  if (d[0] === 'a' && d.length === 3 && typeof d[2] === 'boolean') return ['a', d[1], d[2]];
+  return null;
+}

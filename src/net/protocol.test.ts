@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Prey } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeVote } from './protocol.ts';
 
 describe('sanitizeCat', () => {
   it('accepts a well-formed state and truncates the integer fields', () => {
@@ -33,5 +33,24 @@ describe('sanitizeCatch', () => {
     ['an object', { kind: 0, id: 1 }],
   ])('rejects %s', (_, msg) => {
     expect(sanitizeCatch(msg)).toBeNull();
+  });
+});
+
+describe('sanitizeVote', () => {
+  it('accepts catch verdicts and accusations', () => {
+    expect(sanitizeVote(['c', 'peerAbc123', Prey.Bird, 12, true])).toEqual(['c', 'peerAbc123', Prey.Bird, 12, true]);
+    expect(sanitizeVote(['a', 'peerAbc123', false])).toEqual(['a', 'peerAbc123', false]);
+  });
+
+  it.each([
+    ['an unknown type', ['x', 'peer', true]],
+    ['a bad peer id', ['a', 'no spaces!', true]],
+    ['an overlong peer id', ['a', 'p'.repeat(65), true]],
+    ['a non-boolean verdict', ['a', 'peer', 1]],
+    ['an unknown prey kind', ['c', 'peer', 99, 1, true]],
+    ['a fractional prey id', ['c', 'peer', Prey.Fish, 1.5, true]],
+    ['extra fields', ['a', 'peer', true, 'more']],
+  ])('rejects %s', (_, msg) => {
+    expect(sanitizeVote(msg)).toBeNull();
   });
 });

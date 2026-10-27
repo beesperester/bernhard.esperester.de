@@ -19,6 +19,10 @@ const REACH_BELOW = 4, REACH_ABOVE = 16;
 const REMEMBER_CATCHES = 256;
 /** A garden clock jump bigger than this (ms) isn't treated as time passing. */
 const CLOCK_JUMP = 5000;
+/** Another cat's catch is believed if we saw the prey this recently (ms)... */
+const SEEN_MS = 1500;
+/** ...within its reach, give or take this much (px) for the lag in where we see the cat. */
+const LAG_PX = 32;
 
 const preyKey = (kind: Prey, id: number) => kind * 1e10 + id;
 
@@ -31,6 +35,8 @@ export class Ambient {
   private readonly fx: Effects;
   private readonly caught = new Set<number>();
   private prey: PreyRef[] = [];
+  /** Everything catchable seen lately, and when (local time), to check other cats' catches. */
+  private readonly recent = new Map<number, { p: PreyRef; t: number }>();
   private lastGt = -1;
 
   constructor(
@@ -50,6 +56,8 @@ export class Ambient {
     this.prey = [];
     const frame = { gt, prevGt: this.lastGt, now: this.scene.time.now, cats, prey: this.prey, view };
     for (const f of this.fauna) f.update(frame);
+    for (const p of this.prey) this.recent.set(preyKey(p.kind, p.id), { p, t: frame.now });
+    if (this.recent.size > 400) for (const [k, r] of this.recent) if (frame.now - r.t > SEEN_MS) this.recent.delete(k);
     this.fx.followCats(cats, frame.now);
     this.fx.update(dt);
     this.lastGt = gt;
@@ -74,6 +82,19 @@ export class Ambient {
       if (d < bestDist) { bestDist = d; best = p; }
     }
     return best;
+  }
+
+  /**
+   * Could a cat at (x, y), height z, have caught (kind, id)? Only if we saw it
+   * just now within that cat's reach (generously: we see other cats late).
+   */
+  sawWithinReach(kind: Prey, id: number, x: number, y: number, z: number): PreyRef | null {
+    const r = this.recent.get(preyKey(kind, id));
+    if (!r || this.scene.time.now - r.t > SEEN_MS || this.caught.has(preyKey(kind, id))) return null;
+    const { p } = r;
+    if (Math.abs(p.x - x) > TILE + 6 + LAG_PX || Math.abs(p.y - y) > TILE + 4 + LAG_PX) return null;
+    if (p.h - z < -REACH_BELOW - LAG_PX / 2 || p.h - z > REACH_ABOVE + LAG_PX / 2) return null;
+    return p;
   }
 
   /**
