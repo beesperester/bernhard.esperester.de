@@ -213,15 +213,20 @@ function png(rows: string[], elev: string[], path: string, px = 6): void {
 }
 
 // ---- main roads become paths, and the Ring a path all round; where they cross the water, footbridges
-const path = grid(false), bridge = grid(false);
-/** Lay a road along these tiles: a short crossing of water is a bridge; a road running along in the water (a bank) is left out there. */
-function road(cells: Pt[]): void {
+const path = grid(false);
+/** Where a road crossed the water: the middle of the crossing (the bridge is laid when the map is tidied). */
+const fords: Pt[] = [];
+/** Lay a road along these tiles. Where it crosses water it breaks off, and the crossing is noted; a road running along in the water (a bank) is left out there. */
+function road(cells: Pt[], isBridge = false): void {
+  // a bridge is a way of its own in OSM: it crosses the water wherever it is over it
+  const over = cells.filter(([x, y]) => water[y][x]);
+  if (isBridge && over.length) fords.push(over[over.length >> 1]);
   for (let i = 0; i < cells.length; ) {
     const [x, y] = cells[i];
     if (!water[y][x]) { path[y][x] = true; i++; continue; }
     let j = i;
     while (j < cells.length && water[cells[j][1]][cells[j][0]]) j++;
-    if (i > 0 && j < cells.length && j - i <= 4) for (let k = i; k < j; k++) bridge[cells[k][1]][cells[k][0]] = true;
+    if (i > 0 && j < cells.length && j - i <= 10) fords.push(cells[(i + j) >> 1]);
     i = j;
   }
 }
@@ -237,7 +242,7 @@ const cellsOf = (pts: Pt[], keep: (x: number, y: number) => boolean) => {
 for (const w of ways) {
   const t = w.tags ?? {};
   if (!/^(trunk|primary)$/.test(t.highway ?? '') || t.tunnel === 'yes' || Number(t.layer ?? 0) < 0) continue;
-  road(cellsOf(line(w.geometry!), (x, y) => !outside[y][x]));
+  road(cellsOf(line(w.geometry!), (x, y) => !outside[y][x]), t.bridge !== undefined && t.bridge !== 'no');
 }
 for (const g of ringWays) road(cellsOf(line(g), () => true));
 
@@ -265,7 +270,6 @@ const T = grid('.');
 const E = grid(0);
 for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
   if (x === 0 || y === 0 || x === W - 1 || y === H - 1) T[y][x] = 'F';
-  else if (bridge[y][x]) T[y][x] = 'B';
   else if (water[y][x]) T[y][x] = running[y][x] ? '~' : 'w';
   else if (path[y][x]) T[y][x] = 'p';
 }
@@ -287,6 +291,134 @@ const rectFree = (x0: number, y0: number, w: number, h: number, margin: number) 
   for (let y = y0 - margin; y < y0 + h + margin; y++) for (let x = x0 - margin; x < x0 + w + margin; x++) if (!open(x, y)) return false;
   return true;
 };
+
+// ---- tidying up: the raw OSM layout as tiles has specks of water, slivers of
+// land and bridges that zigzag or lead nowhere. Clean it before laying out the garden.
+{
+  const SIDES4: Pt[] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const wet = (x: number, y: number) => '~wB'.includes(at(x, y));
+  const edge = (x: number, y: number) => x <= 1 || y <= 1 || x >= W - 2 || y >= H - 2;
+  /** The 4-connected pieces of the map where `inside` holds. */
+  const pieces = (inside: (x: number, y: number) => boolean): Pt[][] => {
+    const seen = grid(false), out: Pt[][] = [];
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      if (seen[y][x] || !inside(x, y)) continue;
+      const all: Pt[] = [], q: Pt[] = [[x, y]];
+      seen[y][x] = true;
+      while (q.length) {
+        const [cx, cy] = q.pop()!;
+        all.push([cx, cy]);
+        for (const [dx, dy] of SIDES4) {
+          const nx = cx + dx, ny = cy + dy;
+          if (inMap(nx, ny) && !seen[ny][nx] && inside(nx, ny)) { seen[ny][nx] = true; q.push([nx, ny]); }
+        }
+      }
+      out.push(all);
+    }
+    return out;
+  };
+  /** What water a tile becomes when it is given back to the river. */
+  /** Water flows under a bridge running along (ax, ay): on both sides of every tile of it. */
+  // (a bridge one tile long is fine with land at both ends: a canal turning a corner)
+  // And it crosses the water the short way: the water runs on further under it than the bridge is long.
+  const across = (tiles: Pt[], ax: number, ay: number) => {
+    if (tiles.length === 1) return true;
+    if (!tiles.every(([x, y]) => wet(x + ay, y + ax) && wet(x - ay, y - ax))) return false;
+    const [mx, my] = tiles[tiles.length >> 1];
+    let run = 1;
+    for (const d of [1, -1]) for (let k = 1; k <= tiles.length && wet(mx + ay * d * k, my + ax * d * k); k++) run++;
+    return run > tiles.length;
+  };
+  const waterAt = (x: number, y: number) => (running[y][x] || SIDES4.some(([dx, dy]) => at(x + dx, y + dy) === '~') ? '~' : 'w');
+
+  // 1. specks and notches: still water with land on three sides is land, a spit of land
+  // with water on three sides is water, and a river's dead end (away from the edge) dries up
+  for (let pass = 0; pass < 3; pass++)
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const n = SIDES4.filter(([dx, dy]) => wet(x + dx, y + dy)).length;
+      const ch = T[y][x];
+      if (ch === 'w' && n <= 1) T[y][x] = '.';
+      else if (ch === '~' && n <= 1 && !edge(x, y)) T[y][x] = '.';
+      else if ((ch === '.' || ch === 'p') && n >= 3 && !edge(x, y)) T[y][x] = waterAt(x, y);
+    }
+  // ponds smaller than a few tiles are lawn; islands smaller than a few tiles go under
+  for (const p of pieces((x, y) => at(x, y) === 'w')) if (p.length < 8) for (const [x, y] of p) T[y][x] = '.';
+  for (const p of pieces((x, y) => !wet(x, y) && at(x, y) !== 'F'))
+    if (p.length < 10 && !p.some(([x, y]) => edge(x, y))) for (const [x, y] of p) T[y][x] = waterAt(x, y);
+
+  // 2. bridges: the shortest straight crossing near where each road crossed, from land to land
+  const laid: Pt[] = [];
+  for (const [cx, cy] of fords) {
+    // (two roads crossing at the same place: one bridge is enough)
+    if (laid.some(([lx, ly]) => Math.abs(lx - cx) + Math.abs(ly - cy) < 4)) continue;
+    let best: { tiles: Pt[]; ends: [Pt, Pt]; score: number } | null = null;
+    for (const [ax, ay] of [[0, 1], [1, 0]] as Pt[])
+      for (let off = -3; off <= 3; off++) {
+        // the line across, through the old bridge's middle shifted sideways
+        const ox = cx + ay * off, oy = cy + ax * off;
+        if (!wet(ox, oy)) continue;
+        let s = 0, e = 0;
+        while (s < 7 && wet(ox - ax * (s + 1), oy - ay * (s + 1))) s++;
+        while (e < 7 && wet(ox + ax * (e + 1), oy + ay * (e + 1))) e++;
+        const len = s + e + 1;
+        const a: Pt = [ox - ax * (s + 1), oy - ay * (s + 1)], z: Pt = [ox + ax * (e + 1), oy + ay * (e + 1)];
+        if (len > 5 || at(...a) === 'F' || at(...z) === 'F' || wet(...a) || wet(...z)) continue;
+        const span: Pt[] = [];
+        for (let i = -s; i <= e; i++) span.push([ox + ax * i, oy + ay * i]);
+        if (!across(span, ax, ay)) continue;
+        // land on both ends, and the banks either side of the bridge too (no bridge along a river)
+        const score = len + Math.abs(off) * 0.7 + (at(...a) === 'p' ? 0 : 0.5) + (at(...z) === 'p' ? 0 : 0.5);
+        if (!best || score < best.score) {
+          const tiles: Pt[] = [];
+          for (let i = -s; i <= e; i++) tiles.push([ox + ax * i, oy + ay * i]);
+          best = { tiles, ends: [a, z], score };
+        }
+      }
+    if (!best) continue;
+    for (const [x, y] of best.tiles) T[y][x] = 'B';
+    laid.push([cx, cy]);
+    // each end joins the nearest path on its bank (walking on land, a few tiles at most)
+    for (const end of best.ends) {
+      const from = new Map<number, number>([[end[1] * W + end[0], -1]]);
+      const q: Pt[] = [end];
+      let found = -1;
+      for (let i = 0; i < q.length && found < 0; i++) {
+        const [x, y] = q[i];
+        if (at(x, y) === 'p' && i > 0) { found = y * W + x; break; }
+        for (const [dx, dy] of SIDES4) {
+          const nx = x + dx, ny = y + dy, k = ny * W + nx;
+          if (from.has(k) || wet(nx, ny) || at(nx, ny) === 'F' || Math.abs(nx - end[0]) + Math.abs(ny - end[1]) > 8) continue;
+          from.set(k, y * W + x);
+          q.push([nx, ny]);
+        }
+      }
+      T[end[1]][end[0]] = 'p';
+      for (let k = found; k >= 0; k = from.get(k)!) T[Math.floor(k / W)][k % W] = 'p';
+    }
+  }
+
+  // a road that stops dead at the water carries on over it, if the other bank is close
+  for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
+    if (at(x, y) !== 'p' || SIDES4.filter(([dx, dy]) => 'pB'.includes(at(x + dx, y + dy))).length !== 1) continue;
+    if (laid.some(([lx, ly]) => Math.abs(lx - x) + Math.abs(ly - y) < 4)) continue;
+    for (const [dx, dy] of SIDES4) {
+      let k = 1;
+      while (k <= 5 && '~w'.includes(at(x + dx * k, y + dy * k))) k++;
+      const ex = x + dx * k, ey = y + dy * k;
+      if (k === 1 || k > 5 || wet(ex, ey) || at(ex, ey) === 'F') continue;
+      if (!across(Array.from({ length: k - 1 }, (_, i) => [x + dx * (i + 1), y + dy * (i + 1)] as Pt), Math.abs(dx), Math.abs(dy))) continue;
+      for (let i = 1; i < k; i++) T[y + dy * i][x + dx * i] = 'B';
+      T[ey][ex] = 'p';
+      laid.push([x, y]);
+      break;
+    }
+  }
+
+  // 3. path crumbs: bits of path cut off on their own, a few tiles long, are lawn
+  for (const p of pieces((x, y) => at(x, y) === 'p' || at(x, y) === 'B'))
+    if (p.length < 5) for (const [x, y] of p) T[y][x] = at(x, y) === 'B' ? waterAt(x, y) : '.';
+  console.log(`${laid.length} bridges for ${fords.length} crossings`);
+}
 
 // the maze, in the Tiergarten: a hedge labyrinth with the fountain in the middle
 const MAZE_W = 17, MAZE_H = 13;
@@ -329,7 +461,7 @@ for (const [lat, lon, w, h] of [[52.4875, 13.381, 5, 3], [52.5329, 13.4, 4, 3], 
   const [px, py] = spot;
   for (let y = py; y < py + h; y++) for (let x = px; x < px + w; x++) {
     const corner = (x === px || x === px + w - 1) && (y === py || y === py + h - 1);
-    if (!corner || h > 3) T[y][x] = hash(x, y, 31) < 0.18 ? 'l' : 'w';
+    if (!corner || h < 4) T[y][x] = hash(x, y, 31) < 0.18 ? 'l' : 'w';
   }
 }
 // lily pads on the lakes too
