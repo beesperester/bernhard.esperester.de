@@ -27,6 +27,7 @@ describe('the landmark follies', () => {
     expect(highest('oberbaum')).toBe(14);
     expect(highest('reichstag')).toBe(30);
     expect(highest('victory')).toBe(30);
+    expect(highest('schloss')).toBe(26);
   });
 
   it('keep their towers out of reach', () => {

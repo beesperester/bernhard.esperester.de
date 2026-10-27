@@ -22,6 +22,7 @@ const TONES: Record<Material, Tone> = {
   white: tone('#4a4a48', '#b8b6ae', '#d8d6ce', '#ecebe4', '#faf9f4'),
   paint: tone('#3a3a3a', '#8c8c88', '#a8a8a2', '#c4c4be', '#dcdcd6'),
   iron: tone('#141418', '#2a2a30', '#3c3c44', '#56565e', '#74747c'),
+  ochre: tone('#4a3418', '#b08440', '#cca056', '#e0bc72', '#f0d494'),
 };
 const MOSS = [hex('#4c7a34'), hex('#6a9640'), hex('#8ab050')];
 const IVY = [hex('#2e5a26'), hex('#3e7430'), hex('#5a9438')];
@@ -196,6 +197,25 @@ function details(kind: LandmarkKind, r: Raster, ox: number, oy: number): void {
     // the band of windows round the ball
     const [bx, by] = at(16, 22, 54);
     for (let dx = -8; dx <= 8; dx++) r.set(bx + dx, by, dx % 2 ? TONES.iron.b : TONES.iron.l);
+  }
+  if (kind === 'schloss') {
+    // tall white-framed windows along every front, and the doorway in the middle
+    const windows = (x0: number, x1: number, y: number, top: number) => {
+      for (let wx = x0; wx + 3 <= x1; wx += 6)
+        for (const z of [3, 9, 15, 21]) {
+          if (z + 5 > top) break;
+          const [x, yy] = at(wx, y, z + 5);
+          r.rect(x - 1, yy - 1, 5, 7, TONES.white.l);
+          r.rect(x, yy, 3, 5, TONES.iron.b);
+          r.set(x, yy, TONES.iron.l);
+        }
+    };
+    windows(5, 34, 25, 16);
+    windows(65, 94, 25, 7);
+    windows(37, 62, 27, 26);
+    const [dx, dy] = at(45, 27, 9);
+    r.rect(dx - 1, dy - 1, 8, 10, TONES.white.l);
+    r.rect(dx, dy, 6, 9, TONES.iron.o);
   }
   if (kind === 'oberbaum') {
     // its arches, dark under the deck

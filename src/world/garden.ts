@@ -312,6 +312,7 @@ export const LANDMARK_SPOTS: { kind: LandmarkKind; tx: number; ty: number }[] = 
   { kind: 'wall', tx: 94, ty: 45 },
   { kind: 'checkpoint', tx: 65, ty: 44 },
   { kind: 'oberbaum', tx: 95, ty: 51 },
+  { kind: 'schloss', tx: 7, ty: 32 },
 ];
 
 /** The Spree and the canals, the way they flow: world px, x, y, x, y, ... */

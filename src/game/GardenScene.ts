@@ -488,7 +488,7 @@ export class GardenScene extends Phaser.Scene {
     catLight.rimColour = this.rims.colour;
     catLight.night = light.night;
     this.ambient.update(gt, dt, cats, view);
-    this.weather.update(gt, time, dt, cats, view);
+    this.weather.update(gt, time, dt, cats, view, light);
     this.streams.update(gt, light.night, view);
     this.landmarks.update(time, this.cameras.main.zoom);
     this.puddles.update(gt, time, dt, cats, view);

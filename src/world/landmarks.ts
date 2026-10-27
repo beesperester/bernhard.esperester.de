@@ -9,7 +9,7 @@
 // are what cats bump into and stand on, and what gets drawn, so a ledge
 // that looks reachable is.
 
-export type LandmarkKind = 'tvtower' | 'gate' | 'reichstag' | 'victory' | 'dom' | 'rathaus' | 'church' | 'wall' | 'checkpoint' | 'oberbaum';
+export type LandmarkKind = 'tvtower' | 'gate' | 'reichstag' | 'victory' | 'dom' | 'rathaus' | 'church' | 'wall' | 'checkpoint' | 'oberbaum' | 'schloss';
 
 export interface LandmarkInfo {
   /** Its name, shown on a plaque when a cat comes by. */
@@ -30,16 +30,17 @@ export const LANDMARKS: Record<LandmarkKind, LandmarkInfo> = {
   wall: { name: 'East Side Gallery', lat: 52.505, lon: 13.4397 },
   checkpoint: { name: 'Checkpoint Charlie', lat: 52.5075, lon: 13.3904 },
   oberbaum: { name: 'Oberbaumbrücke', lat: 52.5019, lon: 13.4458 },
+  schloss: { name: 'Schloss Charlottenburg', lat: 52.5208, lon: 13.2957 },
 };
 
 /** Tiles each one takes up, across and deep. */
 export const LANDMARK_SIZE: Record<LandmarkKind, [number, number]> = {
   tvtower: [2, 2], gate: [4, 1], reichstag: [4, 2], victory: [2, 2], dom: [3, 2], rathaus: [3, 2],
-  church: [2, 2], wall: [5, 1], checkpoint: [2, 1], oberbaum: [3, 1],
+  church: [2, 2], wall: [5, 1], checkpoint: [2, 1], oberbaum: [3, 1], schloss: [6, 2],
 };
 
 /** What a shape is made of (art/landmarks.ts has the colours). */
-export type Material = 'stone' | 'dark' | 'brick' | 'bronze' | 'gold' | 'white' | 'paint' | 'iron';
+export type Material = 'stone' | 'dark' | 'brick' | 'bronze' | 'gold' | 'white' | 'paint' | 'iron' | 'ochre';
 
 interface Common {
   mat: Material;
@@ -173,6 +174,19 @@ export const LANDMARK_SHAPES: Record<LandmarkKind, Shape[]> = {
     { box: [15, 3, 21, 11], z: [0, 33], mat: 'brick', ragged: 2 },
     { box: [27, 3, 33, 11], z: [0, 33], mat: 'brick', ragged: 2 },
   ],
+  // the long ochre palace: up the front terrace, onto the east wing (fallen low) or the west wing
+  // (ivy all down it), and from the west wing onto the middle block; the green dome with golden
+  // Fortuna on top stays out of reach
+  schloss: [
+    { box: [0, 24, 96, 32], z: [0, 5], mat: 'stone' },
+    { box: [2, 9, 34, 25], z: [0, 16], mat: 'ochre', ivy: true },
+    { box: [62, 9, 94, 25], z: [0, 11], mat: 'ochre', ragged: 4 },
+    { box: [34, 5, 62, 27], z: [0, 26], mat: 'ochre' },
+    { cyl: [48, 15, 7], z: [26, 32], mat: 'white', solid: false },
+    { dome: [48, 15, 7], z: [32, 42], mat: 'bronze', solid: false },
+    { cyl: [48, 15, 1], z: [42, 50], mat: 'gold', solid: false },
+    ...rubble(13, 70, 26, 95, 32, 3, 'ochre'),
+  ],
 };
 
 /** Where a shape is on the screen, from the top-left of its tiles: x0, y0, x1, y1 (px). */
@@ -218,5 +232,5 @@ export const LANDMARK_SOLIDS = Object.fromEntries(
 
 /** How deep each one is, front to back, for its sun shadow (px either side), or round. */
 export const LANDMARK_DEPTH: Record<LandmarkKind, number | 'round'> = {
-  tvtower: 'round', gate: 3, reichstag: 11, victory: 'round', dom: 'round', rathaus: 9, church: 9, wall: 3, checkpoint: 5, oberbaum: 4,
+  tvtower: 'round', gate: 3, reichstag: 11, victory: 'round', dom: 'round', rathaus: 9, church: 9, wall: 3, checkpoint: 5, oberbaum: 4, schloss: 9,
 };
