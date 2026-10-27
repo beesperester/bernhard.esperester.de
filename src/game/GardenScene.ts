@@ -381,14 +381,16 @@ export class GardenScene extends Phaser.Scene {
     const view = this.cameras.main.worldView;
     cullerFor(this).update(view);
     this.meadow.update(gt, cats, view);
-    // the ripple is slow, so reflections only need redrawing about 30 times a second
-    if (time >= this.nextReflection) {
-      this.nextReflection = time + REFLECTION_MS;
-      for (const pond of this.ponds) {
-        const b = pond.box;
-        // (and those just off screen, so they're ready when the camera gets there)
-        if (b.x < view.right + 48 && b.x + b.w > view.x - 48 && b.y < view.bottom + 48 && b.y + b.h > view.y - 48) pond.update(time, cats);
-      }
+    // the ripple is slow, so trees' reflections only need redrawing about 30 times a second;
+    // cats move, so theirs are redrawn every frame (only where one is near the water)
+    const reflectTrees = time >= this.nextReflection;
+    if (reflectTrees) this.nextReflection = time + REFLECTION_MS;
+    for (const pond of this.ponds) {
+      const b = pond.box;
+      // (on screen, and just off it, so they're ready when the camera gets there)
+      if (b.x >= view.right + 48 || b.x + b.w <= view.x - 48 || b.y >= view.bottom + 48 || b.y + b.h <= view.y - 48) continue;
+      if (reflectTrees) pond.update(time);
+      pond.updateCats(time, cats);
     }
     this.daylight.update(gt);
     const light = this.daylight.light;
