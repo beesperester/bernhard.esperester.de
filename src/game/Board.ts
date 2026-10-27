@@ -9,9 +9,10 @@
 // arrived (the median of what they report), plus the catches the garden has
 // confirmed since (see net/consensus.ts).
 //
-// The cats here also remember where a cat was when it left. Should it come
-// back (a reload, a dropped connection) while one of them is still around, it
-// is told, and carries on from there instead of somewhere at random.
+// The cats here also remember where a cat was when it left, and pass that on
+// to cats arriving later, like the scores. Should it come back (a reload, a
+// dropped connection) while any of them is still around, even one that never
+// met it, it is told, and carries on from there instead of somewhere at random.
 
 // (type aliases rather than interfaces, so they count as plain JSON for sending)
 export type Entry = {
@@ -144,9 +145,16 @@ export class Board {
     this.changed();
   }
 
-  /** Tell a newcomer everything we know (other cats' scores as far as they check out). */
+  /** Tell a newcomer everything we know (other cats' scores as far as they check out, and where the absent ones were). */
   greet(peerId: string): void {
-    this.send({ me: this.me, all: [...this.entries.values()].map((e) => ({ ...e, score: this.scoreOf(e) })) }, peerId);
+    const all = [...this.entries.values()].map((e) => ({ ...e, score: this.scoreOf(e) }));
+    this.send({ me: this.me, all, ...(this.left.size ? { left: [...this.left] } : {}) }, peerId);
+  }
+
+  private rememberLeft(id: string, pose: Pose): void {
+    this.left.delete(id);
+    this.left.set(id, pose);
+    if (this.left.size > REMEMBER_LEFT) this.left.delete(this.left.keys().next().value!);
   }
 
   /** A peer left; `pose` is where its cat was last seen. */
@@ -158,11 +166,7 @@ export class Board {
       // we vouch for what it had when it left, should it come back, and remember where it was
       this.report(id, this.id, this.scoreOf(this.entries.get(id)!));
       this.earned.delete(id);
-      if (pose) {
-        this.left.delete(id);
-        this.left.set(id, pose);
-        if (this.left.size > REMEMBER_LEFT) this.left.delete(this.left.keys().next().value!);
-      }
+      if (pose) this.rememberLeft(id, pose);
     }
     this.changed();
   }
@@ -216,6 +220,13 @@ export class Board {
     }
     // (and the other way round: we are the one coming back)
     if (msg.back) this.onBack?.(msg.back);
+    // where the cats it knows of were when they left: news of us is news of where we were;
+    // of others, kept to pass on (what we saw for ourselves comes first)
+    const here = new Set(this.peers.values());
+    for (const [id, p] of msg.left ?? []) {
+      if (id === this.id) this.onBack?.(p);
+      else if (!here.has(id) && !this.left.has(id)) this.rememberLeft(id, p);
+    }
     const unclaimed = this.unclaimed.get(peerId);
     if (unclaimed !== undefined) {
       this.unclaimed.delete(peerId);
@@ -252,7 +263,7 @@ export class Board {
   }
 }
 
-export type BoardMsg = { me: Entry; all?: Entry[]; back?: Pose };
+export type BoardMsg = { me: Entry; all?: Entry[]; back?: Pose; left?: [string, Pose][] };
 
 /** The middle value (0 for none): one or two liars among the reporters can't move it far. */
 function median(values: number[]): number {
@@ -277,11 +288,11 @@ function saveName(e: Entry): void {
 /** Peers are untrusted: accept only a well-formed message. */
 export function sanitizeBoard(d: unknown): BoardMsg | null {
   if (!d || typeof d !== 'object') return null;
-  const { me, all, back } = d as Record<string, unknown>;
+  const { me, all, back, left } = d as Record<string, unknown>;
   const entry = (e: unknown): Entry | null => {
     if (!e || typeof e !== 'object') return null;
     const { id, name, coat, score, custom, v } = e as Record<string, unknown>;
-    if (typeof id !== 'string' || !/^[a-z0-9]{8,24}$/.test(id)) return null;
+    if (typeof id !== 'string' || !CAT_ID.test(id)) return null;
     if (typeof name !== 'string' || !name.trim() || name.length > NAME_MAX) return null;
     if (!Number.isInteger(coat) || (coat as number) < 0 || (coat as number) >= COATS.length) return null;
     if (!Number.isInteger(score) || (score as number) < 0 || !Number.isInteger(v) || typeof custom !== 'boolean') return null;
@@ -290,13 +301,25 @@ export function sanitizeBoard(d: unknown): BoardMsg | null {
   const mine = entry(me);
   if (!mine) return null;
   if (back !== undefined) {
-    if (!Array.isArray(back) || back.length !== 4 || !back.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
-    const [x, y, z, facing] = back as number[];
-    if (x < 0 || y < 0 || x > WORLD_W || y > WORLD_H || z < 0 || z > 200) return null;
-    return { me: mine, back: [x, y, z, facing | 0] };
+    const p = pose(back);
+    return p ? { me: mine, back: p } : null;
   }
   if (all === undefined) return { me: mine };
   if (!Array.isArray(all) || all.length > 256) return null;
   const list = all.map(entry);
-  return list.every((e) => e) ? { me: mine, all: list as Entry[] } : null;
+  if (!list.every((e) => e)) return null;
+  if (left === undefined) return { me: mine, all: list as Entry[] };
+  if (!Array.isArray(left) || left.length > REMEMBER_LEFT) return null;
+  const gone = left.map((g) => (Array.isArray(g) && g.length === 2 && typeof g[0] === 'string' && CAT_ID.test(g[0]) && pose(g[1]) ? [g[0], pose(g[1])!] as [string, Pose] : null));
+  return gone.every((g) => g) ? { me: mine, all: list as Entry[], left: gone as [string, Pose][] } : null;
+}
+
+const CAT_ID = /^[a-z0-9]{8,24}$/;
+
+/** A position somewhere in the garden: four numbers, inside it. */
+function pose(d: unknown): Pose | null {
+  if (!Array.isArray(d) || d.length !== 4 || !d.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
+  const [x, y, z, facing] = d as number[];
+  if (x < 0 || y < 0 || x > WORLD_W || y > WORLD_H || z < 0 || z > 200) return null;
+  return [x, y, z, facing | 0];
 }

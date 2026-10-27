@@ -33,6 +33,13 @@ describe('sanitizeBoard', () => {
     expect(sanitizeBoard({ me: entry(), back: [10, 20, 'up', 2] })).toBeNull();
   });
 
+  it('accepts where absent cats were only as cat ids with positions in the garden', () => {
+    expect(sanitizeBoard({ me: entry(), all: [], left: [['zzzzzzzz99', [1, 2, 0, 0]]] })?.left).toEqual([['zzzzzzzz99', [1, 2, 0, 0]]]);
+    expect(sanitizeBoard({ me: entry(), all: [], left: [['NO!', [1, 2, 0, 0]]] })).toBeNull();
+    expect(sanitizeBoard({ me: entry(), all: [], left: [['zzzzzzzz99', [1, 2]]] })).toBeNull();
+    expect(sanitizeBoard({ me: entry(), all: [], left: 'everywhere' })).toBeNull();
+  });
+
   it('rejects a board with any bad entry, or too many entries', () => {
     expect(sanitizeBoard({ me: entry(), all: [entry(), { nope: 1 }] })).toBeNull();
     expect(sanitizeBoard({ me: entry(), all: Array.from({ length: 300 }, () => entry()) })).toBeNull();
@@ -118,6 +125,30 @@ describe('Board', () => {
     sent = [];
     board.receive('peer-9', { me: entry({ id: 'honest0001', v: 2 }) });
     expect(sent).toEqual([]);
+  });
+
+  it('passes on where an absent cat was, so a cat that never met it can tell it', () => {
+    // A plays, B arrives, A leaves: B remembers where A was
+    const toC: { msg: BoardMsg; target?: string }[] = [];
+    const b = new Board(1, (msg, target) => target === 'peer-c' && toC.push({ msg, target }), () => {});
+    b.receive('peer-a', { me: entry({ id: 'catacat001' }) });
+    b.leave('peer-a', [200, 300, 0, 2]);
+    // C arrives and B greets it; then B leaves
+    b.greet('peer-c');
+    const c = new Board(2, (msg, target) => sent.push({ msg, target }), () => {});
+    for (const { msg } of toC) c.receive('peer-b', sanitizeBoard(JSON.parse(JSON.stringify(msg)))!);
+    c.leave('peer-b', [10, 10, 0, 0]);
+    // A comes back: C tells it where it was
+    sent = [];
+    c.receive('peer-a2', { me: entry({ id: 'catacat001' }) });
+    expect(sent).toContainEqual({ msg: { me: c.me, back: [200, 300, 0, 2] }, target: 'peer-a2' });
+  });
+
+  it('hears where it was from a greeting listing it among the absent', () => {
+    const backs: unknown[] = [];
+    board.onBack = (pose) => backs.push(pose);
+    board.receive('peer-1', { me: entry(), all: [], left: [[board.id, [70, 80, 0, 1]]] });
+    expect(backs).toEqual([[70, 80, 0, 1]]);
   });
 
   it('hears where our own cat was before a reload', () => {
