@@ -23,6 +23,8 @@ const SURFACE_DEPTH = -99994.5;
 const FRAME_MS = 90;
 /** At most this long (ms) a frame spends redrawing water. */
 const BUDGET_MS = 4;
+/** Water this far (px) outside the view is drawn too, so it's ready when the camera gets there. */
+const MARGIN = 48;
 
 const DAY_SKY = { zenith: hex('#4f8ede'), horizon: hex('#bfe0f7'), cloud: hex('#f6f9fd') };
 const DUSK_SKY = { zenith: hex('#5f6fb4'), horizon: hex('#f4b384'), cloud: hex('#f8d2b4') };
@@ -35,7 +37,11 @@ const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] 
 
 export class WaterSurface {
   /** The water cut into patches, each with its picture, how clear it is where, and when it was last redrawn. */
-  private readonly patches: { box: Box; tex: Phaser.Textures.CanvasTexture; img: ImageData; clear: Float32Array; wet: Uint8Array; drawn: number }[] = [];
+  private readonly patches: {
+    box: Box; tex: Phaser.Textures.CanvasTexture; img: ImageData; clear: Float32Array; wet: Uint8Array; drawn: number;
+    /** The part of the patch last drawn, in its own px: [x0, y0, x1, y1]. */
+    done: [number, number, number, number];
+  }[] = [];
   private readonly px = [0, 0, 0, 0];
 
   constructor(scene: Phaser.Scene, boxes: Box[], mask: Raster) {
@@ -57,30 +63,36 @@ export class WaterSurface {
           clear[y * box.w + x] = clarity(d);
         }
       cullerFor(scene).add(scene.add.image(box.x, box.y, key).setOrigin(0).setDepth(SURFACE_DEPTH));
-      this.patches.push({ box, tex, img: tex.getContext().createImageData(box.w, box.h), clear, wet, drawn: -Infinity });
+      this.patches.push({ box, tex, img: tex.getContext().createImageData(box.w, box.h), clear, wet, drawn: -Infinity, done: [0, 0, 0, 0] });
     });
   }
 
   /** `overcast` (0..1) greys the sky and roughens the water; `driftX/Y` move the mirrored clouds with the wind. */
   update(light: Light, gt: number, time: number, overcast: number, view: Phaser.Geom.Rectangle): void {
-    // the patches on screen that are due, the longest-waiting first
-    const due = this.patches
-      .filter(({ box, drawn }) => time - drawn >= FRAME_MS && box.x <= view.right && box.x + box.w >= view.x && box.y <= view.bottom && box.y + box.h >= view.y)
-      .sort((a, b) => a.drawn - b.drawn);
-    if (!due.length) return;
+    // what to draw: the view and a margin round it
+    const ax = view.x - MARGIN, ay = view.y - MARGIN, bx = view.right + MARGIN, by = view.bottom + MARGIN;
+    const area = (box: Box): [number, number, number, number] => [
+      Math.max(0, Math.floor(ax - box.x)), Math.max(0, Math.floor(ay - box.y)),
+      Math.min(box.w, Math.ceil(bx - box.x)), Math.min(box.h, Math.ceil(by - box.y)),
+    ];
+    // a patch the camera has moved onto past what it last drew can't wait: it would show a hole
+    const behind = ({ box, done }: (typeof this.patches)[number]) =>
+      view.x - box.x < done[0] || view.y - box.y < done[1] || view.right - box.x > done[2] || view.bottom - box.y > done[3];
+    const near = this.patches.filter(({ box }) => box.x <= bx && box.x + box.w >= ax && box.y <= by && box.y + box.h >= ay);
+    const urgent = near.filter((p) => behind(p) && p.box.x <= view.right && p.box.x + p.box.w >= view.x && p.box.y <= view.bottom && p.box.y + p.box.h >= view.y);
+    const due = near.filter((p) => !urgent.includes(p) && time - p.drawn >= FRAME_MS).sort((a, b) => a.drawn - b.drawn);
+    if (!urgent.length && !due.length) return;
     const sky = this.skyFor(light, gt, overcast);
     const murk = mix(MURK_NIGHT, MURK, light.day);
     const t = gt / 1000, px = this.px;
-    // a few each frame, so a big lake doesn't stall one frame in every few
+    // the urgent ones now, then the rest a few each frame, so a big lake doesn't stall one frame in every few
     const start = performance.now();
-    for (const p of due) {
-      if (performance.now() - start > BUDGET_MS) break;
+    for (const p of [...urgent, ...due]) {
+      if (!urgent.includes(p) && performance.now() - start > BUDGET_MS) break;
       p.drawn = time;
       const { box, img, clear, wet } = p;
       const d = img.data;
-      // only the part on screen
-      const x0 = Math.max(0, Math.floor(view.x - box.x)), x1 = Math.min(box.w, Math.ceil(view.right - box.x));
-      const y0 = Math.max(0, Math.floor(view.y - box.y)), y1 = Math.min(box.h, Math.ceil(view.bottom - box.y));
+      const [x0, y0, x1, y1] = (p.done = area(box));
       for (let y = y0; y < y1; y++)
         for (let x = x0; x < x1; x++) {
           const i = y * box.w + x;

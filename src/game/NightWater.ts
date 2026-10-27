@@ -56,7 +56,8 @@ export class NightWater {
     const t = time / 1000;
     for (const p of this.pools) {
       const { box, tex, mask, stars } = p;
-      if (box.x > view.right || box.x + box.w < view.x || box.y > view.bottom || box.y + box.h < view.y) continue;
+      // on screen or just off it (so it's ready when the camera gets there)
+      if (box.x > view.right + 48 || box.x + box.w < view.x - 48 || box.y > view.bottom + 48 || box.y + box.h < view.y - 48) continue;
       const g = tex.getContext();
       g.globalCompositeOperation = 'source-over';
       g.clearRect(0, 0, box.w, box.h);

@@ -386,7 +386,8 @@ export class GardenScene extends Phaser.Scene {
       this.nextReflection = time + REFLECTION_MS;
       for (const pond of this.ponds) {
         const b = pond.box;
-        if (b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y) pond.update(time, cats);
+        // (and those just off screen, so they're ready when the camera gets there)
+        if (b.x < view.right + 48 && b.x + b.w > view.x - 48 && b.y < view.bottom + 48 && b.y + b.h > view.y - 48) pond.update(time, cats);
       }
     }
     this.daylight.update(gt);
