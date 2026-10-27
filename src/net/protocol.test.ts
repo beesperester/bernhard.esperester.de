@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Prey } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeShake, sanitizeVote } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeShake, sanitizeVote, sanitizeWorld } from './protocol.ts';
 
 describe('sanitizeCat', () => {
   it('accepts a well-formed state and truncates the integer fields', () => {
@@ -68,5 +68,18 @@ describe('sanitizeShake', () => {
     ['strings', ['3', '1700000000000']],
   ])('rejects %s', (_, d) => {
     expect(sanitizeShake(d, 10)).toBeNull();
+  });
+});
+
+describe('sanitizeWorld', () => {
+  it('accepts recent catches and shaken trees', () => {
+    expect(sanitizeWorld({ caught: [[Prey.Fish, 12]], shakes: [[3, 5000]] }, 10)).toEqual({ caught: [[Prey.Fish, 12]], shakes: [[3, 5000]] });
+  });
+
+  it('rejects anything malformed or endless', () => {
+    expect(sanitizeWorld({ caught: [[999, 1]], shakes: [] }, 10)).toBeNull();
+    expect(sanitizeWorld({ caught: [], shakes: [[10, 5000]] }, 10)).toBeNull();
+    expect(sanitizeWorld({ caught: Array.from({ length: 600 }, () => [Prey.Fish, 1]), shakes: [] }, 10)).toBeNull();
+    expect(sanitizeWorld({ caught: [] }, 10)).toBeNull();
   });
 });

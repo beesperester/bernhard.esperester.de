@@ -35,7 +35,8 @@ export class Ambient {
   private readonly keepers = new Map<Prey, Fauna>();
   /** Splashes, ripples and other short effects, shared with the rest of the garden. */
   readonly fx: Effects;
-  private readonly caught = new Set<number>();
+  /** Prey that has been caught, by key: what it was, to tell cats arriving later. */
+  private readonly caught = new Map<number, [Prey, number]>();
   private prey: PreyRef[] = [];
   /** Everything catchable seen lately, and when (local time), to check other cats' catches. */
   private readonly recent = new Map<number, { p: PreyRef; t: number }>();
@@ -67,8 +68,26 @@ export class Ambient {
   }
 
   /** A cat pawed at tree `tree` at garden time gt: maybe a nut or a fruit falls (and a squirrel comes for it). */
-  shakeTree(tree: number, gt: number): boolean {
-    return this.squirrels.shake(tree, gt);
+  shakeTree(tree: number, gt: number, quiet = false): boolean {
+    return this.squirrels.shake(tree, gt, quiet);
+  }
+
+  /** What a cat arriving now should know of the garden: the prey caught lately and the fruit shaken down. */
+  memory(gt: number): { caught: [Prey, number][]; shakes: [number, number][] } {
+    return { caught: [...this.caught.values()], shakes: this.squirrels.shakes(gt) };
+  }
+
+  /** Take in what the cats already here tell us (prey gone, fruit lying about), without fuss. */
+  recall(caught: [Prey, number][], shakes: [number, number][]): void {
+    for (const [kind, id] of caught) this.remember(kind, id);
+    for (const [tree, gt] of shakes) this.squirrels.shake(tree, gt, true);
+  }
+
+  private remember(kind: Prey, id: number): void {
+    const key = preyKey(kind, id);
+    if (this.caught.has(key)) return;
+    this.caught.set(key, [kind, id]);
+    if (this.caught.size > REMEMBER_CATCHES) this.caught.delete(this.caught.keys().next().value!);
   }
 
   /** A bird sitting in a tree near (x, y), for birdsong. */
@@ -114,8 +133,7 @@ export class Ambient {
   catchPrey(kind: Prey, id: number, cat: CatView): void {
     const key = preyKey(kind, id);
     if (this.caught.has(key)) return;
-    this.caught.add(key);
-    if (this.caught.size > REMEMBER_CATCHES) this.caught.delete(this.caught.values().next().value!);
+    this.remember(kind, id);
     const p = this.prey.find((v) => v.kind === kind && v.id === id);
     if (!p) return;
     this.keepers.get(kind)?.onCatch?.(p, cat, this.lastGt);

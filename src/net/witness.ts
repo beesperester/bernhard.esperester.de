@@ -23,6 +23,13 @@ export const JITTER_PX = 72;
  */
 export const WINDOW_MS = 10000;
 export const WINDOW_PX = 1.25 * ((DASH_MS / 1000) * DASH_SPEED + ((WINDOW_MS - DASH_MS) / 1000) * WALK_SPEED + DASH_SPEED / ICE_GLIDE);
+/**
+ * A cat coming back (after a reload) is put back where it was by the cats that
+ * remember it, a moment after it showed up at a random spot: one jump in its
+ * first RESUME_MS is no teleport. (Anyone could reload to land somewhere else
+ * anyway; this only lets the garden choose where.)
+ */
+export const RESUME_MS = 15000;
 /** Rounding and jitter allowance for heights (px). */
 const HEIGHT_SLACK = 4;
 
@@ -39,6 +46,9 @@ export class MoveWitness {
   private trail: { t: number; d: number }[] = [];
   /** Height of the last ground it stood on, for how high a jump can go. */
   private footing = 0;
+  /** When it was first seen, and whether it has had its jump back to where it was. */
+  private since = -1;
+  private resumed = false;
 
   /**
    * A new state from this cat, received at local time `t` (ms). Returns what
@@ -63,13 +73,22 @@ export class MoveWitness {
     if (act !== Act.Jump && ground < WALL && Math.abs(z - ground) > HEIGHT_SLACK) return 'floating';
 
     const last = this.last;
-    if (!last) return null;
+    if (!last) {
+      this.since = t;
+      return null;
+    }
     const dt = Math.max(0, t - last.t) / 1000;
     const d = Math.hypot(x - last.x, y - last.y);
     // speed: a leaky bucket, so bunched-up messages don't look like a sprint
     const allowed = this.credit + TOP_SPEED * dt;
     const over = d > allowed;
     this.credit = Math.min(JITTER_PX, Math.max(0, allowed - d));
+    if (over && !this.resumed && t - this.since < RESUME_MS) {
+      this.resumed = true;
+      this.credit = JITTER_PX;
+      this.trail = [];
+      return null;
+    }
     if (over) return 'too-fast';
     // stamina: dashing all the time isn't possible either
     this.trail.push({ t, d });

@@ -4,18 +4,27 @@ import { Music } from './audio/music.ts';
 import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
 import { setupFullscreen } from './ui/fullscreen.ts';
+import { loading } from './ui/loading.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
 import '@fontsource/pixelify-sans/latin-ext-400.css';
 import '@fontsource/pixelify-sans/latin-700.css';
 import '@fontsource/pixelify-sans/latin-ext-700.css';
 
 applyPixelUI();
+loading(0.15, 600);
 // text drawn into the game (names, scores) needs the font ready; don't wait forever for it
 await Promise.race([
   Promise.all([document.fonts.load('16px "Pixelify Sans"'), document.fonts.load('bold 16px "Pixelify Sans"')]),
   new Promise((r) => setTimeout(r, 2000)),
 ]).catch(() => {});
 
+// building the garden takes a moment and keeps the page busy: let the bar creep along meanwhile
+loading(0.6, 3000);
+// (after the bar is on screen; a tab opened in the background draws nothing, so don't wait for that)
+await new Promise((r) => {
+  requestAnimationFrame(() => requestAnimationFrame(r));
+  setTimeout(r, 100);
+});
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',

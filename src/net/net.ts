@@ -3,7 +3,7 @@
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
 import type { Prey, CatMsg } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeShake, sanitizeVote, type VoteMsg } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeShake, sanitizeVote, sanitizeWorld, type VoteMsg, type WorldMsg } from './protocol.ts';
 import { TREES } from '../world/trees.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 
@@ -24,6 +24,8 @@ export interface NetEvents {
   onLeave: (peerId: string) => void;
   /** Someone new in the garden. */
   onJoin: (peerId: string) => void;
+  /** What a cat already here knows of the garden (sent to us as we arrive). */
+  onWorld: (peerId: string, msg: WorldMsg) => void;
   /** Scoreboard news from another cat. */
   onBoard: (peerId: string, msg: BoardMsg) => void;
   onStatus: (garden: number, peers: number, settled: boolean) => void;
@@ -38,6 +40,7 @@ export class Net {
   private sendShake: ((tree: number, gt: number) => void) | null = null;
   private sendBoard: ((msg: BoardMsg, target?: string) => void) | null = null;
   private sendVote: ((msg: VoteMsg) => void) | null = null;
+  private sendWorld: ((msg: WorldMsg, target: string) => void) | null = null;
   /** Peer clock minus our clock, in ms, measured once when a peer joins. */
   private offsets = new Map<string, number>();
   readonly id = selfId;
@@ -70,6 +73,11 @@ export class Net {
 
   board(msg: BoardMsg, target?: string): void {
     this.sendBoard?.(msg, target);
+  }
+
+  /** Tell a cat that just arrived what we know of the garden. */
+  world(msg: WorldMsg, target: string): void {
+    this.sendWorld?.(msg, target);
   }
 
   vote(msg: VoteMsg): void {
@@ -125,6 +133,12 @@ export class Net {
       const msg = sanitizeBoard(data);
       if (msg) this.ev.onBoard(peerId, msg);
     };
+    const world = room.makeAction<WorldMsg>('world');
+    this.sendWorld = (msg, target) => void world.send(msg, { target }).catch(() => {});
+    world.onMessage = (data, { peerId }) => {
+      const msg = this.room === room ? sanitizeWorld(data, TREES.length) : null;
+      if (msg) this.ev.onWorld(peerId, msg);
+    };
     const vote = room.makeAction<VoteMsg>('vote');
     this.sendVote = (msg) => void vote.send(msg).catch(() => {});
     vote.onMessage = (data, { peerId }) => {
@@ -169,6 +183,7 @@ export class Net {
         this.sendCatch = null;
         this.sendBoard = null;
         this.sendVote = null;
+        this.sendWorld = null;
         this.offsets.clear();
         void room.leave();
         this.enter(garden + 1);

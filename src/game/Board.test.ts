@@ -25,6 +25,14 @@ describe('sanitizeBoard', () => {
     expect(sanitizeBoard({ me: { ...entry(), ...over } })).toBeNull();
   });
 
+  it('accepts where a cat was only as four numbers inside the garden', () => {
+    expect(sanitizeBoard({ me: entry(), back: [10, 20, 0, 2] })?.back).toEqual([10, 20, 0, 2]);
+    expect(sanitizeBoard({ me: entry(), back: [10, 20, 0] })).toBeNull();
+    expect(sanitizeBoard({ me: entry(), back: [-5, 20, 0, 2] })).toBeNull();
+    expect(sanitizeBoard({ me: entry(), back: [10, 1e9, 0, 2] })).toBeNull();
+    expect(sanitizeBoard({ me: entry(), back: [10, 20, 'up', 2] })).toBeNull();
+  });
+
   it('rejects a board with any bad entry, or too many entries', () => {
     expect(sanitizeBoard({ me: entry(), all: [entry(), { nope: 1 }] })).toBeNull();
     expect(sanitizeBoard({ me: entry(), all: Array.from({ length: 300 }, () => entry()) })).toBeNull();
@@ -98,6 +106,25 @@ describe('Board', () => {
     board.reset();
     expect(board.me.score).toBe(0);
     expect(board.me.name).toBe(name);
+  });
+
+  it('remembers where a cat was when it left, and tells it when it comes back', () => {
+    board.receive('peer-1', { me: entry({ id: 'honest0001' }) });
+    board.leave('peer-1', [120, 340, 0, 3]);
+    sent = [];
+    board.receive('peer-9', { me: entry({ id: 'honest0001' }) });
+    expect(sent).toEqual([{ msg: { me: board.me, back: [120, 340, 0, 3] }, target: 'peer-9' }]);
+    // only once: it's here now
+    sent = [];
+    board.receive('peer-9', { me: entry({ id: 'honest0001', v: 2 }) });
+    expect(sent).toEqual([]);
+  });
+
+  it('hears where our own cat was before a reload', () => {
+    const backs: unknown[] = [];
+    board.onBack = (pose) => backs.push(pose);
+    board.receive('peer-1', { me: entry(), back: [50, 60, 16, 1] });
+    expect(backs).toEqual([[50, 60, 16, 1]]);
   });
 });
 

@@ -51,6 +51,8 @@ export interface FruitDrop {
   id: number; tree: number; kind: Fruit;
   /** Where it lands, and when (garden clock). */
   x: number; y: number; t: number;
+  /** Shaken down by a cat at this garden time (to tell cats arriving later). */
+  shook?: number;
   /** How high it fell from (px). */
   z0: number;
 }
@@ -106,16 +108,21 @@ export class Squirrels implements Fauna {
    * A cat pawed at tree `tree` at garden time `gt` (this one, or another's,
    * over the network): maybe something falls. True if it did.
    */
-  shake(tree: number, gt: number): boolean {
+  shake(tree: number, gt: number, quiet = false): boolean {
     const t = TREES[tree];
-    if (!t || this.shaken.some((f) => f.tree === tree && Math.abs(f.t - gt) < 400)) return false;
-    void sound.play('rustle', { at: { x: t.x, y: t.y }, volume: 0.5, rate: 0.9 + hash2(tree, gt, 1202) * 0.2 });
+    if (!t || this.shaken.some((f) => f.tree === tree && Math.abs(f.shook! - gt) < 400)) return false;
+    if (!quiet) void sound.play('rustle', { at: { x: t.x, y: t.y }, volume: 0.5, rate: 0.9 + hash2(tree, gt, 1202) * 0.2 });
     const { kind, amount } = fruitOf(t, this.seasonNow(gt));
     if (hash2(tree, gt, 1203) >= SHAKE_P * amount) return false;
     const f = this.drop(tree, kind, gt, 2e9 + ((tree * 7919 + Math.floor(gt / 10)) % 1e9), seedRng(tree, gt, 1204));
-    if (f) this.shaken.push(f);
+    if (f) this.shaken.push({ ...f, shook: gt });
     while (this.shaken.length > 40) this.shaken.shift();
     return !!f;
+  }
+
+  /** The shakes that brought down fruit still lying about (or being fetched) at garden time gt: [tree, gt]. */
+  shakes(gt: number): [number, number][] {
+    return this.shaken.filter((f) => gt - f.t < FRUIT_LIFE).map((f) => [f.tree, f.shook!]);
   }
 
   /** Something falls from tree `tree` from garden time t: where it lands, if anywhere it can lie. */

@@ -6,7 +6,7 @@ import { buildProps, type Prop } from '../art/trees.ts';
 import type { Raster } from '../art/raster.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
 import { HOUSES, standingOn, surfaceAt } from '../world/trees.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, terrainCover } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, WALL, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow } from './Meadow.ts';
@@ -38,11 +38,14 @@ import { Net } from '../net/net.ts';
 import { Referee } from './Referee.ts';
 import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
-import { touch, setupUI } from '../ui/ui.ts';
+import { touch, setupUI, type Button } from '../ui/ui.ts';
 import { setCatCount } from '../ui/favicon.ts';
-import { Board, NAME_AT } from './Board.ts';
+import { Board, NAME_AT, type Pose } from './Board.ts';
+import { RESUME_MS } from '../net/witness.ts';
 import { askName, renderBoard } from '../ui/board.ts';
 import { cullerFor } from './Culler.ts';
+import { Fader } from '../ui/fader.ts';
+import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
 
 // a cat that lands in the pond hops straight back out to dry land
@@ -67,6 +70,24 @@ function loadCoat(): number {
   try { localStorage.setItem('cat-coat', String(coat)); } catch { /* ignore */ }
   return coat;
 }
+
+/**
+ * How long the garden stays behind its curtain at first: briefly for a new
+ * visitor, longer for one that was here a moment ago (a reload: the other cats
+ * take a few seconds to connect, and may remember where it was); HELLO_MS
+ * more for each cat that turns up meanwhile, up to LAST_LOOK_MS.
+ */
+const FIRST_LOOK_MS = 1500, RETURN_LOOK_MS = 5000, HELLO_MS = 1200, LAST_LOOK_MS = 6000;
+/** Back within this long counts as returning. */
+const RETURN_WITHIN_MS = 10 * 60 * 1000;
+
+/** When this browser last left the garden (ms since epoch), or 0. */
+function leftAt(): number {
+  try { return Number(localStorage.getItem('cat-left')) || 0; } catch { return 0; }
+}
+addEventListener('pagehide', () => {
+  try { localStorage.setItem('cat-left', String(Date.now())); } catch { /* storage unavailable */ }
+});
 
 export class GardenScene extends Phaser.Scene {
   private me!: CatView;
@@ -119,6 +140,17 @@ export class GardenScene extends Phaser.Scene {
   private lighting!: Lighting;
   private readonly dash = new Dash();
   private lastDry = { x: 0, y: 0, z: 0 };
+  /** When we arrived, and whether a cat that stayed has put us back where we were before a reload. */
+  private arrived = 0;
+  private resumed = false;
+  /**
+   * The garden stays behind a curtain until we know where our cat belongs: a
+   * moment to hear from the cats here (longer while new ones are still saying
+   * hello), at most until the garden settles. Then it dithers in.
+   */
+  private fader!: Fader;
+  private revealAt = 0;
+  private revealed = false;
   /** Dropping down out of a tree: perches from this height up don't catch the cat. */
   private dropFrom = Infinity;
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
@@ -208,6 +240,10 @@ export class GardenScene extends Phaser.Scene {
     this.me = new CatView(this, sx, sy, loadCoat(), true);
     this.lastDry = { x: sx, y: sy, z: 0 };
     this.lastInput = now;
+    this.arrived = now;
+    this.revealAt = now + (Date.now() - leftAt() < RETURN_WITHIN_MS ? RETURN_LOOK_MS : FIRST_LOOK_MS);
+    this.fader = new Fader(() => this.cameras.main.zoom);
+    loading(0.65, 200, 'looking for other cats…');
 
     this.youMarker = this.add.image(sx, sy, 'you').setOrigin(0.5, 1).setDepth(100001);
     this.time.delayedCall(4000, () => this.youMarker.destroy());
@@ -236,6 +272,7 @@ export class GardenScene extends Phaser.Scene {
     this.ui.setStatus('looking for other cats…');
     setCatCount(1);
     this.board = new Board(this.me.coat, (msg, target) => this.net.board(msg, target), () => renderBoard(this.board.ranking(), this.board.id));
+    this.board.onBack = (pose) => this.resume(pose);
     renderBoard(this.board.ranking(), this.board.id);
     this.net = new Net(() => this.state(), {
       onState: (id, msg) => {
@@ -261,14 +298,24 @@ export class GardenScene extends Phaser.Scene {
       onVote: (id, msg) => this.referee.receiveVote(id, msg, performance.now()),
       onLeave: (id) => {
         this.referee.leave(id);
-        this.remotes.get(id)?.destroy();
+        const cat = this.remotes.get(id);
+        cat?.destroy();
         this.remotes.delete(id);
-        this.board.leave(id);
+        // (remembering where it was, should it come back)
+        this.board.leave(id, cat && [cat.tx, cat.ty, cat.tz, cat.facing]);
         this.updateStatus();
       },
       onJoin: (id) => {
+        // (give a cat that may remember us time to say so)
+        if (!this.revealed) this.revealAt = Math.min(this.arrived + LAST_LOOK_MS, Math.max(this.revealAt, this.time.now + HELLO_MS));
         this.referee.join(id);
         this.board.greet(id);
+        const { caught, shakes } = this.ambient.memory(this.net.now());
+        this.net.world({ caught, shakes }, id);
+      },
+      // what a cat already here knows: prey that's gone, fruit lying about
+      onWorld: (id, msg) => {
+        if (!this.referee.ignored(id)) this.ambient.recall(msg.caught, msg.shakes);
       },
       onBoard: (id, msg) => {
         if (!this.referee.ignored(id)) this.board.receive(id, msg);
@@ -376,6 +423,10 @@ export class GardenScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     const dt = Math.min(delta, 100) / 1000;
+    if (!this.revealed) {
+      if (time >= this.revealAt) this.reveal();
+      else loading(0.65 + 0.35 * (time - this.arrived) / (this.revealAt - this.arrived), 120);
+    }
     this.updateLocal(time, dt);
     // (the referee goes by the page clock: messages keep coming while the tab is hidden and Phaser's clock stands still)
     this.referee.update(performance.now());
@@ -459,18 +510,21 @@ export class GardenScene extends Phaser.Scene {
 
   private updateLocal(now: number, dt: number): void {
     const me = this.me;
+    // (nothing to steer while the garden is still behind its curtain)
+    const live = this.revealed;
     const k = this.keys;
-    const JD = Phaser.Input.Keyboard.JustDown;
-    let dx = (k.right.isDown || touch.right ? 1 : 0) - (k.left.isDown || touch.left ? 1 : 0);
-    let dy = (k.down.isDown || touch.down ? 1 : 0) - (k.up.isDown || touch.up ? 1 : 0);
-    const jump = JD(k.jump) || touch.pressed.has('jump');
-    const hiss = JD(k.hiss) || touch.pressed.has('hiss');
-    const roll = JD(k.roll) || touch.pressed.has('roll');
-    const mew = JD(k.mew) || touch.pressed.has('mew');
-    const dash = JD(k.dash) || touch.pressed.has('dash');
-    const dashHeld = k.dash.isDown || touch.held.has('dash');
-    const grab = JD(k.catch) || touch.pressed.has('catch');
-    const sneakHeld = k.sneak.isDown || touch.held.has('sneak');
+    const held = (key: Phaser.Input.Keyboard.Key, t: boolean) => live && (key.isDown || t);
+    const hit = (key: Phaser.Input.Keyboard.Key, b: Button) => (Phaser.Input.Keyboard.JustDown(key) || touch.pressed.has(b)) && live;
+    let dx = (held(k.right, touch.right) ? 1 : 0) - (held(k.left, touch.left) ? 1 : 0);
+    let dy = (held(k.down, touch.down) ? 1 : 0) - (held(k.up, touch.up) ? 1 : 0);
+    const jump = hit(k.jump, 'jump');
+    const hiss = hit(k.hiss, 'hiss');
+    const roll = hit(k.roll, 'roll');
+    const mew = hit(k.mew, 'mew');
+    const dash = hit(k.dash, 'dash');
+    const dashHeld = held(k.dash, touch.held.has('dash'));
+    const grab = hit(k.catch, 'catch');
+    const sneakHeld = held(k.sneak, touch.held.has('sneak'));
     touch.pressed.clear();
     // up a tree the cat walks along the branch it is on: up looks up, down drops it onto the one below
     const perch = this.hop || me.act === Act.Jump ? null : standingOn(me.x, me.y, me.z);
@@ -695,6 +749,49 @@ export class GardenScene extends Phaser.Scene {
     if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS) me.setAct(Act.Sleep, now);
     // a rest in a bird house or the tree house: ready to dash again
     if (on && HOUSES.has(on.kind) && (me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep)) this.dash.rest(now);
+  }
+
+  /**
+   * A cat that stayed in the garden remembers where ours was before a reload:
+   * carry on from there, if we've only just arrived (and it's somewhere a cat can be).
+   */
+  private resume(pose: Pose): void {
+    if (this.resumed || this.time.now - this.arrived > RESUME_MS) return;
+    const [x, y, z0] = pose;
+    const z = surfaceAt(x, y, z0 + 4);
+    if (heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1, z + 4) >= WALL || Math.abs(z - z0) > 4) return;
+    this.resumed = true;
+    // still behind the curtain: just be there when it opens. Already showing: dither out, move, dither back in
+    if (!this.revealed) {
+      this.placeAt(pose, z);
+      this.reveal();
+    } else void this.fader.close().then(() => {
+      this.placeAt(pose, z);
+      void this.fader.reveal(500);
+    });
+  }
+
+  private placeAt([x, y, , facing]: Pose, z: number): void {
+    const me = this.me;
+    Object.assign(me, { x, y, z });
+    if (Object.values(Facing).includes(facing as Facing)) me.facing = facing as Facing;
+    me.setAct(Act.Idle, this.time.now);
+    this.vel = { x: 0, y: 0 };
+    this.vz = 0;
+    this.hop = null;
+    this.lastDry = { x, y, z };
+    this.camFloor = this.camZ = z;
+    this.camAnchor.setPosition(Math.round(x), Math.round(y) - Math.round(z));
+    this.cameras.main.centerOn(Math.round(x), Math.round(y) - Math.round(z));
+  }
+
+  private reveal(): void {
+    if (this.revealed) return;
+    this.revealed = true;
+    this.lastInput = this.time.now;
+    this.input.keyboard!.resetKeys();
+    loaded();
+    void this.fader.reveal();
   }
 
   /** Count a catch (bigger prey, more points), and at NAME_AT snacks offer a name of our own. */
