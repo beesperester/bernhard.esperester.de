@@ -430,7 +430,7 @@ export class GardenScene extends Phaser.Scene {
     this.ambient.update(gt, dt, cats, view);
     this.weather.update(gt, time, dt, cats, view);
     this.streams.update(gt, light.night, view);
-    this.landmarks.update(this.me.x, this.me.y, time, this.cameras.main.zoom);
+    this.landmarks.update(time, this.cameras.main.zoom);
     this.puddles.update(gt, time, dt, cats, view);
     this.clouds.update(gt);
     this.clouds.setDaylight(light.day);
@@ -529,6 +529,8 @@ export class GardenScene extends Phaser.Scene {
       const prey = this.ambient.preyNear(me);
       // (with nothing in reach it swipes the way it faces)
       if (prey) me.facing = facingTowards(me, prey);
+      // pawing at a monument brings up its name
+      else this.landmarks.touch(me.x, me.y, now);
       this.catching = { swiped: false, got: null };
       begin(Act.Catch);
       return;

@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { Act, ACT_MAX, EAT_MS, MEW_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { CAT, COATS } from '../art/cat.ts';
-import { WORLD_W, WORLD_H, terrainCover } from '../world/map.ts';
+import { WORLD_W, WORLD_H, terrainCover, upOnFolly } from '../world/map.ts';
 import { TREES, surfaceAt, treeHolding } from '../world/trees.ts';
 import { DEPTH } from './Daylight.ts';
 
@@ -112,9 +112,10 @@ export class CatView {
       this.speed += (inst - this.speed) * Math.min(1, dtm / 150);
     }
     this.last = { x: this.x, y: this.y, t: now };
-    // up a tree, it is drawn in front of the tree (and of the branches it walks on)
+    // up a tree, it is drawn in front of the tree (and of the branches it walks on); up on a folly, in front of that
     const tree = treeHolding(this.x, this.y, z);
-    const d = tree < 0 ? y : TREES[tree].y + 0.6;
+    const folly = tree < 0 ? upOnFolly(this.x, this.y, z) : null;
+    const d = tree >= 0 ? TREES[tree].y + 0.6 : folly !== null ? folly + 0.6 : y;
     this.depth = d;
     // the shadow lies on whatever surface is below the cat
     const below = Math.round(surfaceAt(this.x, this.y, z));

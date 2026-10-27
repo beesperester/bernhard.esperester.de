@@ -66,6 +66,9 @@ export const MAX_LEVEL = Math.max(...ELEV.map((r) => Math.max(...[...r].map(Numb
 
 const NO_INSET: [number, number, number, number] = [0, 0, 0, 0];
 
+/** How tall a cat is, for walking under things (px). */
+const HEAD = 12;
+
 /** The cat's feet box, relative to its (x, y) = bottom centre. */
 export const FEET = { x0: -5, x1: 5, y0: -5, y1: 0 };
 
@@ -101,7 +104,8 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number, z = 
       if (x1 > fx0 && x0 < fx1 && y1 > fy0 && y0 < fy1) h = base + standing;
     }
   for (const [ax, ay, bx, by, top] of TRUNKS) if (z < top && x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
-  for (const [ax, ay, bx, by, sh] of SOLIDS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by && sh > h) h = sh;
+  // (something with room under it only counts for a cat up at its height)
+  for (const [ax, ay, bx, by, sh, sb] of SOLIDS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by && sh > h && z + HEAD > sb) h = sh;
   return h;
 }
 
@@ -167,7 +171,7 @@ export function terrainCover(x: number, y: number, z: number, w = 16, h = 16): {
     }
   // the shed hides cats behind it the same way
   for (const k of COVERS) {
-    if (y >= k.front || k.x0 >= right || k.x1 <= left || k.y0 >= feet || k.y1 <= head) continue;
+    if (y >= k.front || (k.low && z > 2) || k.x0 >= right || k.x1 <= left || k.y0 >= feet || k.y1 <= head) continue;
     const r = { x0: Math.max(left, k.x0), y0: Math.max(head, k.y0), x1: Math.min(right, k.x1), y1: Math.min(feet, k.y1) };
     c = c ? { x0: Math.min(c.x0, r.x0), y0: Math.min(c.y0, r.y0), x1: Math.max(c.x1, r.x1), y1: Math.max(c.y1, r.y1) } : r;
   }
@@ -245,24 +249,40 @@ const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, n
   birdbath: [[3, 7, 13, 14, BATH_H]],
 };
 
-const SOLIDS: [number, number, number, number, number][] = [
+/** Solid things in world px: x0, y0, x1, y1, top, and bottom (above the terrain). */
+const SOLIDS: [number, number, number, number, number, number][] = [
   ...FURNITURE.map((f) => [f, FURNITURE_SOLIDS[f.kind]] as const),
   ...LANDMARK_SPOTS.map((l) => [l, LANDMARK_SOLIDS[l.kind]] as const),
 ].flatMap(([f, solids]) =>
-  solids.map(([x0, y0, x1, y1, h]) => [f.tx * TILE + x0, f.ty * TILE + y0, f.tx * TILE + x1, f.ty * TILE + y1, h] as [number, number, number, number, number]),
+  solids.map(([x0, y0, x1, y1, h, b = 0]) => [f.tx * TILE + x0, f.ty * TILE + y0, f.tx * TILE + x1, f.ty * TILE + y1, h, b] as [number, number, number, number, number, number]),
 );
 
 /** Screen boxes of furniture and follies tall enough to hide a cat, and the ground y of their front. */
-export const COVERS: { x0: number; y0: number; x1: number; y1: number; front: number }[] = [
+export const COVERS: { x0: number; y0: number; x1: number; y1: number; front: number; low?: boolean }[] = [
   ...FURNITURE
     .filter((f) => f.kind === 'shed')
     .map((f) => ({ x0: f.tx * TILE - 1, y0: f.ty * TILE - 25, x1: f.tx * TILE + 49, y1: f.ty * TILE + 31, front: f.ty * TILE + 30 })),
   // (not the gate: a cat walking through it is seen through the arches)
   ...LANDMARK_SPOTS.filter((l) => l.kind !== 'gate').map((l) => {
     const s = LANDMARK_SPRITE[l.kind], x = l.tx * TILE + s.ox, y = l.ty * TILE + s.oy;
-    return { x0: x, y0: y, x1: x + s.w, y1: y + s.h, front: (l.ty + LANDMARK_SIZE[l.kind][1]) * TILE - 2 };
+    // (a cat up on one is drawn in front of it, so only hides behind it from the ground)
+    return { x0: x, y0: y, x1: x + s.w, y1: y + s.h, front: (l.ty + LANDMARK_SIZE[l.kind][1]) * TILE - 2, low: true };
   }),
 ];
+
+/**
+ * A cat up on a landmark folly at (x, y), height z, is drawn in front of it:
+ * the ground y of the folly's front, or null if it isn't up on one.
+ */
+export function upOnFolly(x: number, y: number, z: number): number | null {
+  if (z < elevAt(x, y) + 2) return null;
+  for (const l of LANDMARK_SPOTS) {
+    const ox = l.tx * TILE, oy = l.ty * TILE;
+    if (LANDMARK_SOLIDS[l.kind].some(([x0, y0, x1, y1]) => x + FEET.x1 > ox + x0 && x + FEET.x0 < ox + x1 && y > oy + y0 && y + FEET.y0 < oy + y1))
+      return (l.ty + LANDMARK_SIZE[l.kind][1]) * TILE - 2;
+  }
+  return null;
+}
 
 /** Height of the shed's roof ridge, for its shadow. */
 const SHED_TALL = 30;

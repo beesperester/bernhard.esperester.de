@@ -6,19 +6,22 @@ import { LANDMARKS, LANDMARK_DEPTH, LANDMARK_SIZE, LANDMARK_SPRITE } from '../wo
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { cullerFor } from './Culler.ts';
 
-/** A cat this close to a folly's foot (px) reads its plaque. */
-const READ_AT = 44;
+/** A cat this close to a folly (px beyond its edges) can paw at it. */
+const READ_AT = 14;
 const PLAQUE_PX = 12, PLAQUE_FADE_MS = 300;
+/** How long a plaque stays up after a paw at its folly (ms). */
+const PLAQUE_MS = 4000;
 
 /**
  * The follies of Berlin's landmarks, each standing on its tiles like the
- * shed: sorted by its front, so a cat behind it is hidden. Walk up to one
- * and a plaque with its name appears over it.
+ * shed: sorted by its front, so a cat behind it is hidden (a cat up on one
+ * is drawn in front of it). Paw at one (C) and a plaque with its name
+ * appears over it for a while.
  */
 export class Landmarks {
   /** Every folly, for sunlit rims, lantern light and shadows. */
   readonly pieces: { p: { x: number; y: number; depthY: number }; canvas: HTMLCanvasElement; depth: number | 'round' }[] = [];
-  private readonly plaques: { text: Phaser.GameObjects.Text; x: number; half: number; foot: number; alpha: number }[] = [];
+  private readonly plaques: { text: Phaser.GameObjects.Text; x0: number; y0: number; x1: number; y1: number; alpha: number; until: number }[] = [];
   private last = -1;
 
   constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement) {
@@ -41,17 +44,24 @@ export class Landmarks {
         padding: { x: 5, y: 2 },
         resolution: Math.max(1, window.devicePixelRatio || 1),
       }).setOrigin(0.5, 1).setDepth(99999.5).setAlpha(0).setVisible(false);
-      this.plaques.push({ text, x: x + s.w / 2, half: s.w / 2, foot: front, alpha: 0 });
+      const [tw, th] = LANDMARK_SIZE[l.kind];
+      this.plaques.push({ text, x0: l.tx * TILE, y0: l.ty * TILE, x1: (l.tx + tw) * TILE, y1: (l.ty + th) * TILE, alpha: 0, until: -1 });
     }
   }
 
-  /** Show the plaque of a folly the cat at (x, y) stands near. */
-  update(x: number, y: number, now: number, zoom: number): void {
+  /** A paw at whatever folly the cat at (x, y) is next to: its plaque comes up. True if there was one. */
+  touch(x: number, y: number, now: number): boolean {
+    const p = this.plaques.find((p) => x > p.x0 - READ_AT && x < p.x1 + READ_AT && y > p.y0 - READ_AT && y < p.y1 + READ_AT);
+    if (p) p.until = now + PLAQUE_MS;
+    return !!p;
+  }
+
+  /** Fade the plaques in and out. */
+  update(now: number, zoom: number): void {
     const step = this.last < 0 ? 1 : (now - this.last) / PLAQUE_FADE_MS;
     this.last = now;
     for (const p of this.plaques) {
-      const near = Math.abs(x - p.x) < p.half + READ_AT / 2 && y > p.foot - 40 && y < p.foot + READ_AT;
-      p.alpha = Math.max(0, Math.min(1, p.alpha + (near ? step : -step)));
+      p.alpha = Math.max(0, Math.min(1, p.alpha + (now < p.until ? step : -step)));
       p.text.setVisible(p.alpha > 0).setAlpha(p.alpha).setScale(1 / zoom);
     }
   }
