@@ -21,6 +21,7 @@ import { Lanterns } from './Lanterns.ts';
 import { NightWater } from './NightWater.ts';
 import { Streams } from './Streams.ts';
 import { Puddles } from './Puddles.ts';
+import { WaterSurface } from './WaterSurface.ts';
 import { berlinClock } from '../world/sky.ts';
 import { SEASON, rainfall } from '../world/season.ts';
 import { Weather } from './Weather.ts';
@@ -104,6 +105,7 @@ export class GardenScene extends Phaser.Scene {
   private weather!: Weather;
   private streams!: Streams;
   private puddles!: Puddles;
+  private waterSurface!: WaterSurface;
   private readonly dash = new Dash();
   private lastDry = { x: 0, y: 0 };
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
@@ -175,6 +177,7 @@ export class GardenScene extends Phaser.Scene {
     ]);
     this.shadows = this.makeShadows(props, canvases, furniture, upright);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask);
+    this.waterSurface = new WaterSurface(this, waterBoxes(), water);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
     catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
@@ -405,6 +408,7 @@ export class GardenScene extends Phaser.Scene {
     this.sun.update(time, dt, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), light.day);
     this.lanterns.update(light, time);
     this.nightWater.update(light, time, view);
+    this.waterSurface.update(light, gt, time, overcast, view);
     // keep the clock in the status line current
     if (time >= this.nextClock) {
       this.nextClock = time + 10000;

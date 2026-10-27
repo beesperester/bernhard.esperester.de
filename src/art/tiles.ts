@@ -8,6 +8,8 @@ const C = {
   daisy: hex('#f8f8f0'), clover: hex('#b8e070'),
   p0: hex('#ecd8a0'), p1: hex('#d4b878'), p2: hex('#a88a52'),
   w0: hex('#4a8ce0'), w1: hex('#8cc4f8'), w2: hex('#2a5cb0'), w3: hex('#d8ecff'),
+  // the water's edge: in the shade of the bank, and wet earth catching the light
+  wb: hex('#2b4744'), we: hex('#7d9479'),
   h0: hex('#3c8c3a'), h1: hex('#5cac48'), h2: hex('#256a2a'), h3: hex('#163c1a'),
   m0: hex('#1e5424'),
   f0: hex('#f8f0d8'), f1: hex('#d0a870'), f2: hex('#7a5530'),
@@ -128,10 +130,10 @@ function water(r: Raster, ox: number, oy: number, tx: number, ty: number, phase:
   const n = !isWaterCh(tileAt(tx, ty - 1)), s = !isWaterCh(tileAt(tx, ty + 1));
   const w = !isWaterCh(tileAt(tx - 1, ty)), e = !isWaterCh(tileAt(tx + 1, ty));
   for (let i = 0; i < TILE; i++) {
-    if (n) { r.set(ox + i, oy, C.g3); r.set(ox + i, oy + 1, C.p2); r.set(ox + i, oy + 2, C.w2); r.set(ox + i, oy + 3, C.w2); }
-    if (s) { r.set(ox + i, oy + 15, C.g3); r.set(ox + i, oy + 14, C.p1); r.set(ox + i, oy + 13, C.w3); }
-    if (w) { r.set(ox, oy + i, C.g3); r.set(ox + 1, oy + i, C.p1); r.set(ox + 2, oy + i, C.w3); }
-    if (e) { r.set(ox + 15, oy + i, C.g3); r.set(ox + 14, oy + i, C.p1); r.set(ox + 13, oy + i, C.w3); }
+    if (n) { r.set(ox + i, oy, C.g3); r.set(ox + i, oy + 1, C.p2); r.set(ox + i, oy + 2, C.wb); r.set(ox + i, oy + 3, C.wb); }
+    if (s) { r.set(ox + i, oy + 15, C.g3); r.set(ox + i, oy + 14, C.p1); r.set(ox + i, oy + 13, C.we); }
+    if (w) { r.set(ox, oy + i, C.g3); r.set(ox + 1, oy + i, C.p1); r.set(ox + 2, oy + i, C.we); }
+    if (e) { r.set(ox + 15, oy + i, C.g3); r.set(ox + 14, oy + i, C.p1); r.set(ox + 13, oy + i, C.we); }
   }
   // round the outside corners
   const corner = (cx: number, cy: number, dx: number, dy: number) => {
@@ -415,7 +417,7 @@ const mixRGB = (a: RGB, b: RGB, t: number): RGB => [Math.round(a[0] + (b[0] - a[
 /** Snow in four tones, shadowed blue to sunlit white. */
 export const SNOW: RGB[] = ['#7a8aa8', '#a2b2ca', '#c4d0e0', '#e2eaf4'].map(hex);
 const SNOW_LINE = hex('#56607a');
-const ICE: [RGB, RGB][] = [[C.w0, hex('#a6d4ec')], [C.w1, hex('#e2f4ff')], [C.w2, hex('#7aa8cc')], [C.w3, hex('#f2fbff')]];
+const ICE: [RGB, RGB][] = [[C.w0, hex('#a6d4ec')], [C.w1, hex('#e2f4ff')], [C.w2, hex('#7aa8cc')], [C.w3, hex('#f2fbff')], [C.wb, hex('#7aa8cc')], [C.we, hex('#f2fbff')]];
 /** Everything green or earthy that snow settles on, and the flowers that are gone under it. */
 const SNOWY: RGB[] = [
   C.g0, C.g1, C.g2, C.g3, C.g4, C.g5, C.daisy, C.clover, C.yellow, C.orange, C.p0, C.p1, C.p2,

@@ -99,7 +99,7 @@ export class PondReflection {
     }
     // tint towards the water colour, then clip to open water
     out.globalCompositeOperation = 'source-atop';
-    out.fillStyle = 'rgba(40, 90, 190, 0.45)';
+    out.fillStyle = 'rgba(30, 64, 70, 0.4)';
     out.fillRect(0, 0, w, h);
     out.globalCompositeOperation = 'destination-in';
     out.drawImage(this.mask, 0, 0);
