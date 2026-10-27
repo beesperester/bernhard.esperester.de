@@ -4,8 +4,9 @@
 
 import { hash2 } from '../art/raster.ts';
 import { SEASON } from './season.ts';
-import { ROWS, ELEV, FURNITURE } from './garden.ts';
-import { LEGEND, WALL, groundOf, isPond, isStairs, isTree, isWaterway } from './legend.ts';
+import { ROWS, ELEV, FURNITURE, LANDMARK_SPOTS, SPAWN } from './garden.ts';
+import { LANDMARK_SIZE, LANDMARK_SOLIDS, LANDMARK_SPRITE } from './landmarks.ts';
+import { LEGEND, WALL, groundOf, isPond, isRunning, isStairs, isTree, isWaterway } from './legend.ts';
 
 export const TILE = 16;
 /** Height of one terrain level in px: more than a jump (~14px), so cliffs can't be hopped up. */
@@ -27,11 +28,17 @@ export function tileAt(tx: number, ty: number): string {
 }
 
 /**
- * Water in a channel one tile wide: a stream (see streams.ts). Wider water,
- * any tile of a 2x2 block of water, is a pond. `tile` is the map to look at.
+ * Running water: a river or canal ('~'), or water in a channel one tile wide,
+ * a stream (see streams.ts). Wider still water, any tile of a 2x2 block of
+ * it, is a pond. `tile` is the map to look at.
  */
 export function isChannel(tx: number, ty: number, tile: (tx: number, ty: number) => string = tileAt): boolean {
-  const wet = (x: number, y: number) => isWaterway(tile(x, y));
+  return isRunning(tile(tx, ty)) || isNarrow(tx, ty, tile);
+}
+
+/** Still water a tile wide, between ponds. */
+export function isNarrow(tx: number, ty: number, tile: (tx: number, ty: number) => string = tileAt): boolean {
+  const wet = (x: number, y: number) => isWaterway(tile(x, y)) && !isRunning(tile(x, y));
   if (!wet(tx, ty)) return false;
   return ![[0, 0], [-1, 0], [0, -1], [-1, -1]].some(([ox, oy]) =>
     wet(tx + ox, ty + oy) && wet(tx + ox + 1, ty + oy) && wet(tx + ox, ty + oy + 1) && wet(tx + ox + 1, ty + oy + 1));
@@ -128,12 +135,12 @@ export function treeTiles(): [number, number][] {
   return out;
 }
 
-/** Walkable spawn points on the lawn paths around the middle of the park. */
+/** Walkable spawn points on the paths in the arrival box (garden.ts). */
 export function spawnPoints(): [number, number][] {
   const out: [number, number][] = [];
-  for (let y = 34; y <= 46; y++)
-    for (let x = 30; x <= 48; x++)
-      if (groundOf(tileAt(x, y)) === 'path' && levelAt(x, y) === 0) out.push([x * TILE + TILE / 2, y * TILE + TILE - 2]);
+  for (let y = SPAWN.y0; y <= SPAWN.y1; y++)
+    for (let x = SPAWN.x0; x <= SPAWN.x1; x++)
+      if (groundOf(tileAt(x, y)) === 'path' && levelAt(x, y) === 0 && groundAt(x * TILE + TILE / 2, y * TILE + TILE - 2) === 0) out.push([x * TILE + TILE / 2, y * TILE + TILE - 2]);
   return out;
 }
 
@@ -214,12 +221,12 @@ export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
 
 export { FURNITURE };
 
-/** True on tiles taken by furniture (nothing else grows or stands there). */
+export { LANDMARK_SPOTS };
+
+/** True on tiles taken by furniture or a landmark folly (nothing else grows or stands there). */
 export function furnished(tx: number, ty: number): boolean {
-  return FURNITURE.some((f) => {
-    const [w, h] = FURNITURE_SIZE[f.kind];
-    return tx >= f.tx && tx < f.tx + w && ty >= f.ty && ty < f.ty + h;
-  });
+  const on = (x: number, y: number, [w, h]: [number, number]) => tx >= x && tx < x + w && ty >= y && ty < y + h;
+  return FURNITURE.some((f) => on(f.tx, f.ty, FURNITURE_SIZE[f.kind])) || LANDMARK_SPOTS.some((l) => on(l.tx, l.ty, LANDMARK_SIZE[l.kind]));
 }
 
 /** Height of the bird bath's rim. */
@@ -238,14 +245,24 @@ const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, n
   birdbath: [[3, 7, 13, 14, BATH_H]],
 };
 
-const SOLIDS: [number, number, number, number, number][] = FURNITURE.flatMap((f) =>
-  FURNITURE_SOLIDS[f.kind].map(([x0, y0, x1, y1, h]) => [f.tx * TILE + x0, f.ty * TILE + y0, f.tx * TILE + x1, f.ty * TILE + y1, h] as [number, number, number, number, number]),
+const SOLIDS: [number, number, number, number, number][] = [
+  ...FURNITURE.map((f) => [f, FURNITURE_SOLIDS[f.kind]] as const),
+  ...LANDMARK_SPOTS.map((l) => [l, LANDMARK_SOLIDS[l.kind]] as const),
+].flatMap(([f, solids]) =>
+  solids.map(([x0, y0, x1, y1, h]) => [f.tx * TILE + x0, f.ty * TILE + y0, f.tx * TILE + x1, f.ty * TILE + y1, h] as [number, number, number, number, number]),
 );
 
-/** Screen boxes of furniture tall enough to hide a cat, and the ground y of their front. */
-export const COVERS: { x0: number; y0: number; x1: number; y1: number; front: number }[] = FURNITURE
-  .filter((f) => f.kind === 'shed')
-  .map((f) => ({ x0: f.tx * TILE - 1, y0: f.ty * TILE - 25, x1: f.tx * TILE + 49, y1: f.ty * TILE + 31, front: f.ty * TILE + 30 }));
+/** Screen boxes of furniture and follies tall enough to hide a cat, and the ground y of their front. */
+export const COVERS: { x0: number; y0: number; x1: number; y1: number; front: number }[] = [
+  ...FURNITURE
+    .filter((f) => f.kind === 'shed')
+    .map((f) => ({ x0: f.tx * TILE - 1, y0: f.ty * TILE - 25, x1: f.tx * TILE + 49, y1: f.ty * TILE + 31, front: f.ty * TILE + 30 })),
+  // (not the gate: a cat walking through it is seen through the arches)
+  ...LANDMARK_SPOTS.filter((l) => l.kind !== 'gate').map((l) => {
+    const s = LANDMARK_SPRITE[l.kind], x = l.tx * TILE + s.ox, y = l.ty * TILE + s.oy;
+    return { x0: x, y0: y, x1: x + s.w, y1: y + s.h, front: (l.ty + LANDMARK_SIZE[l.kind][1]) * TILE - 2 };
+  }),
+];
 
 /** Height of the shed's roof ridge, for its shadow. */
 const SHED_TALL = 30;

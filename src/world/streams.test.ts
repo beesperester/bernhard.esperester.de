@@ -62,9 +62,9 @@ describe('streams', () => {
       }
   });
 
-  it('in the garden, the long one ends further down than it starts', () => {
-    const long = STREAMS.reduce((a, b) => (b.length > a.length ? b : a));
-    expect(long.length).toBeGreaterThan(TILE * 20);
-    expect(along(long, long.length).y).toBeGreaterThan(along(long, 0).y);
+  it('in the garden, the longest river runs west, like the Spree', () => {
+    const long = STREAMS.filter((s) => s.river).reduce((a, b) => (b.length > a.length ? b : a));
+    expect(long.length).toBeGreaterThan(TILE * 40);
+    expect(along(long, long.length).x).toBeLessThan(along(long, 0).x);
   });
 });

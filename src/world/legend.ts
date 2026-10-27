@@ -30,6 +30,8 @@ export interface TileKind {
   tree?: boolean;
   /** The thing spans this many tiles to the right (the fountain is two wide). */
   span?: number;
+  /** Running water: a river or a canal. It flows (world/streams.ts) and never freezes. */
+  running?: boolean;
   /** A lily pad floating on the pond (frogs sit on them). */
   lily?: boolean;
   /** Casts a soft round shadow at night (bushes and rocks drawn in the ground art). */
@@ -45,6 +47,7 @@ export const LEGEND: Record<string, TileKind> = {
   p: { name: 'path', ground: 'path', path: true },
   B: { name: 'footbridge', water: 'bridged', path: true },
   w: { name: 'water', water: 'open' },
+  '~': { name: 'river', water: 'open', running: true },
   l: { name: 'lily pad', water: 'open', lily: true },
   '#': { name: 'low hedge', height: 8 },
   // taller than a jump, so the labyrinth can't be hopped over
@@ -64,6 +67,8 @@ const kindOf = (ch: string): TileKind | undefined => LEGEND[ch];
 export const isPond = (ch: string) => kindOf(ch)?.water === 'open';
 /** Pond water with nothing on it (no lily pad). */
 export const isOpenWater = (ch: string) => isPond(ch) && !kindOf(ch)?.lily;
+/** A river or a canal (see TileKind.running). */
+export const isRunning = (ch: string) => !!kindOf(ch)?.running;
 export const isLilyPad = (ch: string) => !!kindOf(ch)?.lily;
 export const isBridge = (ch: string) => kindOf(ch)?.water === 'bridged';
 /** Any water, bridged or not: where reflections and ripples go. */

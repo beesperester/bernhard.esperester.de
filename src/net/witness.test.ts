@@ -58,7 +58,7 @@ describe('the move witness', () => {
 
   it('strikes a cat that teleports', () => {
     const w = new MoveWitness();
-    const [[x, y], [x2, y2]] = spawnPoints().filter(([a, b], i, all) => i === 0 || Math.hypot(a - all[0][0], b - all[0][1]) > 200);
+    const [[x, y], [x2, y2]] = spawnPoints().filter(([a, b], i, all) => i === 0 || Math.hypot(a - all[0][0], b - all[0][1]) > 120);
     w.observe(x, y, groundAt(x, y), Act.Idle, 0);
     expect(w.observe(x2, y2, groundAt(x2, y2), Act.Idle, 100)).toBe('too-fast');
   });

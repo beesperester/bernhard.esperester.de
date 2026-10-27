@@ -61,7 +61,7 @@ describe('the referee', () => {
   it('accuses a cat that keeps teleporting, and ignores it with only us to decide', () => {
     const { ref, votes, ignored } = setup();
     ref.join('cheat');
-    const far = spawnPoints().find(([x, y]) => Math.hypot(x - sx, y - sy) > 200)!;
+    const far = spawnPoints().find(([x, y]) => Math.hypot(x - sx, y - sy) > 120)!;
     let t = 0;
     for (let i = 0; i < 4 && !ignored.length; i++) {
       ref.observe('cheat', at(sx, sy), (t += 100));

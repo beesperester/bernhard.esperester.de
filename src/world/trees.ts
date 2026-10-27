@@ -11,7 +11,7 @@
 // perch the cat stands on the trunk's line.
 
 import { hash2, mulberry32 } from '../art/raster.ts';
-import { FEET, FORK_Z, LEVEL, heightUnder, levelAt, tileAt, treeTiles, trunkBase } from './map.ts';
+import { FEET, FORK_Z, LEVEL, TILE, heightUnder, levelAt, tileAt, treeTiles, trunkBase } from './map.ts';
 
 /** How far a branch is above the one below it: a jump (~14px) gets there, but not much higher. */
 export const RISE = 11;
@@ -126,6 +126,13 @@ const PERCHES: PerchAt[][] = TREES.map((t, tree) => t.perches.map((p) => ({ tree
 
 const inBand = (t: TreePlan, y: number) => y >= t.y - BAND_BACK && y <= t.y + BAND_FRONT;
 
+/** The trees whose band reaches into each row of tiles, so a cat only asks the few near it. */
+const BY_ROW: number[][] = [];
+TREES.forEach((t, i) => {
+  for (let r = Math.floor((t.y - BAND_BACK) / TILE); r <= Math.floor((t.y + BAND_FRONT) / TILE); r++) (BY_ROW[r] ??= []).push(i);
+});
+const near = (y: number): number[] => BY_ROW[Math.floor(y / TILE)] ?? [];
+
 /**
  * The highest perch under a cat at (x, y) whose top is no higher than its
  * paws at height z (a hair above counts: it is landing on it), and lower
@@ -133,11 +140,12 @@ const inBand = (t: TreePlan, y: number) => y >= t.y - BAND_BACK && y <= t.y + BA
  */
 export function perchUnder(x: number, y: number, z: number, under = Infinity): PerchAt | null {
   let best: PerchAt | null = null;
-  TREES.forEach((t, i) => {
-    if (!inBand(t, y) || Math.abs(x - t.x) > t.w / 2 + OVERHANG) return;
+  for (const i of near(y)) {
+    const t = TREES[i];
+    if (!inBand(t, y) || Math.abs(x - t.x) > t.w / 2 + OVERHANG) continue;
     for (const p of PERCHES[i])
       if (p.z <= z + CATCH && p.z < under && x > p.x0 - OVERHANG && x < p.x1 + OVERHANG && (!best || p.z > best.z)) best = p;
-  });
+  }
   return best;
 }
 
@@ -156,5 +164,5 @@ export function standingOn(x: number, y: number, z: number): PerchAt | null {
 
 /** Index of the tree a cat at (x, y), height z, is up in (it is drawn in front of that tree), or -1. */
 export function treeHolding(x: number, y: number, z: number): number {
-  return TREES.findIndex((t) => z >= t.elev + 6 && inBand(t, y) && Math.abs(x - t.x) <= t.w / 2);
+  return near(y).find((i) => { const t = TREES[i]; return z >= t.elev + 6 && inBand(t, y) && Math.abs(x - t.x) <= t.w / 2; }) ?? -1;
 }

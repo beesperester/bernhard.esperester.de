@@ -281,3 +281,4 @@ body:has(#touch:not([hidden])) #help { bottom: 210px; }
 #name-dialog button:active { border-image-source: var(--px-pill-cream-down); padding: 4px 4px 0; }
 #name-dialog button[type='submit'] { border-image-source: var(--px-pill-pink); color: #fff; text-shadow: 0 1px 0 #401020; }
 #name-dialog button[type='submit']:active { border-image-source: var(--px-pill-pink-down); }
+#credit a { color: inherit; pointer-events: auto; }

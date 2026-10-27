@@ -363,6 +363,7 @@ export const TILE_ART: Record<string, { ground?: Painter; upright?: Painter }> =
   f: { ground: (r, ox, oy, tx, ty) => flowers(r, ox, oy, tx, ty) },
   p: { ground: (r, ox, oy, tx, ty) => path(r, ox, oy, tx, ty) },
   w: { ground: water },
+  '~': { ground: water },
   l: {
     ground: (r, ox, oy, tx, ty, phase) => {
       water(r, ox, oy, tx, ty, phase);

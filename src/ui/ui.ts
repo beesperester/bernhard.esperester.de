@@ -26,7 +26,10 @@ export function setupUI(): UI {
   const status = document.getElementById('status')!;
   const help = document.getElementById('help')!;
   const pad = document.getElementById('touch')!;
-  document.getElementById('credit')!.textContent = `© ${__BUILD_YEAR__} Bernhard Esperester · build ${__BUILD__}`;
+  // the park is laid out after Berlin from OpenStreetMap data (ODbL), which asks for this credit
+  const credit = document.getElementById('credit')!;
+  const osm = Object.assign(document.createElement('a'), { href: 'https://www.openstreetmap.org/copyright', target: '_blank', rel: 'noopener', textContent: 'OpenStreetMap contributors' });
+  credit.append(`© ${__BUILD_YEAR__} Bernhard Esperester · build ${__BUILD__} · map © `, osm);
 
   let helpTimer = 0;
   const hideHelp = () => {

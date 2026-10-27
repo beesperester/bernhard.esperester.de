@@ -15,6 +15,7 @@ import { Clouds } from './Clouds.ts';
 import { PondReflection } from './PondReflection.ts';
 import { Trees } from './Trees.ts';
 import { Furniture } from './Furniture.ts';
+import { Landmarks } from './Landmarks.ts';
 import { Shadows, type Caster } from './Shadows.ts';
 import { Vignette } from './Vignette.ts';
 import { Daylight } from './Daylight.ts';
@@ -111,6 +112,7 @@ export class GardenScene extends Phaser.Scene {
   private referee!: Referee;
   private weather!: Weather;
   private streams!: Streams;
+  private landmarks!: Landmarks;
   private puddles!: Puddles;
   private waterSurface!: WaterSurface;
   private lighting!: Lighting;
@@ -143,6 +145,8 @@ export class GardenScene extends Phaser.Scene {
     const props = buildProps();
     this.trees = new Trees(this, props, canvases.props);
     const furniture = new Furniture(this, toCanvas);
+    this.landmarks = new Landmarks(this, toCanvas);
+    const standing = [...furniture.pieces, ...this.landmarks.pieces];
     // birds sing from a tree somewhere near you, preferably one with a bird in it
     sound.setSource('birds', () => {
       const { x, y } = sound.listener;
@@ -175,14 +179,14 @@ export class GardenScene extends Phaser.Scene {
     // which pixels of the ground art stand up from it: for sunlit rims, and for where shadows can't fall
     const upright = buildUprightMask();
     this.rims = new RimLight(this, {
-      trees: [...reflect.props, ...furniture.pieces], upright, terrain: canvases.terrain,
+      trees: [...reflect.props, ...standing], upright, terrain: canvases.terrain,
       catSheet: canvases.cats[0], catFrames: FRAME_NAMES.length * 2, catSize: CAT,
     });
     // what can stand in front of a lantern's light
     const source = (key: string) => this.textures.get(key).getSourceImage() as HTMLCanvasElement;
     this.lanterns = new Lanterns(this, [
       ...props.map((p, i) => ({ canvas: canvases.props[i], x: p.x, y: p.y, w: canvases.props[i].width, h: canvases.props[i].height, depth: p.depthY })),
-      ...furniture.pieces.map(({ p, canvas }) => ({ canvas, x: p.x, y: p.y, w: canvas.width, h: canvas.height, depth: p.depthY })),
+      ...standing.map(({ p, canvas }) => ({ canvas, x: p.x, y: p.y, w: canvas.width, h: canvas.height, depth: p.depthY })),
       ...canvases.terrain.map((t, i) => ({ canvas: source(`terrain-${i}`), x: t.x, y: t.y, w: t.raster.w, h: t.raster.h, depth: t.depth })),
     ]);
     this.shadows = this.makeShadows(props, canvases, furniture, upright);
@@ -313,6 +317,12 @@ export class GardenScene extends Phaser.Scene {
       if (h < 40) casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.y + h - 1, lift: 0, cap: 14, depth: 3 });
       blobs.push({ x: p.x + w / 2, y: p.y + h - 2, w: w + 8, h: h < 40 ? 10 : 18, depth: p.depthY - 0.01 });
     }
+    // the follies cast their whole outlines, as tall as they are
+    for (const { p, canvas, depth } of this.landmarks.pieces) {
+      const w = canvas.width, h = canvas.height;
+      casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.depthY + 1, lift: 0, cap: Infinity, depth });
+      blobs.push({ x: p.x + w / 2, y: p.depthY, w: w + 8, h: 14, depth: p.depthY - 0.01 });
+    }
     // bushes and rocks in the ground art
     for (let ty = 0; ty < MAP_H; ty++)
       for (let tx = 0; tx < MAP_W; tx++)
@@ -420,6 +430,7 @@ export class GardenScene extends Phaser.Scene {
     this.ambient.update(gt, dt, cats, view);
     this.weather.update(gt, time, dt, cats, view);
     this.streams.update(gt, light.night, view);
+    this.landmarks.update(this.me.x, this.me.y, time, this.cameras.main.zoom);
     this.puddles.update(gt, time, dt, cats, view);
     this.clouds.update(gt);
     this.clouds.setDaylight(light.day);
