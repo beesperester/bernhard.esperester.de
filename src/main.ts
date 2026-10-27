@@ -3,19 +3,31 @@ import { GardenScene } from './game/GardenScene.ts';
 import { Music } from './audio/music.ts';
 import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
-import { setupFullscreen, toggleFullscreen } from './ui/fullscreen.ts';
+import { setupFullscreen } from './ui/fullscreen.ts';
+import { loading } from './ui/loading.ts';
+import { Identity, useIdentity } from './net/identity.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
 import '@fontsource/pixelify-sans/latin-ext-400.css';
 import '@fontsource/pixelify-sans/latin-700.css';
 import '@fontsource/pixelify-sans/latin-ext-700.css';
 
 applyPixelUI();
+loading(0.15, 600);
+// who we are: this browser's key pair (made on the first visit)
+useIdentity(await Identity.load());
 // text drawn into the game (names, scores) needs the font ready; don't wait forever for it
 await Promise.race([
   Promise.all([document.fonts.load('16px "Pixelify Sans"'), document.fonts.load('bold 16px "Pixelify Sans"')]),
   new Promise((r) => setTimeout(r, 2000)),
 ]).catch(() => {});
 
+// building the garden takes a moment and keeps the page busy: let the bar creep along meanwhile
+loading(0.6, 3000);
+// (after the bar is on screen; a tab opened in the background draws nothing, so don't wait for that)
+await new Promise((r) => {
+  requestAnimationFrame(() => requestAnimationFrame(r));
+  setTimeout(r, 100);
+});
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
@@ -28,17 +40,17 @@ const game = new Phaser.Game({
 });
 
 // music and sounds start on the first key press or tap (browsers require a gesture);
-// M / the note button mutes the music, S / the speaker button the sounds
+// the note button mutes the music, the speaker button the sounds
 const music = new Music();
 const musicBtn = document.getElementById('music')!;
 const soundBtn = document.getElementById('sound')!;
 music.onChange((muted, track) => {
   musicBtn.classList.toggle('muted', muted);
-  musicBtn.title = muted ? 'Music off (M)' : `♪ ${track?.title ?? 'Music'} (M to mute)`;
+  musicBtn.title = muted ? 'Music off' : `♪ ${track?.title ?? 'Music'}`;
 });
 sound.onChange((muted) => {
   soundBtn.classList.toggle('muted', muted);
-  soundBtn.title = muted ? 'Sounds off (S)' : 'Sounds on (S to mute)';
+  soundBtn.title = muted ? 'Sounds off' : 'Sounds on';
 });
 const unlock = () => {
   music.unlock();
@@ -46,16 +58,7 @@ const unlock = () => {
 };
 window.addEventListener('keydown', (e) => {
   // typing a name is not playing
-  if (e.target instanceof HTMLInputElement) return;
-  const k = e.key.toLowerCase();
-  if (k === 'f') {
-    if (!e.repeat) toggleFullscreen();
-    unlock();
-  } else if (k === 'm' || k === 's') {
-    if (!e.repeat) (k === 'm' ? music : sound).toggle();
-    if (k === 'm') sound.unlock();
-    else music.unlock();
-  } else unlock();
+  if (!(e.target instanceof HTMLInputElement)) unlock();
 });
 window.addEventListener('pointerdown', unlock);
 for (const [btn, target] of [[musicBtn, music], [soundBtn, sound]] as const) {

@@ -25,6 +25,8 @@ const COLOUR = [22, 34, 78];
 const ALPHA = 0.32;
 /** Cats are this many px tall for their shadows; their feet are on the bottom row. */
 const CAT_TOP = CAT - 1;
+/** How far a cat reaches in front of and behind its feet, for its shadow. */
+const CAT_DEPTH = 2;
 /** Room around a cat's shadow for the longest one. */
 const CAT_REACH = Math.ceil(CAT * Math.tan((90 - MIN_EL) * RAD)) + 2;
 const CELL = CAT + 2 * CAT_REACH;
@@ -40,6 +42,12 @@ export interface Caster {
   ground: number; lift: number;
   /** Pixels higher than this count as its top (a table's top is deep, not tall). */
   cap: number;
+  /**
+   * How deep it is, front to back, as it stands on the ground: px either side
+   * of its foot line; or 'round', like a tree, as deep as it is wide at every
+   * height. (A flat cut-out would cast a mere line with the sun off to the side.)
+   */
+  depth: number | 'round';
 }
 
 interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; t: TerrainPiece }
@@ -248,8 +256,16 @@ export class Shadows {
     const steps = Math.ceil(Math.hypot(sx, sy)) + 1;
     let levels = 0;
     for (let i = 0; i < level.length; i++) if (level[i] > levels) levels = level[i];
+    /** Shade the ground at level l at (px, py), if that's where the ground there is. */
+    const mark = (px: number, py: number, l: number) => {
+      if (px < 0 || py < 0 || px >= W || py >= H) return;
+      const i = py * W + px;
+      if (level[i] === l) out[i] = l + 1;
+    };
     for (const c of this.casters) {
       const foot = c.y + c.h - 1; // screen y of the bottom row
+      if (c.depth === 'round') { this.projectRound(c, steps, levels, mark); continue; }
+      const deep = c.depth;
       for (let y = 0; y < c.h; y++)
         for (let x = 0; x < c.w; x++) {
           if (!c.alpha[y * c.w + x]) continue;
@@ -261,11 +277,43 @@ export class Shadows {
               const h = h0 + k / steps + c.lift - l * LEVEL;
               if (h < 0) break;
               const px = Math.round(c.x + x + sx * h), py = Math.round(c.ground + sy * h);
-              if (px < 0 || py < 0 || px >= W || py >= H) continue;
-              const i = py * W + px;
-              if (level[i] === l) out[i] = l + 1;
+              // (and over its depth, front to back)
+              for (let d = -deep; d <= deep; d++) mark(px, py + d, l);
             }
         }
+    }
+  }
+
+  /**
+   * A round thing's shadow: every run of pixels across a row of its outline is
+   * taken as a disc lying level at that height (a slice through the crown),
+   * and its shadow is that disc, moved along the sun's rays down to the ground.
+   */
+  private projectRound(c: Caster & { alpha: Uint8Array }, steps: number, levels: number, mark: (px: number, py: number, l: number) => void): void {
+    const [sx, sy] = this.s;
+    const foot = c.y + c.h - 1;
+    for (let y = 0; y < c.h; y++) {
+      const h0 = Math.min(c.cap, foot - (c.y + y));
+      for (let x = 0; x < c.w; ) {
+        while (x < c.w && !c.alpha[y * c.w + x]) x++;
+        const a = x;
+        while (x < c.w && c.alpha[y * c.w + x]) x++;
+        if (x === a) break;
+        const r = (x - a) / 2, mid = c.x + a + r;
+        // small discs get smeared over the row's slice of height, so they leave no gaps
+        const sub = r * 2 < steps ? steps : 1;
+        for (let k = 0; k < sub; k++)
+          for (let l = 0; l <= levels; l++) {
+            const h = h0 + k / sub + c.lift - l * LEVEL;
+            if (h < 0) break;
+            const ox = mid + sx * h, oy = c.ground + sy * h;
+            for (let dy = -Math.floor(r); dy <= r; dy++) {
+              const half = Math.sqrt(Math.max(0, r * r - dy * dy));
+              const py = Math.round(oy + dy);
+              for (let px = Math.round(ox - half); px < Math.round(ox + half); px++) mark(px, py, l);
+            }
+          }
+      }
     }
   }
 
@@ -284,10 +332,13 @@ export class Shadows {
         if (!this.catAlpha[y * w + x0 + x]) continue;
         for (let k = 0; k < steps; k++) {
           const h = CAT_TOP - y + k / steps;
-          const px = Math.round(c + x - CAT / 2 + sx * h), py = Math.round(c + sy * h);
-          if (px < 0 || py < 0 || px >= CELL || py >= CELL) continue;
-          const i = (py * CELL + px) * 4;
-          img.data[i] = COLOUR[0]; img.data[i + 1] = COLOUR[1]; img.data[i + 2] = COLOUR[2]; img.data[i + 3] = 255;
+          const px = Math.round(c + x - CAT / 2 + sx * h), py0 = Math.round(c + sy * h);
+          // a cat is a few px deep, front to back
+          for (let py = py0 - CAT_DEPTH; py <= py0 + CAT_DEPTH; py++) {
+            if (px < 0 || py < 0 || px >= CELL || py >= CELL) continue;
+            const i = (py * CELL + px) * 4;
+            img.data[i] = COLOUR[0]; img.data[i + 1] = COLOUR[1]; img.data[i + 2] = COLOUR[2]; img.data[i + 3] = 255;
+          }
         }
       }
     this.catFrames.set(frame, img);

@@ -107,6 +107,38 @@ describe('the map', () => {
         if (standable(x, y) && !furnished(x, y) && !seen.has(`${x},${y}`)) unreachable.push(`${x},${y} '${tileAt(x, y)}'`);
     expect(unreachable).toEqual([]);
   });
+
+  it('has straight bridges that cross the water from land to land', () => {
+    const seen = new Set<string>();
+    for (let y = 0; y < MAP_H; y++)
+      for (let x = 0; x < MAP_W; x++) {
+        if (tileAt(x, y) !== 'B' || seen.has(`${x},${y}`)) continue;
+        // the whole bridge, along whichever way it runs
+        // (a bridge one tile long runs whichever way has land at both ends)
+        const land = (ch: string) => WALKABLE.includes(ch);
+        const across = tileAt(x + 1, y) === 'B' || (tileAt(x, y + 1) !== 'B' && land(tileAt(x - 1, y)) && land(tileAt(x + 1, y)));
+        const [dx, dy] = across ? [1, 0] : [0, 1];
+        let n = 0;
+        while (tileAt(x + dx * n, y + dy * n) === 'B') seen.add(`${x + dx * n},${y + dy * n}`), n++;
+        expect(n, `bridge at ${x},${y}`).toBeLessThanOrEqual(5);
+        // nothing sticking out sideways, and land at both ends
+        for (let i = 0; i < n; i++) {
+          expect(tileAt(x + dx * i + dy, y + dy * i + dx), `bridge at ${x},${y}`).not.toBe('B');
+          expect(tileAt(x + dx * i - dy, y + dy * i - dx), `bridge at ${x},${y}`).not.toBe('B');
+        }
+        for (const [ex, ey] of [[x - dx, y - dy], [x + dx * n, y + dy * n]]) expect(WALKABLE, `bridge at ${x},${y}`).toContain(tileAt(ex, ey));
+      }
+  });
+
+  it('has no specks of water or slivers of land', () => {
+    const wet = (x: number, y: number) => '~wlB'.includes(tileAt(x, y));
+    for (let y = 2; y < MAP_H - 2; y++)
+      for (let x = 2; x < MAP_W - 2; x++) {
+        const n = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => wet(x + dx, y + dy)).length;
+        if (tileAt(x, y) === 'w') expect(n, `water at ${x},${y}`).toBeGreaterThan(1);
+        if (tileAt(x, y) === '.') expect(n, `land at ${x},${y}`).toBeLessThan(3);
+      }
+  });
 });
 
 describe('furniture', () => {
@@ -167,7 +199,7 @@ describe('ponds through the year', () => {
     let stream: [number, number] | null = null;
     for (let ty = 0; ty < MAP_H && !stream; ty++)
       for (let tx = 0; tx < MAP_W && !stream; tx++)
-        if (tileAt(tx, ty) === 'w' && m.isChannel(tx, ty) && m.isChannel(tx, ty + 1) && m.isChannel(tx, ty - 1)) stream = [tx, ty];
+        if (tileAt(tx, ty) === '~' && m.isChannel(tx, ty) && m.isChannel(tx, ty + 1) && m.isChannel(tx, ty - 1)) stream = [tx, ty];
     expect(stream).not.toBeNull();
     const x = stream![0] * TILE + 8, y = stream![1] * TILE + 12;
     expect(m.wetAt(x, y)).toBe(true);

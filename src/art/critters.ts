@@ -368,3 +368,51 @@ export function buildDragonfly(): Raster {
     for (let x = 0; x < r.w; x++) if (y !== 2 && r.isSet(x, y)) r.set(x, y, pal.w, 150);
   return r;
 }
+
+// red squirrel, 10x8, side on, facing left:
+//   frame 0 sitting up, tail curled over its back; 1-2 hopping; 3 sitting up nibbling something in its paws;
+//   4 climbing a trunk, head up, tail hanging
+//   o outline  f fur  k darker fur  l belly  t tail  e eye  n what it nibbles
+export const SQUIRREL_W = 10, SQUIRREL_H = 8;
+const SQUIRREL_PAL = () => ({ o: hex('#4a2410'), f: hex('#b85a2c'), k: hex('#8a3c1c'), l: hex('#f0d8b0'), t: hex('#d0703a'), e: hex('#101010'), n: hex('#7a4a20') });
+const SQUIRREL = [
+  ['.oo....tt.', 'offo..tttt', 'efffo.ttkt', '.offfotkt.', '.olfffkt..', '.olffftt..', '..lfff....', '.oo.oo....'],
+  ['..........', '........tt', '.o.....ttt', 'offo..ttk.', 'efffofftt.', '.offffff..', '..lllfff..', '.oo...oo..'],
+  ['.......tt.', '......tttt', '.o....tkt.', 'offo..ftt.', 'efffffff..', '.offffff..', '..llllf...', '..oo.oo...'],
+  ['.oo....tt.', 'offo..tttt', 'efffo.ttkt', 'nlffo.tkt.', '.lfffokt..', '.lfffftt..', '..lfff....', '.oo.oo....'],
+  ['..oo......', '.offo.....', '.efffo....', '.offfo....', '..offfo...', '..lfff....', '..offt....', '...ttt....'],
+];
+export function buildSquirrel(): Raster {
+  const r = new Raster(SQUIRREL_W * SQUIRREL.length, SQUIRREL_H);
+  SQUIRREL.forEach((rows, f) => r.paint(rows, f * SQUIRREL_W, 0, SQUIRREL_PAL()));
+  return r;
+}
+
+/** A squirrel held in the mouth, facing left: whole, half eaten, just the tail. */
+export function buildHeldSquirrel(): Raster {
+  const r = new Raster(HELD_W * 3, 5);
+  const pal = SQUIRREL_PAL();
+  r.paint(['.o....tt', 'ofoo.ttt', 'effffftk', '.offlff.', '..o..o..'], 0, 0, pal);
+  r.paint(['.o......', 'ofoo....', 'efffo...', '.olo....', '........'], HELD_W, 0, pal);
+  r.paint(['........', '......tt', '.....ttt', '......t.', '........'], HELD_W * 2, 0, pal);
+  return r;
+}
+
+// what falls from the trees, 5x5, one frame each: acorn, hazelnut, apple, cherries, pine cone
+export const FRUIT_W = 5;
+const FRUIT = [
+  ['.....', '.ooo.', '.ddd.', '.bbb.', '..b..'],
+  ['.....', '..g..', '.bbb.', '.bdb.', '..b..'],
+  ['..s..', '.rrr.', 'rwrrr', 'rrrrk', '.rkr.'],
+  ['..s..', '.s.s.', 's..s.', 'rr.rr', 'rk.rk'],
+  ['..c..', '.cdc.', '.dcd.', '.cdc.', '..c..'],
+];
+export function buildFruit(): Raster {
+  const r = new Raster(FRUIT_W * FRUIT.length, 5);
+  const pal = {
+    o: hex('#6a4a24'), d: hex('#a0703a'), b: hex('#7a4a20'), g: hex('#6a9a3a'),
+    r: hex('#d83a30'), w: hex('#ffb0a0'), k: hex('#8a1c1c'), s: hex('#4a6a2a'), c: hex('#8a5a30'),
+  };
+  FRUIT.forEach((rows, f) => r.paint(rows, f * FRUIT_W, 0, pal));
+  return r;
+}

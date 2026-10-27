@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { SUNLIT_TILES, groundTile, relightProp, type Prop } from '../art/tiles.ts';
+import { SUNLIT_TILES, groundTile } from '../art/tiles.ts';
+import { relightProp, type Prop } from '../art/trees.ts';
 import { raised, type TerrainPiece } from '../art/terrain.ts';
 import { screenLight, sunLight, type ScreenLight } from '../art/lighting.ts';
 import { LEVEL, MAP_H, MAP_W, TILE, levelAt, tileAt } from '../world/map.ts';

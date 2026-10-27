@@ -47,9 +47,10 @@ export class Meadow {
   }
 
   private sway(plant: LivePlant, t: number, gust: number, cats: CatView[]): void {
-    // a wave of wind rolling in from the top-left, mostly bending plants to the right
-    const wave = Math.sin(t * 2.1 - plant.x * 0.05 - plant.y * 0.03) + 0.35 * Math.sin(t * 5.3 + plant.x * 0.3);
-    let lean = Math.round(0.3 + wave * gust * 1.4);
+    // a slow wave of wind rolling in from the top-left, nodding plants a pixel at most
+    // (a whole meadow flicking between frames gets restless to look at)
+    const wave = Math.sin(t * 1.3 - plant.x * 0.05 - plant.y * 0.03) + 0.2 * Math.sin(t * 3.1 + plant.x * 0.3);
+    let lean = Math.round(0.25 + wave * gust * 0.75);
     // a cat brushing past pushes it aside
     for (const cat of cats) {
       const dx = plant.x - cat.x, dy = plant.y - cat.y;

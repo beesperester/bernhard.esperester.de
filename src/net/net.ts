@@ -3,7 +3,8 @@
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
 import type { Prey, CatMsg } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeVote, type VoteMsg } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeShake, sanitizeVote, sanitizeWorld, type VoteMsg, type WorldMsg } from './protocol.ts';
+import { TREES } from '../world/trees.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 
 // unversioned until the site is released; after that, version it when the protocol changes
@@ -18,9 +19,13 @@ export interface NetEvents {
   onState: (peerId: string, msg: CatMsg) => void;
   /** Another cat caught (or swiped at) the fish, butterfly or bee with this id. */
   onCatch: (peerId: string, kind: Prey, id: number) => void;
+  /** Another cat pawed at tree `tree` at garden time gt. */
+  onShake: (peerId: string, tree: number, gt: number) => void;
   onLeave: (peerId: string) => void;
   /** Someone new in the garden. */
   onJoin: (peerId: string) => void;
+  /** What a cat already here knows of the garden (sent to us as we arrive). */
+  onWorld: (peerId: string, msg: WorldMsg) => void;
   /** Scoreboard news from another cat. */
   onBoard: (peerId: string, msg: BoardMsg) => void;
   onStatus: (garden: number, peers: number, settled: boolean) => void;
@@ -28,12 +33,17 @@ export interface NetEvents {
   onVote: (peerId: string, msg: VoteMsg) => void;
 }
 
+/** This visit's connection id (what our signed scoreboard entry is bound to). */
+export const PEER = selfId;
+
 export class Net {
   private room: Room | null = null;
   private send: ((msg: CatMsg, target?: string) => void) | null = null;
   private sendCatch: ((kind: Prey, id: number) => void) | null = null;
+  private sendShake: ((tree: number, gt: number) => void) | null = null;
   private sendBoard: ((msg: BoardMsg, target?: string) => void) | null = null;
   private sendVote: ((msg: VoteMsg) => void) | null = null;
+  private sendWorld: ((msg: WorldMsg, target: string) => void) | null = null;
   /** Peer clock minus our clock, in ms, measured once when a peer joins. */
   private offsets = new Map<string, number>();
   readonly id = selfId;
@@ -60,8 +70,17 @@ export class Net {
     this.sendCatch?.(kind, id);
   }
 
+  shake(tree: number, gt: number): void {
+    this.sendShake?.(tree, gt);
+  }
+
   board(msg: BoardMsg, target?: string): void {
     this.sendBoard?.(msg, target);
+  }
+
+  /** Tell a cat that just arrived what we know of the garden. */
+  world(msg: WorldMsg, target: string): void {
+    this.sendWorld?.(msg, target);
   }
 
   vote(msg: VoteMsg): void {
@@ -104,12 +123,24 @@ export class Net {
       const caught = this.room === room ? sanitizeCatch(data) : null;
       if (caught) this.ev.onCatch(peerId, ...caught);
     };
+    const shake = room.makeAction<[number, number]>('shake');
+    this.sendShake = (tree, gt) => void shake.send([tree, gt]).catch(() => {});
+    shake.onMessage = (data, { peerId }) => {
+      const s = this.room === room ? sanitizeShake(data, TREES.length) : null;
+      if (s) this.ev.onShake(peerId, ...s);
+    };
     const board = room.makeAction<BoardMsg>('board');
     this.sendBoard = (msg, target) => void board.send(msg, target ? { target } : undefined).catch(() => {});
     board.onMessage = (data, { peerId }) => {
       if (this.room !== room) return;
       const msg = sanitizeBoard(data);
       if (msg) this.ev.onBoard(peerId, msg);
+    };
+    const world = room.makeAction<WorldMsg>('world');
+    this.sendWorld = (msg, target) => void world.send(msg, { target }).catch(() => {});
+    world.onMessage = (data, { peerId }) => {
+      const msg = this.room === room ? sanitizeWorld(data, TREES.length) : null;
+      if (msg) this.ev.onWorld(peerId, msg);
     };
     const vote = room.makeAction<VoteMsg>('vote');
     this.sendVote = (msg) => void vote.send(msg).catch(() => {});
@@ -155,6 +186,7 @@ export class Net {
         this.sendCatch = null;
         this.sendBoard = null;
         this.sendVote = null;
+        this.sendWorld = null;
         this.offsets.clear();
         void room.leave();
         this.enter(garden + 1);

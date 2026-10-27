@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Act } from '../game/state.ts';
 import { DASH_MS, DASH_SPEED, JUMP_HEIGHT, WALK_SPEED } from '../game/movement.ts';
 import { MAP_H, MAP_W, TILE, WALL, groundAt, heightUnder, spawnPoints } from '../world/map.ts';
-import { MoveWitness, STRIKES_TO_ACCUSE, STRIKE_MEMORY_MS, Strikes, WINDOW_MS } from './witness.ts';
+import { MoveWitness, RESUME_MS, STRIKES_TO_ACCUSE, STRIKE_MEMORY_MS, Strikes, WINDOW_MS } from './witness.ts';
 
 /** The longest straight run of open ground along a row: [x0, x1, y]. */
 const TRACK = (() => {
@@ -58,9 +58,18 @@ describe('the move witness', () => {
 
   it('strikes a cat that teleports', () => {
     const w = new MoveWitness();
-    const [[x, y], [x2, y2]] = spawnPoints().filter(([a, b], i, all) => i === 0 || Math.hypot(a - all[0][0], b - all[0][1]) > 200);
+    const [[x, y], [x2, y2]] = spawnPoints().filter(([a, b], i, all) => i === 0 || Math.hypot(a - all[0][0], b - all[0][1]) > 120);
     w.observe(x, y, groundAt(x, y), Act.Idle, 0);
-    expect(w.observe(x2, y2, groundAt(x2, y2), Act.Idle, 100)).toBe('too-fast');
+    expect(w.observe(x, y, groundAt(x, y), Act.Idle, RESUME_MS)).toBeNull();
+    expect(w.observe(x2, y2, groundAt(x2, y2), Act.Idle, RESUME_MS + 100)).toBe('too-fast');
+  });
+
+  it('lets a cat that just arrived be put back where it was, once', () => {
+    const w = new MoveWitness();
+    const [x0, x1, y] = TRACK;
+    w.observe(x0, y, groundAt(x0, y), Act.Idle, 0);
+    expect(w.observe(x1, y, groundAt(x1, y), Act.Idle, 400)).toBeNull();
+    expect(w.observe(x0, y, groundAt(x0, y), Act.Idle, 500)).toBe('too-fast');
   });
 
   it('strikes a cat that runs faster than a dash', () => {

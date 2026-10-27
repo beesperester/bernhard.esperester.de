@@ -54,3 +54,35 @@ export function rasterURL(r: Raster): string {
   c.getContext('2d')!.putImageData(new ImageData(r.data, r.w, r.h), 0, 0);
   return c.toDataURL('image/png');
 }
+
+/**
+ * A wooden sign for the help: a walnut frame with a nail in each corner around
+ * one smooth, dark board, its grain kept faint so the writing on it reads
+ * easily. 40×40, slice 8: the middle repeats.
+ */
+export function buildSign(seed: number): Raster {
+  const S = 40, F = 8;
+  const r = new Raster(S, S);
+  const rnd = mulberry32(seed);
+  const frame = WOODS.walnut;
+  const board = hex('#4e2e18'), grain = hex('#553420');
+  r.rect(F, F, S - 2 * F, S - 2 * F, board);
+  // a few long, soft streaks of grain running across
+  for (let y = F; y < S - F; y++) if (rnd() < 0.3) r.rect(F, y, S - 2 * F, 1, grain);
+  // the frame: light on its top and left, shade on its bottom and right
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const d = Math.min(x, y, S - 1 - x, S - 1 - y);
+      if (d >= F) continue;
+      const lit = (x < y ? x : y) === d && x + y < S;
+      r.set(x, y, d === 0 || d === F - 1 ? frame.outline : d === 1 ? (lit ? frame.shine : frame.dark) : (x * 7 + y * 3) % 11 === 0 ? frame.grain : lit ? frame.light : frame.base);
+    }
+  for (const [x, y] of [[0, 0], [S - 1, 0], [0, S - 1], [S - 1, S - 1]]) r.set(x, y, [0, 0, 0], 0);
+  // nails
+  for (const [nx, ny] of [[3, 3], [S - 5, 3], [3, S - 5], [S - 5, S - 5]]) {
+    r.rect(nx, ny, 2, 2, hex('#3a3438'));
+    r.set(nx, ny, hex('#c8c0c8'));
+    r.set(nx + 1, ny + 1, hex('#18141a'));
+  }
+  return r;
+}

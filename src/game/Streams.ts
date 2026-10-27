@@ -58,6 +58,8 @@ export class Streams {
     this.glints.begin();
     this.drifting.begin();
     STREAMS.forEach((s, i) => {
+      const { box } = s;
+      if (box.x1 < view.x - 16 || box.x0 > view.right + 16 || box.y1 < view.y - 16 || box.y0 > view.bottom + 16) return;
       this.updateGlints(s, i, gt, night, view);
       this.updateDrifters(s, i, gt, view);
     });
@@ -70,7 +72,8 @@ export class Streams {
     for (const { start, side, phase, rate } of this.glintsOf[si]) {
       const d = ((start + (gt / 1000) * FLOW * rate) % s.length + s.length) % s.length;
       const p = along(s, d);
-      const x = Math.round(p.x - p.dy * (side - 0.5) * 8), y = Math.round(p.y + p.dx * (side - 0.5) * 6);
+      const wide = s.river ? 14 : 8;
+      const x = Math.round(p.x - p.dy * (side - 0.5) * wide), y = Math.round(p.y + p.dx * (side - 0.5) * wide * 0.75);
       if (x < view.x - 4 || x > view.right + 4 || y < view.y - 4 || y > view.bottom + 4 || !this.water.isSet(x, y)) continue;
       // each one catches the light for a moment, then is gone
       const shine = Math.max(0, Math.sin((gt / 1000) * 1.4 + phase));
@@ -113,7 +116,7 @@ export class Streams {
       // past the mouth it carries on the way it was going, slowing as the pond takes it
       const over = Math.max(0, d - s.length), on = over * (1 - over / (RUN_ON * 2));
       // turning lazily and wandering from side to side of the channel
-      const wander = f.side * 3 + Math.sin(t * 0.7 + f.phase) * 1.5;
+      const wander = f.side * (s.river ? 6 : 3) + Math.sin(t * 0.7 + f.phase) * 1.5;
       const x = Math.round(p.x + p.dx * on - p.dy * wander), y = Math.round(p.y + p.dy * on + p.dx * wander * 0.7);
       if (x < view.x - 4 || x > view.right + 4 || y < view.y - 4 || y > view.bottom + 4) continue;
       // out of sight under a bridge

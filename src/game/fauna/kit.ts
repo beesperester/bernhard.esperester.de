@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { mulberry32, type Raster } from '../../art/raster.ts';
-import type { Prop } from '../../art/tiles.ts';
+import type { Prop } from '../../art/trees.ts';
 import type { Prey } from '../state.ts';
 import type { CatView } from '../CatView.ts';
 import type { Effects } from './Effects.ts';

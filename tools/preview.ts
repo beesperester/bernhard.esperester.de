@@ -4,8 +4,12 @@ import { deflateSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { Raster, hex } from '../src/art/raster.ts';
 import { buildCatSheet, COATS, FRAMES, CAT } from '../src/art/cat.ts';
-import { buildGround, buildProps } from '../src/art/tiles.ts';
+import { buildGround } from '../src/art/tiles.ts';
+import { buildProps } from '../src/art/trees.ts';
 import { buildTerrain } from '../src/art/terrain.ts';
+import { buildLandmark } from '../src/art/landmarks.ts';
+import { buildSquirrel, buildHeldSquirrel, buildFruit } from '../src/art/critters.ts';
+import { LANDMARK_SPRITE, type LandmarkKind } from '../src/world/landmarks.ts';
 
 const out = process.argv[2] ?? 'preview';
 mkdirSync(out, { recursive: true });
@@ -99,3 +103,33 @@ const tr = new Raster(trees.length * 66, 86);
 tr.rect(0, 0, tr.w, tr.h, hex('#68b848'));
 trees.forEach((p, i) => tr.blit(p.raster, i * 66 + 1, 1));
 writeFileSync(`${out}/trees.png`, png(tr, 4));
+
+// the landmark follies side by side, with a cat for scale
+{
+  const kinds = Object.keys(LANDMARK_SPRITE) as LandmarkKind[];
+  const W = kinds.reduce((a, k) => a + LANDMARK_SPRITE[k].w + 6, 6), H = 110;
+  const r = new Raster(W, H);
+  r.rect(0, 0, W, H, hex('#78c850'));
+  let x = 6;
+  for (const k of kinds) {
+    const l = buildLandmark(k);
+    r.blit(l, x, H - 4 - l.h);
+    x += l.w + 6;
+  }
+  const cat = buildCatSheet(0);
+  const fr = new Raster(CAT, CAT);
+  fr.blit(cat, 0, 0);
+  r.blit(fr, 2, H - 4 - CAT);
+  writeFileSync(`${out}/landmarks.png`, png(r, 4));
+}
+
+// squirrels and fruit, big
+{
+  const sq = buildSquirrel(), fr = buildFruit(), held = buildHeldSquirrel();
+  const r = new Raster(sq.w + 4, 24);
+  r.rect(0, 0, r.w, r.h, hex('#78c850'));
+  r.blit(sq, 2, 2);
+  r.blit(fr, 2, 12);
+  r.blit(held, 2, 18);
+  writeFileSync(`${out}/squirrel.png`, png(r, 10));
+}

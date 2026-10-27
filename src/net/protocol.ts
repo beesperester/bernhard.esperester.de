@@ -18,6 +18,25 @@ export function sanitizeCatch(d: unknown): [Prey, number] | null {
   return PREY_KINDS.has(kind) && Number.isInteger(id) ? [kind as Prey, id as number] : null;
 }
 
+/** Accept only a [tree, garden time] paw at a tree: a tree index and a time, both whole numbers. */
+export function sanitizeShake(d: unknown, trees: number): [number, number] | null {
+  if (!Array.isArray(d) || d.length !== 2) return null;
+  const [tree, gt] = d;
+  return Number.isInteger(tree) && tree >= 0 && tree < trees && Number.isInteger(gt) && gt > 0 ? [tree, gt] : null;
+}
+
+/** What the cats already in the garden tell a newcomer: prey caught lately, and fruit shaken down ([tree, gt]). */
+export type WorldMsg = { caught: [Prey, number][]; shakes: [number, number][] };
+
+/** Accept only a well-formed account of the garden, and not an endless one. */
+export function sanitizeWorld(d: unknown, trees: number): WorldMsg | null {
+  if (!d || typeof d !== 'object') return null;
+  const { caught, shakes } = d as Record<string, unknown>;
+  if (!Array.isArray(caught) || caught.length > 512 || !Array.isArray(shakes) || shakes.length > 64) return null;
+  const c = caught.map(sanitizeCatch), s = shakes.map((x) => sanitizeShake(x, trees));
+  return c.every((x) => x) && s.every((x) => x) ? { caught: c as [Prey, number][], shakes: s as [number, number][] } : null;
+}
+
 /** A verdict on a catch ('c': catcher, kind, id, confirmed) or on a cat ('a': suspect, accused). */
 export type VoteMsg = ['c', string, Prey, number, boolean] | ['a', string, boolean];
 

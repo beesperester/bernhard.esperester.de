@@ -3,8 +3,11 @@
 // other: downhill on the screen, from the end higher up the map to the one
 // further down (the big lake at the bottom). Nothing has to be marked on the
 // map: any run of water one tile wide is a stream, and wider water is a pond.
+// The rivers and canals ('~') run the way the real ones do: the generator
+// takes their lines from OpenStreetMap (RIVERS in garden.ts).
 // Running water never freezes: in winter the ponds ice over and the streams keep flowing.
-import { MAP_H, MAP_W, TILE, isChannel, tileAt } from './map.ts';
+import { MAP_H, MAP_W, TILE, isNarrow, tileAt } from './map.ts';
+import { RIVERS } from './garden.ts';
 import { isWaterway } from './legend.ts';
 
 type Pt = [number, number];
@@ -16,6 +19,19 @@ export interface Stream {
   at: number[];
   /** Its whole length (px). */
   length: number;
+  /** The box it lies in (px). */
+  box: { x0: number; y0: number; x1: number; y1: number };
+  /** A river or a canal: wider than a stream. */
+  river: boolean;
+}
+
+/** A stream through these points (px). */
+function streamOf(pts: Pt[], river: boolean): Stream {
+  const at = [0];
+  for (let i = 1; i < pts.length; i++) at.push(at[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const box = { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  return { pts, at, length: at[at.length - 1], box, river };
 }
 
 /** A point `s` px along a stream, and the way the water flows there (a unit vector). */
@@ -28,7 +44,7 @@ const BEND = 6;
 /** Find the streams on a map. `tile` gives the map character at a tile (the garden's, unless testing). */
 export function findStreams(tile: (tx: number, ty: number) => string = tileAt, w = MAP_W, h = MAP_H): Stream[] {
   const inside = (x: number, y: number) => (x >= 0 && y >= 0 && x < w && y < h ? tile(x, y) : 'F');
-  const channel = (x: number, y: number) => isChannel(x, y, inside);
+  const channel = (x: number, y: number) => isNarrow(x, y, inside);
   const pond = (x: number, y: number) => isWaterway(inside(x, y)) && !channel(x, y);
   const key = (x: number, y: number) => y * w + x;
 
@@ -94,9 +110,7 @@ export function findStreams(tile: (tx: number, ty: number) => string = tileAt, w
         const k = BEND / TILE;
         pts.push([p[0] + (a[0] - p[0]) * k, p[1] + (a[1] - p[1]) * k], [p[0] + (b[0] - p[0]) * k, p[1] + (b[1] - p[1]) * k]);
       });
-      const along = [0];
-      for (let i = 1; i < pts.length; i++) along.push(along[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-      streams.push({ pts, at: along, length: along[along.length - 1] });
+      streams.push(streamOf(pts, false));
     }
   return streams;
 }
@@ -105,13 +119,21 @@ export function findStreams(tile: (tx: number, ty: number) => string = tileAt, w
 export function along(stream: Stream, s: number): Along {
   const { pts, at } = stream;
   s = Math.max(0, Math.min(stream.length, s));
-  let i = 1;
-  while (i < pts.length - 1 && at[i] < s) i++;
+  // the first point at or past s
+  let lo = 1, hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (at[mid] < s) lo = mid + 1; else hi = mid;
+  }
+  const i = lo;
   const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
   const len = at[i] - at[i - 1] || 1;
   const u = (s - at[i - 1]) / len;
   return { x: ax + (bx - ax) * u, y: ay + (by - ay) * u, dx: (bx - ax) / len, dy: (by - ay) / len };
 }
 
-/** The streams of the garden. */
-export const STREAMS = findStreams();
+/** The streams of the garden, and its rivers. */
+export const STREAMS = [
+  ...findStreams(),
+  ...RIVERS.map((r) => streamOf(Array.from({ length: r.length / 2 }, (_, i) => [r[2 * i], r[2 * i + 1]] as Pt), true)),
+];
