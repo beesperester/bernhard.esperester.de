@@ -1,6 +1,7 @@
 import { Raster, hex, hash2, mulberry32, type RGB } from './raster.ts';
 import { TILE, MAP_W, MAP_H, LEVEL, isChannel, tileAt, levelAt, treeTiles, trunkBase } from '../world/map.ts';
 import { SEASON, type Season } from '../world/season.ts';
+import { DEFAULT_LIGHT, sunLight, type ScreenLight } from './lighting.ts';
 import { LEGEND, isPath, isStairs, isWaterway } from '../world/legend.ts';
 
 const C = {
@@ -276,6 +277,34 @@ const BUSH = [
   '................',
 ];
 
+/**
+ * A round thing (a bush, a rock) lit by the sun: `art` is its picture, whose
+ * characters in `tones` are its light, mid and dark shades. Each of those
+ * pixels is shaded from which way the blob curves there; the picture's own
+ * specks and patches are kept as an offset from how the default light would
+ * shade it, so under that light it looks exactly as drawn.
+ */
+function litBlob(r: Raster, ox: number, oy: number, art: string[], fixed: Record<string, RGB>, tones: string, ramp: RGB[]): void {
+  r.paint(art, ox, oy, fixed);
+  let x0 = 99, y0 = 99, x1 = -1, y1 = -1;
+  art.forEach((row, y) => [...row].forEach((ch, x) => {
+    if (!tones.includes(ch)) return;
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }));
+  const mx = (x0 + x1 + 1) / 2, my = (y0 + y1 + 1) / 2, rx = (x1 - x0 + 1) / 2, ry = (y1 - y0 + 1) / 2;
+  const shade = (nx: number, ny: number, L: ScreenLight) => {
+    const v = (nx * L.x + ny * L.y) * L.k;
+    return v > 0.35 ? 0 : v > -0.25 ? 1 : 2;
+  };
+  art.forEach((row, y) => [...row].forEach((ch, x) => {
+    const drawn = tones.indexOf(ch);
+    if (drawn < 0) return;
+    const nx = (x + 0.5 - mx) / rx, ny = (y + 0.5 - my) / ry;
+    const tone = Math.max(0, Math.min(2, shade(nx, ny, sunLight) + drawn - shade(nx, ny, DEFAULT_LIGHT)));
+    r.set(ox + x, oy + y, ramp[tone]);
+  }));
+}
+
 const ROCK = [
   '................',
   '................',
@@ -343,8 +372,8 @@ export const TILE_ART: Record<string, { ground?: Painter; upright?: Painter }> =
   m: { upright: (r, ox, oy, tx, ty) => hedge(r, ox, oy, tx, ty, true) },
   F: { upright: (r, ox, oy, tx, ty) => fence(r, ox, oy, tx, ty) },
   g: { ground: (r, ox, oy, tx, ty) => path(r, ox, oy, tx, ty), upright: (r, ox, oy, tx, ty) => gate(r, ox, oy, tx, ty) },
-  b: { upright: (r, ox, oy) => r.paint(BUSH, ox, oy, { o: C.h3, l: C.h1, d: C.h0, 2: C.h2 }) },
-  r: { upright: (r, ox, oy) => r.paint(ROCK, ox, oy, { o: C.r3, l: C.r0, m: C.r1, d: C.r2, g: C.g2 }) },
+  b: { upright: (r, ox, oy) => litBlob(r, ox, oy, BUSH, { o: C.h3 }, 'ld2', [C.h1, C.h0, C.h2]) },
+  r: { upright: (r, ox, oy) => litBlob(r, ox, oy, ROCK, { o: C.r3, g: C.g2 }, 'lmd', [C.r0, C.r1, C.r2]) },
   o: { upright: (r, ox, oy) => fountain(r, ox, oy) },
 };
 
@@ -386,27 +415,36 @@ export function buildGrounds(season: Season = SEASON): [Raster, Raster] {
   const still = buildGround(0, season);
   const rippled = new Raster(still.w, still.h);
   rippled.data.set(still.data);
-  // each water tile is drawn together with its left neighbour, whose fallen
-  // leaves can reach a pixel over the edge, then finished exactly like the whole map
-  const pair = new Raster(2 * TILE, TILE);
   for (let ty = 0; ty < MAP_H; ty++)
     for (let tx = 0; tx < MAP_W; tx++) {
       // frozen ponds don't ripple (the streams still run)
       if (!isWaterway(tileAt(tx, ty)) || (season.frozen && !isChannel(tx, ty))) continue;
-      pair.data.fill(0);
-      drawTile(pair, 0, 0, tx - 1, ty, 1);
-      drawTile(pair, TILE, 0, tx, ty, 1);
-      const ox = (tx - 1) * TILE, oy = ty * TILE;
-      shadeUnderCliffs(pair, ox, oy);
-      applySeason(pair, ox, oy, season);
-      scatterLitter(pair, season, ox, oy);
-      for (let y = 0; y < TILE; y++) {
-        const from = (y * pair.w + TILE) * 4, to = ((ty * TILE + y) * rippled.w + tx * TILE) * 4;
-        rippled.data.set(pair.data.subarray(from, from + TILE * 4), to);
-      }
+      const tile = groundTile(tx, ty, 1, season);
+      for (let y = 0; y < TILE; y++) rippled.data.set(tile.data.subarray(y * TILE * 4, (y + 1) * TILE * 4), ((ty * TILE + y) * rippled.w + tx * TILE) * 4);
     }
   return [still, rippled];
 }
+
+/**
+ * One tile of the ground, finished exactly as in the whole map: drawn together
+ * with its left neighbour (whose fallen leaves can reach a pixel over the
+ * edge), then shaded, dressed for the season and littered.
+ */
+export function groundTile(tx: number, ty: number, phase: number, season: Season = SEASON): Raster {
+  const pair = new Raster(2 * TILE, TILE);
+  drawTile(pair, 0, 0, tx - 1, ty, phase);
+  drawTile(pair, TILE, 0, tx, ty, phase);
+  const ox = (tx - 1) * TILE, oy = ty * TILE;
+  shadeUnderCliffs(pair, ox, oy);
+  applySeason(pair, ox, oy, season);
+  scatterLitter(pair, season, ox, oy);
+  const tile = new Raster(TILE, TILE);
+  for (let y = 0; y < TILE; y++) tile.data.set(pair.data.subarray((y * pair.w + TILE) * 4, (y * pair.w + 2 * TILE) * 4), y * TILE * 4);
+  return tile;
+}
+
+/** Tiles whose art is shaded by the sun (redrawn by groundTile as it moves). */
+export const SUNLIT_TILES = new Set(['b', 'r']);
 
 // ---------------------------------------------------------------- seasons
 
@@ -545,6 +583,8 @@ function shadeUnderCliffs(r: Raster, ox = 0, oy = 0): void {
 
 export interface Prop {
   raster: Raster;
+  /** The pixels shaded by the light, and how (relightProp redraws them for another sun). */
+  lit?: Map<number, LitPixel>;
   x: number;
   y: number;
   /** y used for depth sorting against cats (their feet). */
@@ -572,10 +612,50 @@ const AUTUMN: RGB[][] = [
 export const TREE_W = 64;
 export const TREE_H = 84;
 
+/**
+ * What a pixel needs to be shaded again: a leaf knows its palette, which way
+ * its clump curves there (nx, ny) and where the clump sits in the crown (cx,
+ * cy), plus fixed noise; bark knows where across the trunk it is.
+ */
+export type LitPixel =
+  | { leaf: true; pal: RGB[]; nx: number; ny: number; cx: number; cy: number; jit: number; speck: number; rim: boolean }
+  | { leaf: false; u: number; dark: boolean };
+
+/** A leaf's tone (0 highlight .. 3 dark) in light L. */
+function leafTone(p: Extract<LitPixel, { leaf: true }>, L: ScreenLight): number {
+  const facing = p.nx * L.x + p.ny * L.y;
+  // the soft dark rim of a clump, on its side away from the light
+  if (p.rim && facing < 0.15) return 3;
+  const l = facing * L.k + (p.cx * L.x + p.cy * L.y) * 0.5 * L.k + p.jit;
+  let tone = l > 0.55 ? 0 : l > 0.05 ? 1 : l > -0.45 ? 2 : 3;
+  // leaf speckle
+  if (p.speck < 0.07 && tone > 0) tone--;
+  else if (p.speck > 0.95 && tone < 3) tone++;
+  return tone;
+}
+
+/** A bark colour in light L: the trunk is round, lit on the side towards the light. */
+function barkColour(p: Extract<LitPixel, { leaf: false }>, L: ScreenLight): RGB {
+  if (p.dark) return BARK[2];
+  const v = (p.u - 0.5) * 2 * L.x * L.k;
+  return v > 0.15 ? BARK[0] : v > -0.35 ? BARK[1] : BARK[2];
+}
+
+const litColour = (p: LitPixel, L: ScreenLight): RGB => (p.leaf ? p.pal[leafTone(p, L)] : barkColour(p, L));
+
+/** Shade a prop's lit pixels for light L (in place). */
+export function relightProp(prop: Prop, L: ScreenLight): void {
+  if (!prop.lit) return;
+  const w = prop.raster.w;
+  for (const [i, p] of prop.lit) prop.raster.set(i % w, Math.floor(i / w), litColour(p, L));
+}
+
 /** A big tree built from many shaded leaf clumps, with branches, bark and roots. */
-function tree(seed: number, kind: number, season: Season): Raster {
+function tree(seed: number, kind: number, season: Season): { raster: Raster; lit: Map<number, LitPixel> } {
   const W = TREE_W, H = TREE_H, cx = W / 2, base = H - 1;
   const r = new Raster(W, H);
+  const lit = new Map<number, LitPixel>();
+  const L = DEFAULT_LIGHT;
   const rnd = mulberry32(seed * 977 + kind * 13);
   // the cherry blossoms first, then turns green like the others
   const pal = kind === 2 ? CANOPIES[0].c : CANOPIES[kind].c;
@@ -590,10 +670,11 @@ function tree(seed: number, kind: number, season: Season): Raster {
     const half = 4 + Math.floor((y - trunkTop) / 14) + Math.floor(flare * flare * 0.25);
     for (let x = cx - half; x < cx + half; x++) {
       const u = (x - (cx - half)) / (2 * half);
-      let c = u < 0.1 ? BARK[3] : u < 0.35 ? BARK[0] : u < 0.8 ? BARK[1] : u < 0.92 ? BARK[2] : BARK[3];
-      if (c !== BARK[3] && hash2(x, Math.floor(y / 3) + (x % 2), seed) < 0.18) c = BARK[2];
-      if (y === base) c = BARK[3];
-      r.set(x, y, c);
+      // the outline stays dark; the rest is lit by the sun, with darker bark lines
+      if (u < 0.1 || u >= 0.92 || y === base) { r.set(x, y, BARK[3]); continue; }
+      const px: LitPixel = { leaf: false, u, dark: hash2(x, Math.floor(y / 3) + (x % 2), seed) < 0.18 };
+      lit.set(y * W + x, px);
+      r.set(x, y, litColour(px, L));
     }
   }
   // branches reaching up into the crown (all of them show once the leaves are gone)
@@ -641,24 +722,18 @@ function tree(seed: number, kind: number, season: Season): Raster {
       for (let x = Math.floor(c.x - c.r); x <= c.x + c.r; x++) {
         const dx = x + 0.5 - c.x, dy = y + 0.5 - c.y, d = Math.hypot(dx, dy);
         if (d > c.r) continue;
-        // soft dark rim only on the shadow side; the silhouette is outlined later
-        if (d > c.r - 1.2 && dx + dy > -c.r * 0.2) { r.set(x, y, pal[3]); painted.set(y * W + x, pal); continue; }
-        // light from the top-left plus the clump's place in the crown
-        const crown = ((c.x - cx) / rx) * 0.25 + ((c.y - ccy) / ry) * 0.45;
-        const l = -(dx * 0.55 + dy * 0.85) / c.r - crown + (bayer(x, y) - 0.5) * 0.35 + (hash2(x, y, seed + i) - 0.5) * 0.25;
-        let tone = l > 0.55 ? 0 : l > 0.05 ? 1 : l > -0.45 ? 2 : 3;
-        // leaf speckle
-        const h = hash2(x, y, seed * 7 + i);
-        if (h < 0.07 && tone > 0) tone--;
-        else if (h > 0.95 && tone < 3) tone++;
-        r.set(x, y, pal[tone]);
+        // shaded by the light, from which way the clump curves here and where it is in the crown
+        const px: LitPixel = {
+          leaf: true, pal, nx: dx / c.r, ny: dy / c.r, cx: (c.x - cx) / rx, cy: (c.y - ccy) / ry,
+          jit: (bayer(x, y) - 0.5) * 0.35 + (hash2(x, y, seed + i) - 0.5) * 0.25, speck: hash2(x, y, seed * 7 + i),
+          rim: d > c.r - 1.2,
+        };
+        lit.set(y * W + x, px);
+        r.set(x, y, litColour(px, L));
         painted.set(y * W + x, pal);
       }
-    // a few leaf glints
-    for (let k = 0; k < 2; k++) {
-      const gx = Math.round(c.x - c.r * 0.4 + rnd() * 3), gy = Math.round(c.y - c.r * 0.45 + rnd() * 2);
-      r.set(gx, gy, pal[0]); r.set(gx + 1, gy, pal[0]); r.set(gx + 1, gy - 1, pal[0]);
-    }
+    // (keep the generator's sequence as it was, so the trees keep their shapes)
+    for (let k = 0; k < 4; k++) rnd();
   };
 
   const back = clumps.filter((c) => c.y < ccy - 3);
@@ -702,7 +777,10 @@ function tree(seed: number, kind: number, season: Season): Raster {
       const i = (y * W + x) * 4;
       if (r.data[i + 3] && r.data[i] < 200 && (y - trunkTop < 4 || bayer(x, y) > 0.5)) {
         const isBark = BARK.some((b) => b[0] === r.data[i] && b[1] === r.data[i + 1]);
-        if (isBark) r.set(x, y, BARK[2]);
+        if (!isBark) continue;
+        r.set(x, y, BARK[2]);
+        const px = lit.get(y * W + x);
+        if (px && !px.leaf) px.dark = true;
       }
     }
   // snow lying along the tops of the branches and on what's left of the leaves
@@ -713,7 +791,12 @@ function tree(seed: number, kind: number, season: Season): Raster {
           r.set(x, y, SNOW[3]);
           if (r.isSet(x, y + 1) && hash2(x, y, seed + 1305) < 0.5) r.set(x, y + 1, SNOW[1]);
         }
-  return r;
+  // only what is still as it was shaded stays lit (outlines, branches, fruit and snow were painted over it)
+  for (const [i, px] of lit) {
+    const c = litColour(px, L), k = i * 4;
+    if (r.data[k] !== c[0] || r.data[k + 1] !== c[1] || r.data[k + 2] !== c[2]) lit.delete(i);
+  }
+  return { raster: r, lit };
 }
 
 export function buildProps(season: Season = SEASON): Prop[] {
@@ -724,7 +807,7 @@ export function buildProps(season: Season = SEASON): Prop[] {
     // trees on raised ground are drawn lifted with it
     const lift = levelAt(tx, ty) * LEVEL;
     return {
-      raster: tree(i + 1, kind, season),
+      ...tree(i + 1, kind, season),
       x: bx - TREE_W / 2,
       y: by - (TREE_H - 1) - lift,
       depthY: by,

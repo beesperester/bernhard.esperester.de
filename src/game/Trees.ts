@@ -10,6 +10,7 @@ const HOLE_MAX = 0.8;
 interface Tree {
   p: Prop;
   tex: Phaser.Textures.CanvasTexture;
+  /** The tree as shaded (the hole is cut from a copy of it). */
   orig: ImageData;
   work: ImageData;
   holed: boolean;
@@ -32,6 +33,15 @@ export class Trees {
       cullerFor(scene).add(scene.add.image(p.x, p.y, `tree-${i}`).setOrigin(0).setDepth(p.depthY));
       return { p, tex, orig, work: new ImageData(w, h), holed: false };
     });
+  }
+
+  /** Tree i has been shaded for another sun: show it (with its hole, if a cat is behind it, from the next update). */
+  relight(i: number, img: ImageData): void {
+    const t = this.trees[i];
+    t.orig.data.set(img.data);
+    if (t.holed) return;
+    t.tex.getContext().putImageData(t.orig, 0, 0);
+    t.tex.refresh();
   }
 
   /** True if a tree's crown is drawn over world point (x, y) for something whose feet are at feetY. */
