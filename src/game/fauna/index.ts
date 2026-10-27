@@ -4,6 +4,7 @@ import { Bugs } from './Bugs.ts';
 import { Butterflies } from './Butterflies.ts';
 import { Fish } from './Fish.ts';
 import { Mice } from './Mice.ts';
+import { Squirrels } from './Squirrels.ts';
 import { NightFlyers } from './NightFlyers.ts';
 import { NightLife } from './NightLife.ts';
 import type { Fauna, FaunaContext } from './kit.ts';
@@ -26,7 +27,8 @@ export const FAUNA: ((ctx: FaunaContext) => Fauna)[] = [
   (ctx) => new NightFlyers(ctx),
   (ctx) => new Bugs(ctx),
   (ctx) => new Mice(ctx),
+  (ctx) => new Squirrels(ctx),
 ];
 
-export { Birds };
+export { Birds, Squirrels };
 export type { Fauna, FaunaContext, FaunaFrame, PreyRef } from './kit.ts';

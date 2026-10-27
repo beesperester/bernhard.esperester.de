@@ -18,6 +18,13 @@ export function sanitizeCatch(d: unknown): [Prey, number] | null {
   return PREY_KINDS.has(kind) && Number.isInteger(id) ? [kind as Prey, id as number] : null;
 }
 
+/** Accept only a [tree, garden time] paw at a tree: a tree index and a time, both whole numbers. */
+export function sanitizeShake(d: unknown, trees: number): [number, number] | null {
+  if (!Array.isArray(d) || d.length !== 2) return null;
+  const [tree, gt] = d;
+  return Number.isInteger(tree) && tree >= 0 && tree < trees && Number.isInteger(gt) && gt > 0 ? [tree, gt] : null;
+}
+
 /** A verdict on a catch ('c': catcher, kind, id, confirmed) or on a cat ('a': suspect, accused). */
 export type VoteMsg = ['c', string, Prey, number, boolean] | ['a', string, boolean];
 

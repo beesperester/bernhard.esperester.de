@@ -16,6 +16,7 @@ import { PondReflection } from './PondReflection.ts';
 import { Trees } from './Trees.ts';
 import { Furniture } from './Furniture.ts';
 import { Landmarks } from './Landmarks.ts';
+import { trunkNear } from '../world/fruit.ts';
 import { Shadows, type Caster } from './Shadows.ts';
 import { Vignette } from './Vignette.ts';
 import { Daylight } from './Daylight.ts';
@@ -249,6 +250,11 @@ export class GardenScene extends Phaser.Scene {
       onCatch: (id, kind, preyId) => {
         const cat = this.remotes.get(id);
         if (cat && this.referee.claim(id, kind, preyId, performance.now())) this.ambient.catchPrey(kind, preyId, cat);
+      },
+      // another cat pawed at a tree: believed if that cat is at the trunk (as far as we can see) and it is about now
+      onShake: (id, tree, gt) => {
+        const cat = this.remotes.get(id);
+        if (cat && Math.abs(gt - this.net.now()) < 5000 && trunkNear(cat.x, cat.y, cat.z, 24) === tree) this.ambient.shakeTree(tree, gt);
       },
       onVote: (id, msg) => this.referee.receiveVote(id, msg, performance.now()),
       onLeave: (id) => {
@@ -529,8 +535,15 @@ export class GardenScene extends Phaser.Scene {
       const prey = this.ambient.preyNear(me);
       // (with nothing in reach it swipes the way it faces)
       if (prey) me.facing = facingTowards(me, prey);
-      // pawing at a monument brings up its name
-      else this.landmarks.touch(me.x, me.y, now);
+      // pawing at a monument brings up its name; at a tree's trunk, maybe shakes something down
+      else if (!this.landmarks.touch(me.x, me.y, now)) {
+        const tree = trunkNear(me.x, me.y, me.z);
+        if (tree >= 0) {
+          const gt = Math.round(this.net.now());
+          this.ambient.shakeTree(tree, gt);
+          this.net.shake(tree, gt);
+        }
+      }
       this.catching = { swiped: false, got: null };
       begin(Act.Catch);
       return;

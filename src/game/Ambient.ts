@@ -4,7 +4,7 @@ import type { Prop } from '../art/trees.ts';
 import { Act, Prey } from './state.ts';
 import type { CatView } from './CatView.ts';
 import { TILE } from '../world/map.ts';
-import { FAUNA, Birds, type Fauna, type FaunaContext, type PreyRef } from './fauna/index.ts';
+import { FAUNA, Birds, Squirrels, type Fauna, type FaunaContext, type PreyRef } from './fauna/index.ts';
 import { Effects } from './fauna/Effects.ts';
 import { PREY } from './fauna/prey.ts';
 
@@ -30,6 +30,7 @@ export class Ambient {
   private readonly scene: Phaser.Scene;
   private readonly fauna: Fauna[];
   private readonly birds: Birds;
+  private readonly squirrels: Squirrels;
   /** Which module looks after each kind of prey's catches. */
   private readonly keepers = new Map<Prey, Fauna>();
   /** Splashes, ripples and other short effects, shared with the rest of the garden. */
@@ -49,6 +50,7 @@ export class Ambient {
     const ctx: FaunaContext = { scene, ...opts, fx: this.fx, isCaught: (kind, id) => this.caught.has(preyKey(kind, id)) };
     this.fauna = FAUNA.map((make) => make(ctx));
     this.birds = this.fauna.find((f): f is Birds => f instanceof Birds)!;
+    this.squirrels = this.fauna.find((f): f is Squirrels => f instanceof Squirrels)!;
     for (const f of this.fauna) for (const kind of f.catches ?? []) this.keepers.set(kind, f);
   }
 
@@ -62,6 +64,11 @@ export class Ambient {
     this.fx.followCats(cats, frame.now);
     this.fx.update(dt);
     this.lastGt = gt;
+  }
+
+  /** A cat pawed at tree `tree` at garden time gt: maybe a nut or a fruit falls (and a squirrel comes for it). */
+  shakeTree(tree: number, gt: number): boolean {
+    return this.squirrels.shake(tree, gt);
   }
 
   /** A bird sitting in a tree near (x, y), for birdsong. */

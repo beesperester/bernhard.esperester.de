@@ -39,7 +39,7 @@ export function setupUI(): UI {
 
   if (isTouch()) {
     pad.hidden = false;
-    help.textContent = 'D-pad to move · A jump (up trees too, down to drop) · B dash · hold SNEAK to creep up, then B to pounce · CATCH (splash the water to lure fish) · hiss, roll & mew to talk';
+    help.textContent = 'D-pad to move · A jump (up trees too, down to drop) · B dash · hold SNEAK to creep up, then B to pounce · CATCH (splash the water to lure fish, paw at a tree or a monument) · hiss, roll & mew to talk';
     setupDpad(document.getElementById('dpad')!);
     for (const btn of pad.querySelectorAll<HTMLElement>('[data-btn]')) {
       btn.addEventListener('pointerdown', (e) => {

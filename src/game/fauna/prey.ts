@@ -35,6 +35,7 @@ export const PREY: Record<Prey, PreyInfo> = {
   [Prey.Beetle]: { name: 'beetle', points: fixed(1), eat: Act.Munch, leap: { texture: (c) => `beetle-${c}`, frame: 0, seconds: 0.18 } },
   [Prey.Dragonfly]: { name: 'dragonfly', points: fixed(2), eat: Act.Munch, leap: { texture: () => 'dragonfly', frame: 1, seconds: 0.18 } },
   [Prey.Bat]: { name: 'bat', points: fixed(4), eat: Act.Feast, held: () => 'held-bat', leap: { texture: () => 'bat', frame: 1, seconds: 0.18 } },
+  [Prey.Squirrel]: { name: 'squirrel', points: fixed(4), eat: Act.Feast, held: () => 'held-squirrel', leap: { texture: () => 'squirrel', frame: 1, seconds: 0.18 } },
   [Prey.Mouse]: { name: 'mouse', points: fixed(3), eat: Act.Feast, held: () => 'held-mouse', leap: { texture: () => 'mouse', frame: 1, seconds: 0.18 } },
 };
 

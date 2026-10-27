@@ -3,7 +3,8 @@
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
 import type { Prey, CatMsg } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeVote, type VoteMsg } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeShake, sanitizeVote, type VoteMsg } from './protocol.ts';
+import { TREES } from '../world/trees.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 
 // unversioned until the site is released; after that, version it when the protocol changes
@@ -18,6 +19,8 @@ export interface NetEvents {
   onState: (peerId: string, msg: CatMsg) => void;
   /** Another cat caught (or swiped at) the fish, butterfly or bee with this id. */
   onCatch: (peerId: string, kind: Prey, id: number) => void;
+  /** Another cat pawed at tree `tree` at garden time gt. */
+  onShake: (peerId: string, tree: number, gt: number) => void;
   onLeave: (peerId: string) => void;
   /** Someone new in the garden. */
   onJoin: (peerId: string) => void;
@@ -32,6 +35,7 @@ export class Net {
   private room: Room | null = null;
   private send: ((msg: CatMsg, target?: string) => void) | null = null;
   private sendCatch: ((kind: Prey, id: number) => void) | null = null;
+  private sendShake: ((tree: number, gt: number) => void) | null = null;
   private sendBoard: ((msg: BoardMsg, target?: string) => void) | null = null;
   private sendVote: ((msg: VoteMsg) => void) | null = null;
   /** Peer clock minus our clock, in ms, measured once when a peer joins. */
@@ -58,6 +62,10 @@ export class Net {
 
   catchPrey(kind: Prey, id: number): void {
     this.sendCatch?.(kind, id);
+  }
+
+  shake(tree: number, gt: number): void {
+    this.sendShake?.(tree, gt);
   }
 
   board(msg: BoardMsg, target?: string): void {
@@ -103,6 +111,12 @@ export class Net {
     prey.onMessage = (data, { peerId }) => {
       const caught = this.room === room ? sanitizeCatch(data) : null;
       if (caught) this.ev.onCatch(peerId, ...caught);
+    };
+    const shake = room.makeAction<[number, number]>('shake');
+    this.sendShake = (tree, gt) => void shake.send([tree, gt]).catch(() => {});
+    shake.onMessage = (data, { peerId }) => {
+      const s = this.room === room ? sanitizeShake(data, TREES.length) : null;
+      if (s) this.ev.onShake(peerId, ...s);
     };
     const board = room.makeAction<BoardMsg>('board');
     this.sendBoard = (msg, target) => void board.send(msg, target ? { target } : undefined).catch(() => {});

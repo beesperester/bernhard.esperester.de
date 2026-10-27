@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Prey } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeVote } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeShake, sanitizeVote } from './protocol.ts';
 
 describe('sanitizeCat', () => {
   it('accepts a well-formed state and truncates the integer fields', () => {
@@ -52,5 +52,21 @@ describe('sanitizeVote', () => {
     ['extra fields', ['a', 'peer', true, 'more']],
   ])('rejects %s', (_, msg) => {
     expect(sanitizeVote(msg)).toBeNull();
+  });
+});
+
+describe('sanitizeShake', () => {
+  it('accepts a paw at a tree that exists, at a whole garden time', () => {
+    expect(sanitizeShake([3, 1700000000000], 10)).toEqual([3, 1700000000000]);
+  });
+
+  it.each([
+    ['a tree that does not exist', [10, 1700000000000]],
+    ['a negative tree', [-1, 1700000000000]],
+    ['a fractional time', [3, 1.5]],
+    ['not a pair', [3]],
+    ['strings', ['3', '1700000000000']],
+  ])('rejects %s', (_, d) => {
+    expect(sanitizeShake(d, 10)).toBeNull();
   });
 });
