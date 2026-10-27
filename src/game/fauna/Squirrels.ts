@@ -1,4 +1,4 @@
-import { Prey } from '../state.ts';
+import { Act, Prey } from '../state.ts';
 import { Wary, type Senses } from './Wary.ts';
 import type { CatView } from '../CatView.ts';
 import { FORK_Z, LEVEL, TILE, furnished, groundAt, levelAt, tileAt } from '../../world/map.ts';
@@ -66,8 +66,11 @@ interface Trip {
   fruit: FruitDrop | null;
 }
 interface Pose { x: number; y: number; z: number; frame: number; right: boolean; alpha: number; climbing: boolean }
-/** A squirrel that took fright: back to its tree and up it. */
-interface Flight { t: number; from: Pt; ms: number }
+/**
+ * A squirrel that took fright: back to its tree and up it. One up the tree
+ * that a cat comes up to bolts off into the crown (`gone`: when, from where).
+ */
+interface Flight { t: number; from: Pt; ms: number; gone?: { t: number; x: number; z: number } }
 
 export class Squirrels implements Fauna {
   readonly catches = [Prey.Squirrel] as const;
@@ -313,11 +316,22 @@ export class Squirrels implements Fauna {
       }
     }
     if (!p) return;
+    // up the tree: a cat climbing up to it (and not creeping) sends it off into the crown
+    if (p.climbing && !this.fled.get(trip.id)?.gone) {
+      const sz = t.elev + p.z;
+      const c = cats.find((c) => c.z > t.elev + 4 && Math.abs(c.z - sz) < 16 && Math.abs(c.x - p.x) < 30 && Math.abs(c.y - t.y) < 14
+        && c.act !== Act.Crouch && c.act !== Act.Sneak && c.act !== Act.Catch && (c.speed > 5 || c.act === Act.Jump));
+      if (c) {
+        this.fled.set(trip.id, { t: gt, from: [p.x, p.y], ms: 0, gone: { t: gt, x: p.x, z: p.z } });
+        void sound.play('rustle', { at: { x: p.x, y: p.y }, volume: 0.4, rate: 1.6 });
+      }
+    }
     // on the trunk it is drawn in front of its tree
     const depth = p.climbing ? t.y + 0.7 : p.y;
     this.squirrels.get('squirrel', p.frame).setOrigin(0.5, 1).setFlipX(p.right)
       .setPosition(Math.round(p.x), Math.round(p.y - t.elev - p.z)).setDepth(depth).setAlpha(p.alpha);
-    if (!p.climbing && p.alpha > 0.5) prey.push({ kind: Prey.Squirrel, id: trip.id, x: p.x, y: p.y, h: t.elev, colour: 0 });
+    // on the ground, on the trunk or sitting on a branch, a cat in reach can get it
+    if (p.alpha > 0.5) prey.push({ kind: Prey.Squirrel, id: trip.id, x: p.x, y: p.y, h: t.elev + p.z, colour: 0 });
   }
 
   /** A fled squirrel: a dash to its trunk, up it, a sulk on a branch, and gone into the crown. */
@@ -325,6 +339,11 @@ export class Squirrels implements Fauna {
     const t = TREES[trip.tree];
     const foot: Pt = [t.x + TRUNK_SIDE, t.y + 1];
     const up = FORK_Z + RISE;
+    if (f.gone) {
+      // scrambling up into the leaves and out of sight
+      const u = (gt - f.gone.t) / 450;
+      return u >= 1 ? null : { x: f.gone.x, y: foot[1], z: f.gone.z + u * 14, frame: 4, right: false, alpha: 1 - u, climbing: true };
+    }
     let tau = gt - f.t;
     if (tau < f.ms) {
       const u = tau / f.ms;

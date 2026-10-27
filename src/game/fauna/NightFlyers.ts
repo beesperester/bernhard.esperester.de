@@ -12,7 +12,9 @@ import { Pool, seedRng, hash2, smooth, clamp01, type Fauna, type FaunaContext, t
 // rest, and every so often an owl that glides in, sits in a tree
 // top or on a lantern for a while, looks about with glowing eyes and glides
 // off again. Deterministic like the rest of the fauna; only a scared owl or
-// roosting bat (somebody hissed or jumped at it) leaves early, on each screen by itself.
+// roosting bat (somebody hissed or jumped at it, or came up the tree to it
+// without creeping) leaves early, on each screen by itself. A roosting bat can
+// be caught by a cat that sneaks up the tree to it.
 
 /** A bat may come out every BAT_SLOT ms, from dusk... */
 const BAT_SLOT = 5000, BAT_P = 0.55, BAT_MAX = 80000, BAT_DUSK = 0.3;
@@ -111,7 +113,9 @@ export class NightFlyers implements Fauna {
   private disturbed(s: Perch, cats: CatView[], reach: number): CatView | null {
     for (const c of cats) {
       const d = Math.hypot(c.x - s.x, c.y - s.y);
-      const level = Math.abs(c.z - s.h) < 16 && d < 28;
+      // a cat up at its height wakes it, unless it creeps along the branch
+      const creeping = c.act === Act.Crouch || c.act === Act.Sneak || c.act === Act.Catch;
+      const level = Math.abs(c.z - s.h) < 16 && d < 28 && !creeping;
       const loud = (c.act === Act.Hiss && d < reach) || (c.act === Act.Jump && d < 36) || (c.speed > 110 && d < 30);
       if (level || loud) return c;
     }
@@ -217,6 +221,8 @@ export class NightFlyers implements Fauna {
       const sway = Math.sin(gt / 900 + b.id) * 0.12;
       this.hanging.get('bat-hang', stretch ? 1 : 0).setOrigin(0.5, 0).setRotation(sway)
         .setPosition(Math.round(s.x), Math.round(s.y - s.h)).setDepth(s.depth);
+      // asleep under the leaves: a cat that has crept up the tree to it can take it
+      if (!c) this.prey.push({ kind: Prey.Bat, id: b.id, x: s.x, y: s.y, h: s.h - 5, colour: 0 });
     }
   }
 
