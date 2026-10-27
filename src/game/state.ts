@@ -22,6 +22,16 @@ export const EAT_MS = 2600;
 /** Gulping down a butterfly is quicker than a fish. */
 export const MUNCH_MS = 1500;
 
+/** Where a swiping paw comes down, for a cat with its feet at (x, y): beside it, in front, or ahead up the screen. */
+export function pawAt(x: number, y: number, facing: Facing): [number, number] {
+  switch (facing) {
+    case Facing.Left: return [x - 11, y - 3];
+    case Facing.Right: return [x + 11, y - 3];
+    case Facing.Down: return [x, y + 4];
+    default: return [x, y - 10];
+  }
+}
+
 /** Things a cat can swipe at. */
 export const Prey = { Fish: 0, Fly: 1, Bee: 2, Bird: 3, Firefly: 4, Frog: 5, Beetle: 6, Dragonfly: 7, Bat: 8, Mouse: 9 } as const;
 export type Prey = (typeof Prey)[keyof typeof Prey];
@@ -37,8 +47,8 @@ const DIR: Record<number, 'down' | 'up' | 'side'> = { 0: 'down', 1: 'up', 2: 'si
 export function frameFor(act: Act, facing: Facing, ms: number, now: number, fast = false): number {
   let d = DIR[facing];
   const flip = facing === Facing.Right;
-  // catching and eating only exist side-on
-  if (act === Act.Catch || act === Act.Eat || act === Act.Munch || act === Act.Feast) d = 'side';
+  // a cat facing away turns round to eat, like it does to sit
+  if ((act === Act.Eat || act === Act.Munch || act === Act.Feast) && d === 'up') d = 'down';
   let name: FrameName;
   switch (act) {
     case Act.Walk:
@@ -54,7 +64,7 @@ export function frameFor(act: Act, facing: Facing, ms: number, now: number, fast
       name = d === 'side' ? cycle(['lickSide1', 'lickSide2'], 4, ms) : cycle(['lickDown1', 'lickDown2'], 4, ms);
       break;
     case Act.Hiss:
-      name = cycle(['hiss1', 'hiss2'], 6, ms);
+      name = d === 'side' ? cycle(['hiss1', 'hiss2'], 6, ms) : d === 'down' ? cycle(['hissDown1', 'hissDown2'], 6, ms) : cycle(['hissUp1', 'hissUp2'], 6, ms);
       break;
     case Act.Mew:
       // sits up and calls out
@@ -66,9 +76,11 @@ export function frameFor(act: Act, facing: Facing, ms: number, now: number, fast
     case Act.Sleep:
       name = cycle(['sleep1', 'sleep2'], 0.8, ms);
       break;
-    case Act.Catch:
-      name = ms < SWIPE_AT_MS ? 'catch1' : 'catch2';
+    case Act.Catch: {
+      const swiped = ms >= SWIPE_AT_MS;
+      name = d === 'side' ? (swiped ? 'catch2' : 'catch1') : d === 'down' ? (swiped ? 'catchDown2' : 'catchDown1') : swiped ? 'catchUp2' : 'catchUp1';
       break;
+    }
     case Act.Crouch:
       name = `${d}Crouch` as FrameName;
       break;
@@ -78,11 +90,12 @@ export function frameFor(act: Act, facing: Facing, ms: number, now: number, fast
       break;
     case Act.Eat:
     case Act.Feast:
-      name = ms < EAT_MS - 600 ? cycle(['sitSide', 'chew'], 4, ms) : 'sitSide';
+    case Act.Munch: {
+      const sit = d === 'side' ? 'sitSide' : 'sitDown', chew = d === 'side' ? 'chew' : 'chewDown';
+      const munch = act === Act.Munch;
+      name = ms < (munch ? MUNCH_MS - 500 : EAT_MS - 600) ? cycle([sit, chew], munch ? 6 : 4, ms) : sit;
       break;
-    case Act.Munch:
-      name = ms < MUNCH_MS - 500 ? cycle(['sitSide', 'chew'], 6, ms) : 'sitSide';
-      break;
+    }
     default:
       name = `${d}Stand` as FrameName;
   }

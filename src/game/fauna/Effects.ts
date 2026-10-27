@@ -211,7 +211,7 @@ export class Effects {
         case 'leap': {
           // an arc from where it was caught into the cat's mouth
           const c = p.cat!;
-          const mx = c.x + (c.facing === Facing.Right ? 6 : -6), my = c.y - 7 - c.z;
+          const mx = c.x + (c.facing === Facing.Right ? 6 : c.facing === Facing.Left ? -6 : 0), my = c.y - 7 - c.z;
           const e = clamp01(u);
           p.img.setFlipX(mx > p.x).setPosition(Math.round(lerp(p.x, mx, e)), Math.round(lerp(p.y, my, e) - 12 * 4 * e * (1 - e)));
           break;

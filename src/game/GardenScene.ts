@@ -18,6 +18,7 @@ import { Daylight } from './Daylight.ts';
 import { RimLight } from './RimLight.ts';
 import { Lanterns } from './Lanterns.ts';
 import { NightWater } from './NightWater.ts';
+import { Streams } from './Streams.ts';
 import { berlinClock } from '../world/sky.ts';
 import { SEASON, rainfall } from '../world/season.ts';
 import { Weather } from './Weather.ts';
@@ -99,6 +100,7 @@ export class GardenScene extends Phaser.Scene {
   private ambient!: Ambient;
   private referee!: Referee;
   private weather!: Weather;
+  private streams!: Streams;
   private readonly dash = new Dash();
   private lastDry = { x: 0, y: 0 };
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
@@ -175,6 +177,7 @@ export class GardenScene extends Phaser.Scene {
       for (let tx = 0; tx < MAP_W; tx++) if (groundOf(tileAt(tx, ty)) === 'flowers') flowers.push([tx * TILE + 8, ty * TILE + 8]);
     this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: reflect.props });
     this.weather = new Weather(this, props, water);
+    this.streams = new Streams(this, water);
 
     const spawns = spawnPoints();
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
@@ -389,6 +392,7 @@ export class GardenScene extends Phaser.Scene {
     catLight.night = light.night;
     this.ambient.update(gt, dt, cats, view);
     this.weather.update(gt, time, dt, cats, view);
+    this.streams.update(gt, light.night, view);
     this.clouds.update(gt);
     this.clouds.setDaylight(light.day);
     this.sun.update(time, dt, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), light.day);
@@ -465,7 +469,7 @@ export class GardenScene extends Phaser.Scene {
       this.airCatch = { got: null };
       const prey = this.ambient.preyNear(me);
       if (prey && !PREY[prey.kind].swipeOnly) {
-        me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
+        me.facing = facingTowards(me, prey);
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
         this.ate(prey.kind, prey.colour);
@@ -476,8 +480,8 @@ export class GardenScene extends Phaser.Scene {
     const busy = me.act === Act.Jump || me.act === Act.Catch || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast;
     if (grab && !busy && !wetAt(me.x, me.y)) {
       const prey = this.ambient.preyNear(me);
-      if (prey) me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
-      else if (me.facing === Facing.Up || me.facing === Facing.Down) me.facing = Facing.Left;
+      // (with nothing in reach it swipes the way it faces)
+      if (prey) me.facing = facingTowards(me, prey);
       this.catching = { swiped: false, got: null };
       begin(Act.Catch);
       return;
@@ -486,7 +490,7 @@ export class GardenScene extends Phaser.Scene {
     if (this.dash.active && !busy) {
       const prey = this.ambient.preyNear(me);
       if (prey && !PREY[prey.kind].swipeOnly) {
-        me.facing = prey.x < me.x ? Facing.Left : Facing.Right;
+        me.facing = facingTowards(me, prey);
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
         this.ate(prey.kind, prey.colour);
@@ -650,6 +654,13 @@ export class GardenScene extends Phaser.Scene {
     }).setOrigin(0.5, 1).setDepth(100001).setScale(1 / zoom);
     this.tweens.add({ targets: t, y: t.y - 14, alpha: 0, delay: 500, duration: 900, ease: 'Sine.easeIn', onComplete: () => t.destroy() });
   }
+}
+
+/** Which way to turn to swipe at something at (x, y): sideways unless it is clearly ahead or behind. */
+function facingTowards(cat: { x: number; y: number }, at: { x: number; y: number }): Facing {
+  const dx = at.x - cat.x, dy = at.y - cat.y;
+  if (Math.abs(dy) > Math.abs(dx) * 1.2) return dy < 0 ? Facing.Up : Facing.Down;
+  return dx < 0 ? Facing.Left : Facing.Right;
 }
 
 function asked(id: string): boolean {

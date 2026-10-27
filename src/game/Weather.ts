@@ -17,7 +17,7 @@ import { isBridge, isLawnOrTall } from '../world/legend.ts';
 
 type Img = Phaser.GameObjects.Image;
 
-const LEAF_COLOURS: RGB[] = ['#e8b030', '#e07828', '#c84828', '#a85a28', '#f0d058'].map(hex);
+export const LEAF_COLOURS: RGB[] = ['#e8b030', '#e07828', '#c84828', '#a85a28', '#f0d058'].map(hex);
 const PETAL = hex('#f9c0d8');
 
 /** Flakes in view when it snows hardest; raindrops when it pours. */

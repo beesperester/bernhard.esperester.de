@@ -137,13 +137,12 @@ export class CatView {
     this.held.setVisible(eating);
     if (eating) {
       const right = this.facing === Facing.Right;
-      // the art faces left with the head at x=0; the head goes in the mouth, tail sticking out
-      this.held
-        .setTexture(this.act === Act.Feast ? this.heldKey : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2)
-        .setFlipX(!right)
-        .setOrigin(right ? 0 : 1, 0.5)
-        .setPosition(x + (right ? 5 : -5), y - 6 - Math.round(z))
-        .setDepth(y + 0.5);
+      const sideways = right || this.facing === Facing.Left;
+      this.held.setTexture(this.act === Act.Feast ? this.heldKey : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2).setDepth(y + 0.5);
+      // side on, the art faces left with the head at x=0: the head goes in the mouth, tail sticking out;
+      // facing us, it is held crosswise in the mouth
+      if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5), y - 6 - Math.round(z));
+      else this.held.setFlipX(false).setOrigin(0.3, 0.5).setPosition(x, y - 5 - Math.round(z));
     }
 
     // the name, just under the cat's feet (and under its shadow on a ledge)

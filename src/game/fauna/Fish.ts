@@ -1,4 +1,4 @@
-import { Act, Facing, Prey, SWIPE_AT_MS } from '../state.ts';
+import { Act, Prey, SWIPE_AT_MS, pawAt } from '../state.ts';
 import type { CatView } from '../CatView.ts';
 import type { Raster } from '../../art/raster.ts';
 import { lightAt } from '../../world/sky.ts';
@@ -184,7 +184,7 @@ export class Fish implements Fauna {
       if (!s) this.perCat.set(c, (s = { swipe: -1, nextLure: 0, lastSplash: -1e9 }));
       if (c.act !== Act.Catch || now - c.actStart < SWIPE_AT_MS || s.swipe === c.actStart) continue;
       s.swipe = c.actStart;
-      const paw: Pt = [c.x + (c.facing === Facing.Right ? 11 : -11), c.y - 3];
+      const paw = pawAt(c.x, c.y, c.facing);
       if (c.z >= 4 || !this.wet(paw)) continue;
       const [px, py] = paw;
       this.fx.splash(px, py, Math.sign(px - c.x));
@@ -275,7 +275,8 @@ export class Fish implements Fauna {
       const wiggle = Math.sin(gt / 420 + l.id) * (1 + 2 * l.k);
       const sx = ax + wiggle, sy = ay + Math.sin(gt / 610 + l.id) * 1.2 + 1;
       const x = lerp(fx, sx, k), y = lerp(fy, sy, k);
-      const heading = l.phase === 'come' ? ax - fx : going ? fx - ax : Math.cos(gt / 420 + l.id);
+      // it swims nose first: towards the paw (also while waiting and nosing about), away when it goes
+      const heading = going ? fx - ax : ax - fx;
       const alpha = 0.45 * Math.min(1, (gt - l.t0) / 600, going ? 1 - u : 1);
       this.shadows.get().setFlipX(heading < 0).setPosition(Math.round(x), Math.round(y)).setAlpha(alpha).setDepth(-99995);
       // out of reach until it's come right up
