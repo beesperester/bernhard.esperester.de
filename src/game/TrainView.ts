@@ -40,6 +40,8 @@ export class TrainView {
   cars: CarPose[];
   private readonly images: { back: Phaser.GameObjects.Image; front: Phaser.GameObjects.Image }[] = [];
   private readonly made = new Set<string>();
+  /** The headlamp's beams made so far (one per heading), and where the lok's middle is in each. */
+  private readonly beams = new Map<string, { ox: number; oy: number }>();
   readonly cap: Phaser.GameObjects.Image;
   /** After dark: the lok's headlamp and its beam ahead, the lamp in its cab, the last waggon's red tail lamp. */
   private readonly lamps: { lamp: Phaser.GameObjects.Image; beam: Phaser.GameObjects.Image; cab: Phaser.GameObjects.Image; tail: Phaser.GameObjects.Image };
@@ -62,10 +64,9 @@ export class TrainView {
     scene.textures.addCanvas('driver-cap', toCanvas(buildDriverCap()));
     this.cap = scene.add.image(0, 0, 'driver-cap').setOrigin(0.5, 1).setVisible(false);
     moving.under = (x, y) => trainUnder(this.cars, x, y);
-    scene.textures.addCanvas('train-beam', toCanvas(buildBeam()));
     scene.textures.addCanvas('train-tail', toCanvas(buildGlow(9, 9, [255, 70, 50])));
     const glow = (key: string) => scene.add.image(0, 0, key).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
-    this.lamps = { lamp: glow('glow-lamp'), beam: glow('train-beam').setOrigin(0, 0.5), cab: glow('glow-lantern').setScale(0.6), tail: glow('train-tail') };
+    this.lamps = { lamp: glow('glow-lamp'), beam: glow('__DEFAULT').setOrigin(0), cab: glow('glow-lantern').setScale(0.6), tail: glow('train-tail') };
   }
 
   /** The lamps come on after dark, like the lanterns along the paths. */
@@ -199,7 +200,7 @@ export class TrainView {
       back.setVisible(on);
       front.setVisible(on);
       if (!on) return;
-      const h = ((Math.round((Math.atan2(c.dy, c.dx) / (Math.PI * 2)) * HEADINGS) % HEADINGS) + HEADINGS) % HEADINGS;
+      const h = this.headingOf(c);
       const key = `car-${c.kind}-${h}`;
       if (!this.made.has(key)) {
         const art = buildCar(c.kind, h);
@@ -215,6 +216,11 @@ export class TrainView {
     });
   }
 
+  /** Which of the pictures a car is drawn with (HEADINGS of them round the circle). */
+  private headingOf(c: CarPose): number {
+    return ((Math.round((Math.atan2(c.dy, c.dx) / (Math.PI * 2)) * HEADINGS) % HEADINGS) + HEADINGS) % HEADINGS;
+  }
+
   private renderLamps(): void {
     const { lamp, beam, cab, tail } = this.lamps, on = this.lit;
     for (const l of [lamp, beam, cab, tail]) l.setVisible(on > 0);
@@ -222,10 +228,20 @@ export class TrainView {
     const lok = this.cars[0], last = this.cars[this.cars.length - 1];
     // (the lamp sits on the lok's nose, 9 px up; the beam lies on the ground ahead of it)
     const nose = world(lok, lok.len / 2 + 1, 0), seat = world(lok, -lok.len / 2 + 5, 0), back = world(last, -last.len / 2 - 1, 0);
-    lamp.setPosition(nose.x, nose.y - 9).setAlpha(on);
-    beam.setPosition(nose.x, nose.y).setRotation(Math.atan2(lok.dy, lok.dx)).setAlpha(on * 0.9);
+    // (a lamp facing up the screen, away from us, is hidden behind its car: the lok's chimney, the last waggon)
+    const seen = (dy: number) => Math.max(0, Math.min(1, (dy + 0.7) / 0.4));
+    lamp.setPosition(nose.x, nose.y - 9).setAlpha(on * seen(lok.dy));
+    // (made for the heading its picture is, with the lok cut out of it)
+    const key = `train-beam-${this.headingOf(lok)}`;
+    let at = this.beams.get(key);
+    if (!at) {
+      const b = buildBeam(this.headingOf(lok));
+      this.scene.textures.addCanvas(key, this.toCanvas(b.r));
+      this.beams.set(key, (at = { ox: b.ox, oy: b.oy }));
+    }
+    beam.setTexture(key).setPosition(Math.round(lok.x) - at.ox, Math.round(lok.y) - at.oy).setAlpha(on * 0.9);
     cab.setPosition(seat.x, seat.y - 8).setAlpha(on * 0.45);
-    tail.setPosition(back.x, back.y - 6).setAlpha(on * 0.9);
+    tail.setPosition(back.x, back.y - 6).setAlpha(on * 0.9 * seen(-last.dy));
   }
 
   private tell(gt: number, now: boolean): void {

@@ -157,20 +157,35 @@ export function buildDriverCap(): Raster {
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 const bayer = (x: number, y: number) => BAYER[(y & 3) * 4 + (x & 3)];
 
-/** The headlamp's beam on the ground ahead: a soft wedge widening away from the lamp (at its left middle, pointing right), fading out with distance. */
-export function buildBeam(): Raster {
-  const L = 64, Wd = 30, r = new Raster(L, Wd);
+/** How far ahead of the lok's middle its headlamp is (px along it). */
+export const NOSE = CAR_LEN.lok / 2 + 1;
+
+/**
+ * The headlamp's beam on the ground ahead of a lok heading `h`: a soft wedge widening away from the
+ * lamp, fading out with distance, with the lok's own picture cut out of it (the beam lies on the
+ * ground, so a lok heading up the screen stands in front of it). The lok's middle is at (ox, oy), on
+ * the same pixels as its own pictures.
+ */
+export function buildBeam(h: number): { r: Raster; ox: number; oy: number } {
+  const L = 64, Wd = 30, R = L + 2, r = new Raster(2 * R, 2 * R);
+  const a = (h / HEADINGS) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+  const lok = buildCar('lok', h);
   const warm = hex('#fff0b0');
-  for (let y = 0; y < Wd; y++)
-    for (let x = 0; x < L; x++) {
-      const u = (x + 0.5) / L, half = 2 + u * (Wd / 2 - 2), v = Math.abs(y + 0.5 - Wd / 2) / half;
-      if (v >= 1) continue;
+  for (let py = 0; py < 2 * R; py++)
+    for (let px = 0; px < 2 * R; px++) {
+      // (from the lamp: along the beam, and across it)
+      const dx = px + 0.5 - R, dy = py + 0.5 - R;
+      const along = dx * ca + dy * sa, across = -dx * sa + dy * ca;
+      const u = along / L, half = 2 + u * (Wd / 2 - 2), v = Math.abs(across) / half;
+      if (u <= 0 || u >= 1 || v >= 1) continue;
+      const cx = px + lok.ox + Math.floor(NOSE * ca + 0.5) - R, cy = py + lok.oy + Math.floor(NOSE * sa + 0.5) - R;
+      if (lok.back.isSet(cx, cy) || lok.front.isSet(cx, cy)) continue;
       // brightest near the lamp and along the middle, in a few bands like the lanterns' pools,
       // dying away to nothing well before its far end
       const k = (1 - u) ** 2 * (1 - v * v) * 5;
       // (the faintest band thins out into a dither, so the light dissolves rather than stops)
-      const a = k >= 1 ? Math.round(k) / 5 : bayer(x, y) < k ? 0.2 : 0;
-      if (a > 0) r.set(x, y, warm, Math.round(a * 200));
+      const al = k >= 1 ? Math.round(k) / 5 : bayer(px, py) < k ? 0.2 : 0;
+      if (al > 0) r.set(px, py, warm, Math.round(al * 200));
     }
-  return r;
+  return { r, ox: R - Math.floor(NOSE * ca + 0.5), oy: R - Math.floor(NOSE * sa + 0.5) };
 }
