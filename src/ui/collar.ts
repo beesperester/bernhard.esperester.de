@@ -38,7 +38,7 @@ export function setupCollar(who: () => { name: string; custom: boolean; coat: nu
       sure = code;
       return say(`${worn.name} (${worn.score}) takes the place of your cat here (${ours}), for good unless you have its tag. Press again to go ahead.`);
     }
-    if (!(await Identity.adopt(await worn.me.secret(), true)) || !(await replaceChain(worn.blocks, worn.checks)))
+    if (!(await Identity.adopt(await worn.me.secret(), true)) || !(await replaceChain(worn.blocks, worn.checks, worn.stamps)))
       return say("Couldn't put it on here, sorry.");
     saveName(worn);
     try {

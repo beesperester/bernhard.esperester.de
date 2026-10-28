@@ -1,24 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { Identity, verify, type Signed } from './identity.ts';
-import { CATCH_EVERY_MS, Chain, RATE_MAX, blank, extend, fault, fromCheck, refuse, sanitizeBlock, sanitizeCheck, weight, type Block, type ChainStore, type Check, type Tally } from './ledger.ts';
+import { CATCH_EVERY_MS, Chain, RATE_MAX, STAMP_WITHIN, blank, extend, fault, fromCheck, refuse, sanitizeBlock, sanitizeCheck, settle, weight, type Block, type Check, type Tally } from './ledger.ts';
 import { Prey } from '../game/state.ts';
 import { GROWN_AT } from '../game/growth.ts';
 
-const memory = (): ChainStore & { blocks: Map<number, Block> } => {
-  const blocks = new Map<number, Block>();
-  let checks: Signed<Check>[] = [];
-  return {
-    blocks,
-    load: async () => ({ blocks: [...blocks.values()], checks }),
-    put: async (b) => void blocks.set(b.d.n, b),
-    putChecks: async (c) => void (checks = c),
-  };
-};
+import { TEST_SIG, memory, testBeacon } from './testing.ts';
+import { roundAt, roundTime } from './beacon.ts';
 
 async function cat() {
   const me = await Identity.make();
   const store = memory();
-  const chain = new Chain(me.id, (l) => me.sign(l), store);
+  const chain = new Chain(me.id, (l) => me.sign(l), store, testBeacon);
   return { me, store, chain };
 }
 
@@ -66,7 +58,7 @@ describe('the chain of catches', () => {
     const { me, store, chain } = await cat();
     await chain.append(1, Prey.Fish, 1, 3);
     await chain.append(1, Prey.Fish, 2, 3);
-    const again = new Chain(me.id, (l) => me.sign(l), store);
+    const again = new Chain(me.id, (l) => me.sign(l), store, testBeacon);
     await again.load(verify);
     expect(again.head).toEqual(chain.head);
   });
@@ -87,7 +79,7 @@ describe('the chain of catches', () => {
   it('refuses catches that come too quickly or too far in the future', async () => {
     const { me } = await cat();
     const t0 = Date.now();
-    const link = (n: number, v: string, t: number, i = n) => ({ c: me.id, n, v, w: 1, k: Prey.Find, i, p: 12, t });
+    const link = (n: number, v: string, t: number, i = n) => ({ c: me.id, n, v, w: 1, k: Prey.Find, i, p: 12, t, r: roundAt(t), b: TEST_SIG });
     let t: Tally = blank(me.id);
     const first = await me.sign(link(0, '', t0));
     t = (await extend(t, first, t0, verify)) as Tally;
@@ -114,6 +106,62 @@ describe('the chain of catches', () => {
     const t = (await tallyOf(me.id, chain.from(0))) as Tally;
     expect(refuse(t, '1.3.5').s).toBe(0);
     expect(refuse(t, '1.3.6').s).toBe(4);
+  });
+});
+
+describe('beacons and stamps', () => {
+  const at = (me: Identity, t: number, r = roundAt(t), b = TEST_SIG) => me.sign({ c: me.id, n: 0, v: '', w: 1, k: Prey.Fish, i: 1, p: 3, t, r, b });
+
+  it("put every catch on drand's beacon of its moment", async () => {
+    const { me, chain } = await cat();
+    const b = (await chain.append(1, Prey.Fish, 1, 3))!;
+    expect(b.d.t - roundTime(b.d.r)).toBeLessThan(60_000);
+    const now = Date.now();
+    expect(await extend(blank(me.id), await at(me, now), now, verify)).not.toBeTypeOf('string');
+    // made long after its beacon (or before it came out), or with a beacon drand never signed
+    expect(await extend(blank(me.id), await at(me, now, roundAt(now - 5 * 60_000)), now, verify)).toBe('not at its beacon');
+    expect(await extend(blank(me.id), await at(me, now - 60_000, roundAt(now)), now, verify)).toBe('not at its beacon');
+    expect(await extend(blank(me.id), await at(me, now, roundAt(now), 'B'.repeat(64)), now, verify)).toBe('no such beacon');
+  });
+
+  it('hold back the points of a block over a day old till a stamp shows it was made in time', async () => {
+    const { me } = await cat();
+    const made = Date.now() - 2 * STAMP_WITHIN;
+    const t = (await extend(blank(me.id), await at(me, made), Date.now(), verify)) as Tally;
+    expect(t.s).toBe(0);
+    expect(t.held).toHaveLength(1);
+    // a stamp of the head after it, proven made an hour later: it counts
+    expect(settle(t, 1, made + 3_600_000)).toMatchObject({ s: 3, top: 3, held: [], anchor: made + 3_600_000 });
+    // only proven made two days later: it never will
+    expect(settle(t, 1, made + 2 * STAMP_WITHIN)).toMatchObject({ s: 0, held: [] });
+    // a stamp of an earlier head says nothing about it
+    expect(settle(t, 0, made).held).toHaveLength(1);
+    // our own chain, read back, is ours: nothing held
+    expect(((await extend(blank(me.id), await at(me, made), Date.now(), verify, { own: true })) as Tally).s).toBe(3);
+  });
+
+  it('a garden turning down a held catch takes it out of the held', async () => {
+    const { me } = await cat();
+    const t = (await extend(blank(me.id), await at(me, Date.now() - 2 * STAMP_WITHIN), Date.now(), verify)) as Tally;
+    expect(settle(refuse(t, '1.0.1'), 1, Date.now()).s).toBe(0);
+  });
+
+  it('keep our stamps of heads of our own chain, a few dozen at most', async () => {
+    const { chain } = await cat();
+    expect(chain.stamped).toBe(true);
+    await chain.append(1, Prey.Fish, 1, 3);
+    expect(chain.stamped).toBe(false);
+    await chain.keepStamp({ n: 1, h: 'A'.repeat(22), o: 'AA' });
+    expect(chain.stamps).toHaveLength(0);
+    await chain.keepStamp({ n: 1, h: chain.head.h, o: 'AA' });
+    expect(chain.stamped).toBe(true);
+    for (let i = 2; i < 40; i++) {
+      await chain.append(1, Prey.Fish, i, 3);
+      await chain.keepStamp({ n: chain.head.n, h: chain.head.h, o: 'AA' });
+    }
+    expect(chain.stamps.length).toBeLessThanOrEqual(24);
+    expect(chain.stamps.at(-1)!.n).toBe(chain.head.n);
+    expect(chain.stampsFrom(30).every((s) => s.n >= 30)).toBe(true);
   });
 });
 

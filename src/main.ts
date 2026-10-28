@@ -7,6 +7,8 @@ import { loading } from './ui/loading.ts';
 import { Identity, useIdentity, verify } from './net/identity.ts';
 import { Chain } from './net/ledger.ts';
 import { idbChainStore, useChain } from './net/chainStore.ts';
+import { latestBeacon } from './net/beacon.ts';
+import { startStamping } from './net/stamping.ts';
 import { Net, useNet } from './net/net.ts';
 import { plant } from './world/seed.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
@@ -23,9 +25,10 @@ net.start();
 // who we are: this browser's key pair (made on the first visit), and what our cat has eaten
 const me = await Identity.load();
 useIdentity(me);
-const chain = new Chain(me.id, (l) => me.sign(l), idbChainStore);
+const chain = new Chain(me.id, (l) => me.sign(l), idbChainStore, latestBeacon);
 await chain.load(verify);
 useChain(chain);
+startStamping(chain);
 // text drawn into the game (names, scores) needs the font ready; don't wait forever for it
 await Promise.race([
   Promise.all([document.fonts.load('16px "Pixelify Sans"'), document.fonts.load('bold 16px "Pixelify Sans"')]),

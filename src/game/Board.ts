@@ -18,7 +18,8 @@
 // counts for its co-signatures).
 
 import type { Signed } from '../net/identity.ts';
-import { PAGE, blank, extend, fromCheck, receipt, refuse, sanitizeBlock, sanitizeCheck, sanitizeList, type Block, type Chain, type Check, type SigCheck, type Tally } from '../net/ledger.ts';
+import { PAGE, blank, extend, fromCheck, receipt, refuse, sanitizeBlock, sanitizeCheck, sanitizeList, settle, type Block, type Chain, type Check, type SigCheck, type Tally } from '../net/ledger.ts';
+import { sanitizeStamp, stamps as stampCheck, type Stamp } from '../net/stamp.ts';
 import type { Prey } from './state.ts';
 
 // (type aliases rather than interfaces, so they count as plain JSON for sending)
@@ -40,8 +41,8 @@ export type Entry = {
   s: number;
 };
 
-/** A cat on the board: who it is, and its score as far as it checks out. */
-export type Row = { id: string; name: string; coat: number; score: number };
+/** A cat on the board: who it is, its score as far as it checks out, and whether its chain is proven in Bitcoin (a stamp). */
+export type Row = { id: string; name: string; coat: number; score: number; verified: boolean };
 
 export type BoardMsg = {
   /** The sender's own entry. */
@@ -54,6 +55,8 @@ export type BoardMsg = {
   proof?: Signed<Check>[];
   /** The sender co-signs the receiver's chain. */
   cosign?: Signed<Check>;
+  /** Stamps of the sender's chain's heads (from where the blocks start on), for checking old blocks against. */
+  stamps?: Stamp[];
 };
 
 /** What the board needs: our chain, to sign things in our cat's name, to tell the time, and to check signatures. */
@@ -79,6 +82,8 @@ const REMEMBER = 60, SAVE_MS = 2000;
 const ASK_AGAIN_MS = 5000;
 /** We co-sign a cat's chain once we've played alongside it this long, and again at most this often. */
 const COSIGN_AFTER_MS = 60_000, COSIGN_EVERY_MS = 60_000;
+/** Stamps we keep of each cat; a stamp not proven yet is looked at again after this. */
+const STAMPS_KEPT = 32, PROVE_AGAIN_MS = 10 * 60 * 1000;
 
 import { COATS } from '../art/cat.ts';
 
@@ -134,6 +139,10 @@ export class Board {
   private readonly cosigned = new Map<string, { n: number; at: number }>();
   /** Catches the garden turned down, by cat: they count for nothing. */
   private readonly refused = new Map<string, Set<string>>();
+  /** Stamps other cats sent of their chains. */
+  private readonly stampsOf = new Map<string, Stamp[]>();
+  /** Stamps of heads a cat's chain passed through that weren't proven when we got there: to look at again ([stamp, when]). */
+  private readonly unproven = new Map<string, [Stamp, number][]>();
   private readonly send: (msg: BoardMsg, target?: string) => void;
   private readonly changed: () => void;
 
@@ -162,9 +171,10 @@ export class Board {
 
   /** The cats in the garden now, best first. */
   ranking(): Row[] {
-    const rows: Row[] = [{ id: this.id, name: this.mine.name, coat: this.mine.coat, score: this.chain.score }];
+    const rows: Row[] = [{ id: this.id, name: this.mine.name, coat: this.mine.coat, score: this.chain.score, verified: this.chain.anchor > 0 }];
     const silent = new Set([...this.quiet].map((p) => this.peers.get(p)));
-    for (const { d } of this.entries.values()) if (!silent.has(d.id)) rows.push({ id: d.id, name: d.name, coat: d.coat, score: this.scoreOf(d.id) });
+    for (const { d } of this.entries.values())
+      if (!silent.has(d.id)) rows.push({ id: d.id, name: d.name, coat: d.coat, score: this.scoreOf(d.id), verified: this.tallyOf(d.id).anchor > 0 });
     return rows.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   }
 
@@ -288,6 +298,7 @@ export class Board {
     const id = this.peers.get(peerId);
     if (!id) return;
     if (msg.cosign && msg.cosign.d.a === id) void this.chain.cosigned(msg.cosign, this.signer.check);
+    if (msg.stamps) this.keepStamps(id, msg.stamps);
     if (msg.blocks || msg.proof) this.take(peerId, id, msg.proof, msg.blocks ?? [], now);
     else this.sync(peerId, now);
     this.changed();
@@ -303,7 +314,10 @@ export class Board {
       return;
     }
     // a chain other than the one we know (from another browser, say): check it afresh
-    if (t.n > e.n || (t.n === e.n && t.h !== e.h)) t = this.remember(id, e, blank(id));
+    if (t.n > e.n || (t.n === e.n && t.h !== e.h)) {
+      t = this.remember(id, e, blank(id));
+      this.unproven.delete(id);
+    }
     if (now - (this.asking.get(peerId) ?? -Infinity) < ASK_AGAIN_MS) return;
     this.asking.set(peerId, now);
     this.send({ want: [t.n, t.h] }, peerId);
@@ -313,8 +327,46 @@ export class Board {
   private serve(peerId: string, [n, h]: [number, string]): void {
     if (n > 0 && this.chain.hashAt(n) !== h) n = 0;
     const proof = n === 0 ? this.chain.checkpoint(this.stakeOf) : null;
-    if (proof) this.send({ proof, blocks: this.chain.from(proof[0].d.n) }, peerId);
-    else this.send({ blocks: this.chain.from(Math.max(0, n)) }, peerId);
+    const from = proof ? proof[0].d.n : Math.max(0, n);
+    const stamps = this.chain.stampsFrom(from).slice(-STAMPS_KEPT);
+    this.send({ ...(proof ? { proof } : {}), blocks: this.chain.from(from), ...(stamps.length ? { stamps } : {}) }, peerId);
+  }
+
+  /** Stamps a cat sent of its chain: kept (the latest of each head) to check its blocks against. */
+  private keepStamps(id: string, list: Stamp[]): void {
+    const all = new Map((this.stampsOf.get(id) ?? []).map((s) => [`${s.n}.${s.h}`, s]));
+    for (const s of list) all.set(`${s.n}.${s.h}`, s);
+    this.stampsOf.set(id, [...all.values()].sort((a, b) => a.n - b.n).slice(-STAMPS_KEPT));
+  }
+
+  /** Our checking of a cat's chain got to a head it has a stamp of: once that's proven, its old blocks' held points count. */
+  private async stampedAt(id: string, t: Tally): Promise<Tally> {
+    const s = this.stampsOf.get(id)?.find((o) => o.n === t.n && o.h === t.h);
+    if (!s) return t;
+    const at = await stampCheck.proven(id, s);
+    if (at !== null) return settle(t, s.n, at);
+    const later = this.unproven.get(id) ?? [];
+    if (!later.some(([o]) => o.n === s.n)) this.unproven.set(id, [...later, [s, Date.now()] as [Stamp, number]].slice(-STAMPS_KEPT));
+    return t;
+  }
+
+  /** Stamps that weren't proven yet when we passed them (still pending in Bitcoin, or no block explorer to ask): try again. */
+  private async proveAgain(id: string): Promise<void> {
+    const list = this.unproven.get(id);
+    if (!list) return;
+    const now = Date.now();
+    for (const entry of list) {
+      const [s, at] = entry;
+      if (now - at < PROVE_AGAIN_MS) continue;
+      entry[1] = now;
+      const when = await stampCheck.proven(id, s);
+      const k = this.known.get(id);
+      if (when === null || !k || k.tally.n < s.n) continue;
+      k.tally = settle(k.tally, s.n, when);
+      this.unproven.set(id, (this.unproven.get(id) ?? []).filter(([o]) => o !== s));
+      this.save();
+      this.changed();
+    }
   }
 
   /** Blocks of a cat's chain (from a checkpoint, maybe): check them one by one, as far as they go. */
@@ -332,17 +384,18 @@ export class Board {
           this.asking.set(peerId, now);
           return this.send({ want: [-1, ''] }, peerId);
         }
-        t = from;
+        t = await this.stampedAt(id, from);
       }
       for (const b of blocks) {
         if (b.d.n < t.n) continue;
         // (news of a catch further on than we've got to: we'll ask for what's in between)
         if (b.d.n > t.n) break;
         const refused = this.refused.get(id)?.has(receipt(b.d)) ?? false;
-        const r = await extend(t, b, Date.now(), this.signer.check, refused);
+        const r = await extend(t, b, Date.now(), this.signer.check, { refused });
         if (r === 'not the next block' && t.n > 0) {
           // another chain than the one we knew of this cat: start over with it
           t = blank(id);
+          this.unproven.delete(id);
           break;
         }
         if (typeof r === 'string') {
@@ -350,7 +403,7 @@ export class Board {
           this.bad.add(id);
           break;
         }
-        t = r;
+        t = await this.stampedAt(id, r);
       }
       // (an answer that got us further: ask for more straight away; one that didn't, not before ASK_AGAIN_MS)
       if (t.n !== this.tallyOf(id).n || t.h !== this.tallyOf(id).h) this.asking.delete(peerId);
@@ -377,6 +430,7 @@ export class Board {
     for (const [peerId, id] of this.peers) {
       // (an answer lost on the way, or a request that came before we'd said who we are: ask again)
       this.sync(peerId, now);
+      if (!this.checking.has(id)) void this.proveAgain(id);
       const e = this.entries.get(id)?.d, t = this.known.get(id)?.tally, last = this.cosigned.get(id);
       if (!e || !t || t.n === 0 || t.n !== e.n || t.h !== e.h || this.bad.has(id)) continue;
       if (now - (this.met.get(peerId) ?? now) < COSIGN_AFTER_MS || (last && (last.n >= t.n || now - last.at < COSIGN_EVERY_MS))) continue;
@@ -433,7 +487,7 @@ function loadKnown(): Map<string, Known> {
     const all = JSON.parse(localStorage.getItem('cats-known') ?? '{}') as Record<string, Known>;
     for (const [id, k] of Object.entries(all))
       if (CAT_ID.test(id) && k && typeof k.name === 'string' && Number.isInteger(k.coat) && k.tally?.c === id && Number.isInteger(k.tally.s) && Array.isArray(k.tally.recent))
-        out.set(id, k);
+        out.set(id, { ...k, tally: { ...k.tally, held: Array.isArray(k.tally.held) ? k.tally.held : [], anchor: Number.isFinite(k.tally.anchor) ? k.tally.anchor : 0 } });
   } catch { /* nothing usable */ }
   // oldest first (the order `remember` keeps)
   return new Map([...out].sort((a, b) => a[1].seen - b[1].seen));
@@ -462,7 +516,7 @@ function entry(e: unknown): Entry | null {
 /** Peers are untrusted: accept only a well-formed message (the entry's signature is checked next, by `verifyBoard`; blocks and co-signatures as they are used). */
 export function sanitizeBoard(d: unknown): BoardMsg | null {
   if (!d || typeof d !== 'object') return null;
-  const { me, want, blocks, proof, cosign } = d as Record<string, unknown>;
+  const { me, want, blocks, proof, cosign, stamps } = d as Record<string, unknown>;
   const out: BoardMsg = {};
   if (me !== undefined) {
     const { d: inner, k, s } = (me ?? {}) as Record<string, unknown>;
@@ -490,6 +544,11 @@ export function sanitizeBoard(d: unknown): BoardMsg | null {
     const c = sanitizeCheck(cosign);
     if (!c) return null;
     out.cosign = c;
+  }
+  if (stamps !== undefined) {
+    const list = sanitizeList(stamps, sanitizeStamp, STAMPS_KEPT);
+    if (!list) return null;
+    out.stamps = list;
   }
   return Object.keys(out).length ? out : null;
 }

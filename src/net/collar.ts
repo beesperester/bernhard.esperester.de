@@ -10,6 +10,7 @@
 
 import { Identity, b64, unb64, verify, type Signed } from './identity.ts';
 import { Chain, blank, extend, sanitizeBlock, sanitizeCheck, sanitizeList, type Block, type Check, type Link, type Tally } from './ledger.ts';
+import { sanitizeStamp, type Stamp } from './stamp.ts';
 import { COATS } from '../art/cat.ts';
 
 const PREFIX = 'meow-';
@@ -25,10 +26,11 @@ type Tag = {
   /** The blocks, without the cat's id (`c`) and public key (`k`). */
   blocks: [Omit<Link, 'c'>, string][];
   checks: Signed<Check>[];
+  stamps?: Stamp[];
 };
 
 /** What a tag gives back: the cat, its name and coat, and its chain (checked). */
-export type Worn = { me: Identity; name: string; custom: boolean; coat: number; blocks: Block[]; checks: Signed<Check>[]; score: number };
+export type Worn = { me: Identity; name: string; custom: boolean; coat: number; blocks: Block[]; checks: Signed<Check>[]; stamps: Stamp[]; score: number };
 
 async function squeeze(text: string, how: 'compress' | 'decompress'): Promise<Uint8Array<ArrayBuffer>> {
   const bytes = how === 'compress' ? new TextEncoder().encode(text) : unb64(text);
@@ -38,9 +40,9 @@ async function squeeze(text: string, how: 'compress' | 'decompress'): Promise<Ui
 
 /** Our cat's collar tag. */
 export async function makeTag(me: Identity, chain: Chain, who: { name: string; custom: boolean; coat: number }): Promise<string> {
-  const { blocks, checks } = chain.all();
+  const { blocks, checks, stamps } = chain.all();
   const tag: Tag = {
-    key: await me.secret(), ...who, checks,
+    key: await me.secret(), ...who, checks, stamps,
     blocks: blocks.map(({ d: { c: _, ...rest }, s }) => [rest, s]),
   };
   return PREFIX + b64(await squeeze(JSON.stringify(tag), 'compress'));
@@ -60,13 +62,14 @@ export async function readTag(code: string): Promise<Worn | null> {
     let t: Tally = blank(me.id);
     for (const [rest, s] of tag.blocks) {
       const b = sanitizeBlock({ d: { ...rest, c: me.id }, k: me.pub, s });
-      const next = b && (await extend(t, b, Date.now(), verify));
+      const next = b && (await extend(t, b, Date.now(), verify, { own: true }));
       if (!b || !next || typeof next === 'string') return null;
       blocks.push(b);
       t = next;
     }
     const checks = sanitizeList(tag.checks ?? [], sanitizeCheck, 64) ?? [];
-    return { me, name: tag.name, custom: !!tag.custom, coat: tag.coat, blocks, checks, score: t.s };
+    const stamps = sanitizeList(tag.stamps ?? [], sanitizeStamp, 64) ?? [];
+    return { me, name: tag.name, custom: !!tag.custom, coat: tag.coat, blocks, checks, stamps, score: t.s };
   } catch {
     return null;
   }

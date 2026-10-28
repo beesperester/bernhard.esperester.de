@@ -21,6 +21,13 @@
 //   to there no longer needs checking, so newcomers are sent only what comes
 //   after it.
 //
+// - Every block carries the drand beacon of its moment (beacon.ts): it can't
+//   have been made before then. Every so often the cat stamps its chain's
+//   head with OpenTimestamps, which pins it in Bitcoin (stamp.ts): it was made
+//   by then. A block over a day old counts only once a stamp made within a day
+//   of it is proven: a history can't be made up after the fact. (Until then
+//   its points are held back, not lost.)
+//
 // What it can't tell yet is whether a catch nobody else saw really happened;
 // that's next (replaying the cat's moves).
 
@@ -28,9 +35,15 @@ import { b64, canonical, type Signed } from './identity.ts';
 import { Prey } from '../game/state.ts';
 import { PREY } from '../game/fauna/prey.ts';
 import { GROWN_AT } from '../game/growth.ts';
+import { beacons, roundTime, type Beacon } from './beacon.ts';
+import type { Stamp } from './stamp.ts';
 
-/** One catch: cat `c`'s block number `n`, after the block with hash `v` ('' for the first); seed `w`, prey kind `k` and id `i`, worth `p` points, at `t` (ms since epoch). */
-export type Link = { c: string; n: number; v: string; w: number; k: number; i: number; p: number; t: number };
+/**
+ * One catch: cat `c`'s block number `n`, after the block with hash `v` ('' for the first); seed `w`,
+ * prey kind `k` and id `i`, worth `p` points, at `t` (ms since epoch), with drand's beacon round `r`
+ * and its signature `b` (base64url).
+ */
+export type Link = { c: string; n: number; v: string; w: number; k: number; i: number; p: number; t: number; r: number; b: string };
 export type Block = Signed<Link>;
 
 /** Cat `a` vouches that cat `c`'s first `n` blocks end in hash `h` and add up to `s`, at `t` (its clock). */
@@ -45,7 +58,13 @@ export type Head = { n: number; h: string; s: number };
  * it is: a bee sting takes a point, not a size). `key` is its public key, `last`
  * the time of its last block, `recent` the last blocks' [receipt, time, points].
  */
-export type Tally = { c: string; key: string; n: number; h: string; s: number; top: number; last: number; recent: [string, number, number][] };
+export type Tally = {
+  c: string; key: string; n: number; h: string; s: number; top: number; last: number; recent: [string, number, number][];
+  /** Points held back: blocks over a day old when checked, waiting for a stamp ([number, receipt, points, beacon time]). */
+  held: [number, string, number, number][];
+  /** When its chain was last proven to exist, by a stamp anchored in Bitcoin (ms; 0: never). */
+  anchor: number;
+};
 
 /** No game before this (ms since epoch): no blocks dated earlier. */
 export const EPOCH = Date.UTC(2026, 0, 1);
@@ -57,6 +76,10 @@ export const CATCH_EVERY_MS = 1000;
 export const RATE_MAX = 400, RATE_WINDOW_MS = 10 * 60 * 1000;
 /** How many of a chain's last blocks a tally remembers (for the two rules above). */
 export const RECENT = 128;
+/** A block is made within this long of its beacon (the beacon comes first; the clock may be behind drand's by a little). */
+export const BEACON_LAG = 60 * 1000, BEACON_EARLY = 10 * 1000;
+/** A block older than this must be covered by a stamp proven made within this long of it. */
+export const STAMP_WITHIN = 24 * 60 * 60 * 1000;
 /** Blocks per message. */
 export const PAGE = 100;
 
@@ -77,7 +100,7 @@ export async function hashOf(b: Block): Promise<string> {
 }
 
 /** A chain we know nothing of yet. */
-export const blank = (c: string): Tally => ({ c, key: '', n: 0, h: '', s: 0, top: 0, last: 0, recent: [] });
+export const blank = (c: string): Tally => ({ c, key: '', n: 0, h: '', s: 0, top: 0, last: 0, recent: [], held: [], anchor: 0 });
 
 export type SigCheck = (s: Signed<object>, id: string) => Promise<boolean>;
 
@@ -91,6 +114,8 @@ export function fault(t: Tally, b: Block, now: number): string | null {
   const worth = WORTH.get(d.k);
   if (!worth?.has(d.p)) return 'not worth that';
   if (!Number.isSafeInteger(d.t) || d.t < EPOCH || d.t > now + AHEAD_MS) return 'out of time';
+  const beaconAt = roundTime(d.r);
+  if (d.t < beaconAt - BEACON_EARLY || d.t > beaconAt + BEACON_LAG) return 'not at its beacon';
   if (t.n > 0 && d.t - t.last < CATCH_EVERY_MS) return 'too quick';
   const key = receipt(d);
   if (t.recent.some(([r]) => r === key)) return 'caught twice';
@@ -100,25 +125,55 @@ export function fault(t: Tally, b: Block, now: number): string | null {
   return null;
 }
 
-/** The tally with block `b` added (`void`: points we know the garden refused, which count for nothing). */
-export function add(t: Tally, b: Block, h: string, refused = false): Tally {
-  const p = refused ? 0 : b.d.p, s = Math.max(0, t.s + p);
+/**
+ * The tally with block `b` added. `refused`: points we know the garden refused, which count for nothing;
+ * `held`: points held back until a stamp shows the block was made when it says.
+ */
+export function add(t: Tally, b: Block, h: string, refused = false, held = false): Tally {
+  const p = refused ? 0 : b.d.p, s = Math.max(0, t.s + (held ? 0 : p));
   return {
     c: t.c, key: b.k, n: t.n + 1, h, s, top: Math.max(t.top, s), last: b.d.t,
     recent: [...t.recent, [receipt(b.d), b.d.t, p] as [string, number, number]].slice(-RECENT),
+    held: held && p ? [...t.held, [b.d.n, receipt(b.d), p, roundTime(b.d.r)] as [number, string, number, number]] : t.held,
+    anchor: t.anchor,
   };
 }
 
+export type ExtendOptions = {
+  /** The garden refused this catch. */
+  refused?: boolean;
+  /** Our own chain, read back: no need to check the beacons we fetched ourselves, or for stamps. */
+  own?: boolean;
+};
+
 /** Check block `b` and add it to the tally; a string says why it was refused. */
-export async function extend(t: Tally, b: Block, now: number, check: SigCheck, refused = false): Promise<Tally | string> {
+export async function extend(t: Tally, b: Block, now: number, check: SigCheck, opts: ExtendOptions = {}): Promise<Tally | string> {
   const why = fault(t, b, now);
   if (why) return why;
   if (!(await check(b, t.c))) return 'not signed by that cat';
-  return add(t, b, await hashOf(b), refused);
+  if (!opts.own && !(await beacons.verify({ r: b.d.r, b: b.d.b }))) return 'no such beacon';
+  // (an old block: its points wait for a stamp)
+  const old = !opts.own && now - roundTime(b.d.r) > STAMP_WITHIN;
+  return add(t, b, await hashOf(b), opts.refused, old);
+}
+
+/**
+ * A stamp of this chain's first `n` blocks proven made by `at`: the held-back points of blocks before
+ * it that it was made within a day of count now; the others never will.
+ */
+export function settle(t: Tally, n: number, at: number): Tally {
+  let s = t.s;
+  const held = t.held.filter(([bn, , p, beaconAt]) => {
+    if (bn >= n) return true;
+    if (at <= beaconAt + STAMP_WITHIN) s += p;
+    return false;
+  });
+  return { ...t, s, top: Math.max(t.top, s), held, anchor: Math.max(t.anchor, at) };
 }
 
 /** The garden decided after all that this catch didn't happen: take its points back off. */
 export function refuse(t: Tally, key: string): Tally {
+  if (t.held.some(([, r]) => r === key)) return { ...t, held: t.held.filter(([, r]) => r !== key) };
   const i = t.recent.findIndex(([r, , p]) => r === key && p > 0);
   if (i < 0) return t;
   const recent = t.recent.map((e, j): [string, number, number] => (j === i ? [e[0], e[1], 0] : e));
@@ -153,17 +208,23 @@ export async function fromCheck(c: string, proof: Signed<Check>[], stakeOf: (id:
   for (const p of proof) if (!(await check(p, p.d.a))) return null;
   // (what comes after can't be dated before the co-signers saw this head, give or take their clocks)
   const seen = Math.min(...proof.map((p) => p.d.t)) - AHEAD_MS;
-  return { c, key: '', n: first.n, h: first.h, s: first.s, top: first.s, last: seen, recent: [] };
+  return { c, key: '', n: first.n, h: first.h, s: first.s, top: first.s, last: seen, recent: [], held: [], anchor: 0 };
 }
 
 // ---- our own chain ----
 
 /** Where our chain is kept (IndexedDB in the game, a Map in tests). */
 export interface ChainStore {
-  load(): Promise<{ blocks: Block[]; checks: Signed<Check>[] }>;
+  load(): Promise<{ blocks: Block[]; checks: Signed<Check>[]; stamps: Stamp[] }>;
   put(b: Block): Promise<void>;
   putChecks(checks: Signed<Check>[]): Promise<void>;
+  putStamps(stamps: Stamp[]): Promise<void>;
 }
+
+/** Stamps we keep of our chain at most (dropping those the next one covers nearly as well). */
+const KEEP_STAMPS = 24;
+/** A stamp can go if the next one was made within this long of the one before it. */
+const STAMP_SPAN_MS = 12 * 60 * 60 * 1000;
 
 /** Co-signatures we keep: of this many of our heads. */
 const KEEP_HEADS = 8;
@@ -177,29 +238,36 @@ export class Chain {
   private hashes: string[] = [];
   private tally: Tally;
   private checks: Signed<Check>[] = [];
+  private stampList: Stamp[] = [];
+  /** When our chain was last proven to exist by a stamp anchored in Bitcoin (ms; 0: not yet). */
+  anchor = 0;
   /** Appends wait their turn (each needs the hash of the one before). */
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly beacon: () => Promise<Beacon>;
 
-  constructor(id: string, sign: (l: Link) => Promise<Block>, store: ChainStore) {
+  /** `beacon`: the latest drand beacon (beacon.ts), waited for if need be. */
+  constructor(id: string, sign: (l: Link) => Promise<Block>, store: ChainStore, beacon: () => Promise<Beacon>) {
     this.id = id;
     this.sign = sign;
     this.store = store;
+    this.beacon = beacon;
     this.tally = blank(id);
   }
 
   /** Read the chain back from where it is kept (only blocks that still check out, in order: anything after a gap is dropped). */
   async load(check: SigCheck): Promise<void> {
-    const { blocks, checks } = await this.store.load();
+    const { blocks, checks, stamps } = await this.store.load();
     blocks.sort((a, b) => a.d.n - b.d.n);
     for (const b of blocks) {
-      // (our own blocks: the clock rules were met when we made them)
-      const next = await extend(this.tally, b, Infinity, check);
+      // (our own blocks: the clock rules were met when we made them; but not one from before blocks had beacons)
+      const next = sanitizeBlock(b) ? await extend(this.tally, b, Infinity, check, { own: true }) : 'not a block';
       if (typeof next === 'string') break;
       this.blocks.push(b);
       this.hashes.push(next.h);
       this.tally = next;
     }
     this.checks = checks.filter((c) => c.d.c === this.id && c.d.n <= this.tally.n && this.hashes[c.d.n - 1] === c.d.h);
+    this.stampList = stamps.filter((s) => s.n <= this.tally.n && this.hashes[s.n - 1] === s.h).sort((a, b) => a.n - b.n);
   }
 
   get head(): Head {
@@ -219,9 +287,11 @@ export class Chain {
   /** A catch: a new block on the chain (null if it can't go on it: caught already, say). */
   append(w: number, k: Prey, i: number, p: number): Promise<Block | null> {
     const next = this.queue.then(async () => {
+      // (waiting for drand, if need be: the catch goes on the chain once there's a beacon to put on it)
+      const beacon = await this.beacon();
       const t = this.tally;
-      const at = Math.max(Date.now(), t.n ? t.last + CATCH_EVERY_MS : 0);
-      const b = await this.sign({ c: this.id, n: t.n, v: t.h, w, k, i, p, t: at });
+      const at = Math.max(Date.now(), t.n ? t.last + CATCH_EVERY_MS : 0, roundTime(beacon.r) - BEACON_EARLY);
+      const b = await this.sign({ c: this.id, n: t.n, v: t.h, w, k, i, p, t: at, r: beacon.r, b: beacon.b });
       if (fault(t, b, Infinity)) return null;
       const h = await hashOf(b);
       this.blocks.push(b);
@@ -274,9 +344,42 @@ export class Chain {
     return best;
   }
 
+  /** Our stamps (oldest first). */
+  get stamps(): Stamp[] {
+    return [...this.stampList];
+  }
+
+  /** Our stamps of heads from block `n` on (what someone checking our blocks from there needs). */
+  stampsFrom(n: number): Stamp[] {
+    return this.stampList.filter((s) => s.n >= n);
+  }
+
+  /** Whether our head has been stamped. */
+  get stamped(): boolean {
+    const last = this.stampList[this.stampList.length - 1];
+    return this.tally.n === 0 || (last?.n === this.tally.n && last.h === this.tally.h);
+  }
+
+  /** Keep a stamp of our chain (a new one, or an old one upgraded). */
+  async keepStamp(s: Stamp): Promise<void> {
+    if (s.n < 1 || s.n > this.tally.n || this.hashAt(s.n) !== s.h) return;
+    const list = [...this.stampList.filter((o) => o.n !== s.n), s].sort((a, b) => a.n - b.n);
+    // too many: drop the one the next covers best (the blocks between were made in the shortest span)
+    while (list.length > KEEP_STAMPS) {
+      let best = -1, span = STAMP_SPAN_MS;
+      for (let j = 1; j < list.length - 1; j++) {
+        const from = this.blocks[list[j - 1].n - 1].d.t, to = this.blocks[list[j + 1].n - 1].d.t;
+        if (to - from <= span) { span = to - from; best = j; }
+      }
+      list.splice(best < 0 ? 0 : best, 1);
+    }
+    this.stampList = list;
+    await this.store.putStamps(list);
+  }
+
   /** Everything, for a collar tag. */
-  all(): { blocks: Block[]; checks: Signed<Check>[] } {
-    return { blocks: [...this.blocks], checks: [...this.checks] };
+  all(): { blocks: Block[]; checks: Signed<Check>[]; stamps: Stamp[] } {
+    return { blocks: [...this.blocks], checks: [...this.checks], stamps: [...this.stampList] };
   }
 }
 
@@ -286,14 +389,16 @@ const CAT_ID = /^[a-z2-7]{20}$/;
 const HASH = /^[A-Za-z0-9_-]{22}$/;
 const B64 = (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <= 200 && /^[A-Za-z0-9_-]+$/.test(v);
 const int = (v: unknown): v is number => Number.isSafeInteger(v);
+/** A beacon's signature: 48 bytes. */
+const BEACON = /^[A-Za-z0-9_-]{64}$/;
 
 /** Exactly the fields of a block (anything more would not have been signed). */
 function link(d: unknown): Link | null {
   if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
-  const { c, n, v, w, k, i, p, t } = d as Record<string, unknown>;
-  if (Object.keys(d).length !== 8 || typeof c !== 'string' || !CAT_ID.test(c) || typeof v !== 'string' || (v !== '' && !HASH.test(v))) return null;
-  if (![n, w, k, i, p, t].every(int) || (n as number) < 0) return null;
-  return { c, n: n as number, v, w: w as number, k: k as number, i: i as number, p: p as number, t: t as number };
+  const { c, n, v, w, k, i, p, t, r, b } = d as Record<string, unknown>;
+  if (Object.keys(d).length !== 10 || typeof c !== 'string' || !CAT_ID.test(c) || typeof v !== 'string' || (v !== '' && !HASH.test(v))) return null;
+  if (![n, w, k, i, p, t, r].every(int) || (n as number) < 0 || (r as number) < 1 || typeof b !== 'string' || !BEACON.test(b)) return null;
+  return { c, n: n as number, v, w: w as number, k: k as number, i: i as number, p: p as number, t: t as number, r: r as number, b };
 }
 
 function check(d: unknown): Check | null {

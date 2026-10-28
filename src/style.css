@@ -217,6 +217,7 @@ html, body {
 #board li .face { width: 32px; height: 22px; margin: -4px -6px 0 -8px; image-rendering: pixelated; filter: drop-shadow(1px 1px 0 rgba(30, 16, 6, 0.6)); }
 #board li .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 #board li .n { font-weight: bold; }
+#board li .seal { width: 16px; height: 16px; margin: 0 -2px; image-rendering: pixelated; filter: drop-shadow(1px 1px 0 rgba(30, 16, 6, 0.6)); }
 #board li.me { font-weight: bold; color: #4a2c10; text-shadow: 1px 1px 0 #fbe0a0; }
 #board li.me .rank { color: #8a3a10; }
 

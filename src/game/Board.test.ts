@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Board, NAME_MAX, sanitizeBoard, verifyBoard, type BoardMsg, type Entry } from './Board.ts';
 import { Identity, verify, type Signed } from '../net/identity.ts';
-import { Chain, type Block, type ChainStore, type Check } from '../net/ledger.ts';
+import { Chain } from '../net/ledger.ts';
+import { memory, testBeacon } from '../net/testing.ts';
+import { stamps as stampCheck } from '../net/stamp.ts';
 import { Prey } from './state.ts';
 import { GROWN_AT } from './growth.ts';
 
@@ -14,11 +16,6 @@ const settle = async () => {
   for (let i = 0; i < 40; i++) await new Promise((r) => setTimeout(r, 0));
 };
 
-const memory = (): ChainStore => {
-  const blocks = new Map<number, Block>();
-  let checks: Signed<Check>[] = [];
-  return { load: async () => ({ blocks: [...blocks.values()], checks }), put: async (b) => void blocks.set(b.d.n, b), putChecks: async (c) => void (checks = c) };
-};
 
 /** A cat in a garden: its key, its chain, and its board, wired to the others' over a pretend network. */
 type Cat = { me: Identity; chain: Chain; board: Board; peer: string; inbox: { from: string; msg: BoardMsg }[] };
@@ -27,7 +24,7 @@ let cats = new Map<string, Cat>();
 
 async function newCat(peer: string, chain?: Chain, me?: Identity): Promise<Cat> {
   me ??= await Identity.make();
-  chain ??= new Chain(me.id, (l) => me!.sign(l), memory());
+  chain ??= new Chain(me.id, (l) => me!.sign(l), memory(), testBeacon);
   const cat: Cat = { me, chain, peer, inbox: [], board: null! };
   // (this test's garden only: anything a board from an earlier test still has to say goes nowhere)
   const garden = cats;
@@ -125,7 +122,7 @@ describe('the board', () => {
 
   it('makes up names the others will take', async () => {
     for (let i = 0; i < 200; i++) {
-      const name = new Board(0, { id: ID(0), peer: 'p', sign: async (d) => fake(d), now: () => 0, chain: new Chain(ID(0), async (l) => fake(l), memory()), check: verify, seed: 1 }, () => {}, () => {}).me.name;
+      const name = new Board(0, { id: ID(0), peer: 'p', sign: async (d) => fake(d), now: () => 0, chain: new Chain(ID(0), async (l) => fake(l), memory(), testBeacon), check: verify, seed: 1 }, () => {}, () => {}).me.name;
       expect(sanitizeBoard({ me: fake(entry({ name })) })).not.toBeNull();
     }
   });
@@ -251,10 +248,13 @@ describe('checkpoints', () => {
     for (let i = 0; i < 5; i++) await a.board.ate(Prey.Fish, i, 3);
     // a grown cat (its chain is known to a as worth GROWN_AT) plays alongside a for a minute
     // (its feasts a minute apart, yesterday: no quicker than a cat can eat)
-    const gMe = await Identity.make(), gChain = new Chain(gMe.id, (l) => gMe.sign(l), memory());
+    const gMe = await Identity.make(), gChain = new Chain(gMe.id, (l) => gMe.sign(l), memory(), testBeacon);
     let t = Date.now() - 86_400_000;
-    const now = vi.spyOn(Date, 'now').mockImplementation(() => (t += 60_000));
-    for (let i = 0; i < GROWN_AT / 12 + 1; i++) expect(await gChain.append(1, Prey.Find, i, 12)).not.toBeNull();
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => t);
+    for (let i = 0; i < GROWN_AT / 12 + 1; i++) {
+      t += 60_000;
+      expect(await gChain.append(1, Prey.Find, i, 12)).not.toBeNull();
+    }
     now.mockRestore();
     const g = await newCat('peer-g', gChain, gMe);
     await meet(a, g);
@@ -275,5 +275,62 @@ describe('checkpoints', () => {
     expect(scoreOf(n, a)).toBe(18);
     expect(sentBlocks).toContain(5);
     expect(sentBlocks.filter((x) => x < 5)).toEqual([]);
+  });
+});
+
+describe('stamps', () => {
+  /** A cat whose catches were all two days ago. */
+  async function oldCat(peer: string) {
+    const me = await Identity.make(), chain = new Chain(me.id, (l) => me.sign(l), memory(), testBeacon);
+    let t = Date.now() - 2 * 86_400_000;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => t);
+    for (let i = 0; i < 3; i++) {
+      t += 60_000;
+      await chain.append(1, Prey.Fish, i, 3);
+    }
+    now.mockRestore();
+    return { cat: await newCat(peer, chain, me), made: t };
+  }
+
+  it("hold back an old chain's points till a stamp shows it was made in time, and earn it the seal", async () => {
+    const proven = stampCheck.proven;
+    try {
+      const { cat: a, made } = await oldCat('peer-a');
+      await a.chain.keepStamp({ n: 3, h: a.chain.head.h, o: 'AA' });
+      // the stamp was in Bitcoin an hour after the catches
+      stampCheck.proven = async () => made + 3_600_000;
+      const b = await newCat('peer-b');
+      await meet(a, b);
+      expect(scoreOf(b, a)).toBe(9);
+      expect(b.board.ranking().find((r) => r.id === a.me.id)?.verified).toBe(true);
+    } finally {
+      stampCheck.proven = proven;
+    }
+  });
+
+  it('count nothing of an old chain stamped too late, or not at all', async () => {
+    const proven = stampCheck.proven;
+    try {
+      const { cat: a, made } = await oldCat('peer-a');
+      const b = await newCat('peer-b');
+      await meet(a, b);
+      expect(scoreOf(b, a)).toBe(0);
+      expect(b.board.ranking().find((r) => r.id === a.me.id)?.verified).toBe(false);
+      // stamped only now, two days on: made up after the fact, for all anyone can tell
+      const { cat: c } = await oldCat('peer-c');
+      await c.chain.keepStamp({ n: 3, h: c.chain.head.h, o: 'AA' });
+      stampCheck.proven = async () => made + 2 * 86_400_000;
+      await meet(c, b);
+      expect(scoreOf(b, c)).toBe(0);
+    } finally {
+      stampCheck.proven = proven;
+    }
+  });
+
+  it('pass with the blocks, and only well-formed ones', () => {
+    expect(sanitizeBoard({ stamps: [{ n: 3, h: 'A'.repeat(22), o: 'AAAA' }] })).not.toBeNull();
+    expect(sanitizeBoard({ stamps: [{ n: 0, h: 'A'.repeat(22), o: 'AAAA' }] })).toBeNull();
+    expect(sanitizeBoard({ stamps: [{ n: 3, h: 'A'.repeat(22), o: 'A+A' }] })).toBeNull();
+    expect(sanitizeBoard({ stamps: [{ n: 3, h: 'A'.repeat(22), o: 'AAAA', x: 1 }] })).toBeNull();
   });
 });
