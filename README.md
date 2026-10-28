@@ -76,7 +76,7 @@ A tiny Game Boy Color–style garden. Every visitor is a cat.
 
 ## Music
 
-There are two playlists: every `.mp3`/`.ogg`/`.m4a` in `src/music/day/` plays while the sun is up, and those in `src/music/night/` after dark, following the garden's Berlin sun (the file name is the title). Songs play in random order, never the same one twice in a row; with a single song it loops. At dusk and dawn the current song fades out and the other playlist takes over; if one folder is empty, the other plays day and night. Convert masters before adding them, e.g.
+There are two playlists: every `.mp3`/`.ogg`/`.m4a` in `src/music/day/` plays while the sun is up, and those in `src/music/night/` after dark, following the garden's Berlin sun (the file name is the title). Songs play in random order, never the same one twice in a row; with a single song it loops. At dusk and dawn the current song fades out and the other playlist takes over; if one folder is empty, the other plays day and night. A themed zone can have a playlist of its own, a folder named after its theme (`src/music/carnival/`): while your cat is in such a zone, the music fades over to that list, and once it has left, the song from before carries on where it stopped. Convert masters before adding them, e.g.
 
 ```sh
 ffmpeg -i "Song.wav" -c:a libmp3lame -q:a 2 "src/music/day/Song.mp3"
@@ -86,7 +86,7 @@ The original WAVs (music and sounds) are kept in `masters/`, laid out like `src/
 
 ## Sounds
 
-Every folder in `src/sounds/` is a sound group (`birds`, `purr`, `hiss`, `mew`, `dash`, `splash`, `eat`, `rustle`, `steps`, `jump`, `levelup` (growing up a size), `whistle` (the train's, sounded by its driver), `carnival` (a carnival zone's fairground music: a loop heard from the edge of the zone nearest you, all round you inside it), `rain` — a seamless loop that plays while it rains, louder the harder it pours; later e.g. `wind`), and each play picks one of its files at random (never the same twice in a row). Groups play on Web Audio, so any number overlap.
+Every folder in `src/sounds/` is a sound group (`birds`, `purr`, `hiss`, `mew`, `dash`, `splash`, `eat`, `rustle`, `steps`, `jump`, `levelup` (growing up a size), `whistle` (the train's, sounded by its driver), `rain` — a seamless loop that plays while it rains, louder the harder it pours; later e.g. `wind`), and each play picks one of its files at random (never the same twice in a row). Groups play on Web Audio, so any number overlap.
 
 - **Ambient layers** (`LAYERS` in `src/audio/sound.ts`) fire on their own at random intervals with random volume and pitch, e.g. `birds: { every: [12, 40], volume: [0.35, 0.6], rate: [0.94, 1.08] }`. The scene can say where they come from (`sound.setSource('birds', …)` picks a tree near you).
 - **Game sounds**: `sound.play('hiss', { at: { x, y } })` — sounds placed in the park fade with distance from your cat and pan left/right. `loop: true` returns a handle to `stop()` or `setVolume()` later (for wind or purring).

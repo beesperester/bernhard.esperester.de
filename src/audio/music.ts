@@ -2,20 +2,23 @@
 // src/music/night/ after dark (following the garden's real Berlin sun). Songs
 // play in random order (never the same one twice in a row), so a single song
 // simply loops; at dusk and dawn the song fades out and the other list takes
-// over. If one list is empty, the other plays all the time. Browsers only
-// allow sound after the visitor interacts, so the music starts on the first
-// key press or tap.
+// over. If one list is empty, the other plays all the time. A themed zone can
+// have a playlist of its own (src/music/carnival/ …): while our cat is in the
+// zone that plays instead, and on leaving, the song from before carries on
+// where it left off. Browsers only allow sound after the visitor interacts,
+// so the music starts on the first key press or tap.
 import { lightAt } from '../world/sky.ts';
 
-const files = import.meta.glob('../music/{day,night}/*.{mp3,ogg,m4a}', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
+const files = import.meta.glob('../music/*/*.{mp3,ogg,m4a}', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 
 export interface Track { title: string; src: string }
 type Period = 'day' | 'night';
 
-export const PLAYLISTS: Record<Period, Track[]> = { day: [], night: [] };
+/** The day and night lists, and one for each themed zone that has music (by its theme). */
+export const PLAYLISTS: Record<string, Track[]> = { day: [], night: [] };
 for (const [path, src] of Object.entries(files)) {
-  const [period, name] = path.split('/').slice(-2);
-  PLAYLISTS[period as Period].push({ title: name.replace(/\.[^.]+$/, ''), src });
+  const [list, name] = path.split('/').slice(-2);
+  (PLAYLISTS[list] ??= []).push({ title: name.replace(/\.[^.]+$/, ''), src });
 }
 for (const list of Object.values(PLAYLISTS)) list.sort((a, b) => a.title.localeCompare(b.title));
 
@@ -34,6 +37,9 @@ export class Music {
   private current: Track | null = null;
   private started = false;
   private fade = 0;
+  /** The zone our cat is in, if it has music of its own; and the song from before, to go back to. */
+  private zone: string | null = null;
+  private before: { track: Track; time: number } | null = null;
   muted: boolean;
   private readonly listeners: ((muted: boolean, track: Track | null) => void)[] = [];
 
@@ -83,8 +89,31 @@ export class Music {
     return this.current;
   }
 
-  /** The songs for this time of day (or the other list, if this one is empty). */
+  /**
+   * Our cat walked into a themed zone (its theme), or out of one (null). A zone with a playlist
+   * takes over from the music playing; out of it again, the song from before carries on.
+   */
+  setZone(theme: string | null): void {
+    const zone = theme && PLAYLISTS[theme]?.length ? theme : null;
+    if (zone === this.zone) return;
+    const leaving = this.zone !== null;
+    // (the song from before, kept from the moment the first zone took over)
+    if (!leaving && this.current) this.before = { track: this.current, time: this.audio.currentTime };
+    this.zone = zone;
+    if (!this.started) return;
+    const back = zone === null ? this.before : null;
+    const go = () => {
+      if (!back || !this.list.includes(back.track)) return this.next();
+      this.before = null;
+      this.play(back.track, back.time);
+    };
+    if (this.muted || document.hidden || this.audio.paused) go();
+    else this.fadeTo(0, go);
+  }
+
+  /** The songs for this time of day (or the other list, if this one is empty); in a zone, its own. */
   private get list(): Track[] {
+    if (this.zone) return PLAYLISTS[this.zone];
     const own = PLAYLISTS[this.period];
     return own.length ? own : PLAYLISTS[this.period === 'day' ? 'night' : 'day'];
   }
@@ -95,9 +124,17 @@ export class Music {
     if (!n) return;
     let i = Math.floor(Math.random() * n);
     if (n > 1 && list[i] === this.current) i = (i + 1 + Math.floor(Math.random() * (n - 1))) % n;
-    this.current = list[i];
-    this.audio.src = list[i].src;
-    this.audio.currentTime = 0;
+    this.play(list[i], 0);
+  }
+
+  /** Put on a song, `at` seconds in (and play it, unless we're quiet). */
+  private play(track: Track, at: number): void {
+    this.current = track;
+    this.audio.src = track.src;
+    // (a list of one loops without a gap)
+    this.audio.loop = this.list.length === 1;
+    if (at > 0) this.audio.addEventListener('loadedmetadata', () => (this.audio.currentTime = at), { once: true });
+    else this.audio.currentTime = 0;
     this.emit();
     if (!this.muted && !document.hidden) this.resume();
   }
@@ -127,6 +164,9 @@ export class Music {
     for (const fn of this.listeners) fn(this.muted, this.track);
   }
 }
+
+/** The one music player, shared by the page (the note button) and the game (the zones' playlists). */
+export const music = new Music();
 
 function load(): boolean {
   try { return localStorage.getItem(MUTE_KEY) === '1'; } catch { return false; }

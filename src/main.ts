@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Music } from './audio/music.ts';
+import { music } from './audio/music.ts';
 import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
 import { setupFullscreen } from './ui/fullscreen.ts';
@@ -63,7 +63,6 @@ const game = new Phaser.Game({
 
 // music and sounds start on the first key press or tap (browsers require a gesture);
 // the note button mutes the music, the speaker button the sounds
-const music = new Music();
 const musicBtn = document.getElementById('music')!;
 const soundBtn = document.getElementById('sound')!;
 music.onChange((muted, track) => {
