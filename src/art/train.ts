@@ -147,16 +147,23 @@ export function buildDriverCap(): Raster {
   return r;
 }
 
-/** The headlamp's beam on the ground ahead: a soft wedge widening away from the lamp (at its left middle, pointing right). */
+/** A 4×4 ordered dither (as art/tiles.ts has; kept here so the train's art doesn't need the map). */
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
+const bayer = (x: number, y: number) => BAYER[(y & 3) * 4 + (x & 3)];
+
+/** The headlamp's beam on the ground ahead: a soft wedge widening away from the lamp (at its left middle, pointing right), fading out with distance. */
 export function buildBeam(): Raster {
-  const L = 56, Wd = 30, r = new Raster(L, Wd);
+  const L = 64, Wd = 30, r = new Raster(L, Wd);
   const warm = hex('#fff0b0');
   for (let y = 0; y < Wd; y++)
     for (let x = 0; x < L; x++) {
       const u = (x + 0.5) / L, half = 2 + u * (Wd / 2 - 2), v = Math.abs(y + 0.5 - Wd / 2) / half;
       if (v >= 1) continue;
-      // brightest near the lamp and along the middle, in a few bands like the lanterns' pools
-      const a = Math.ceil((1 - u) ** 1.2 * (1 - v * v) * 5) / 5;
+      // brightest near the lamp and along the middle, in a few bands like the lanterns' pools,
+      // dying away to nothing well before its far end
+      const k = (1 - u) ** 2 * (1 - v * v) * 5;
+      // (the faintest band thins out into a dither, so the light dissolves rather than stops)
+      const a = k >= 1 ? Math.round(k) / 5 : bayer(x, y) < k ? 0.2 : 0;
       if (a > 0) r.set(x, y, warm, Math.round(a * 200));
     }
   return r;
