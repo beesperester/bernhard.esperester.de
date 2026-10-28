@@ -193,6 +193,14 @@ export async function stampDigest(c: string, n: number, h: string): Promise<Uint
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`cat-garden stamp ${c} ${n} ${h}`)));
 }
 
+/** No waiting for ever on a calendar or an explorer that doesn't answer. */
+const ASK_MS = 15000;
+function patience(): AbortSignal {
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ASK_MS);
+  return c.signal;
+}
+
 // ---- making one ----
 
 /** Send a head off to the calendars: a stamp (pending, for now), or null if none could be reached. */
@@ -202,7 +210,7 @@ export async function makeStamp(c: string, n: number, h: string): Promise<Stamp 
   for (const cal of CALENDARS) {
     if (root.ops.length >= SEND_TO) break;
     try {
-      const res = await fetch(`${cal}/digest`, { method: 'POST', body: digest, headers: { Accept: 'application/vnd.opentimestamps.v1' } });
+      const res = await fetch(`${cal}/digest`, { method: 'POST', body: digest, headers: { Accept: 'application/vnd.opentimestamps.v1' }, signal: patience() });
       if (!res.ok) continue;
       const tree = await readTree(new Uint8Array(await res.arrayBuffer()), digest);
       // (each calendar's receipt is a branch of ours: a no-op of appending nothing keeps them apart)
@@ -227,7 +235,7 @@ export async function upgradeStamp(c: string, s: Stamp): Promise<Stamp> {
     // (only calendars we know: a receipt from a peer could point anywhere)
     if (att.kind !== 'pending' || !trusted(att.uri)) continue;
     try {
-      const res = await fetch(`${att.uri}/timestamp/${toHex(node.msg)}`, { headers: { Accept: 'application/vnd.opentimestamps.v1' } });
+      const res = await fetch(`${att.uri}/timestamp/${toHex(node.msg)}`, { headers: { Accept: 'application/vnd.opentimestamps.v1' }, signal: patience() });
       if (!res.ok) continue;
       const more = await readTree(new Uint8Array(await res.arrayBuffer()), node.msg);
       // the pending note makes way for the path on to Bitcoin
@@ -262,15 +270,17 @@ function bitcoinBlock(height: number): Promise<{ root: string; time: number } | 
     p = (async () => {
       for (const ex of EXPLORERS) {
         try {
-          const hash = (await (await fetch(`${ex}/block-height/${height}`)).text()).trim();
+          const hash = (await (await fetch(`${ex}/block-height/${height}`, { signal: patience() })).text()).trim();
           if (!/^[0-9a-f]{64}$/.test(hash)) continue;
-          const b = (await (await fetch(`${ex}/block/${hash}`)).json()) as { merkle_root?: string; timestamp?: number; height?: number };
+          const b = (await (await fetch(`${ex}/block/${hash}`, { signal: patience() })).json()) as { merkle_root?: string; timestamp?: number; height?: number };
           if (typeof b.merkle_root !== 'string' || !/^[0-9a-f]{64}$/.test(b.merkle_root) || !Number.isSafeInteger(b.timestamp) || b.height !== height) continue;
           return { root: toHex(fromHex(b.merkle_root).reverse()), time: b.timestamp! * 1000 };
         } catch {
           // next explorer
         }
       }
+      // (none answered: ask again next time)
+      blocks.delete(height);
       return null;
     })();
     blocks.set(height, p);

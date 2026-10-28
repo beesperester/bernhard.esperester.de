@@ -159,6 +159,8 @@ export class Board {
   private readonly stampsOf = new Map<string, Stamp[]>();
   /** Stamps of heads a cat's chain passed through that weren't proven when we got there: to look at again ([stamp, when]). */
   private readonly unproven = new Map<string, [Stamp, number][]>();
+  /** Our chain's proof as last shown (it comes in from the stamping, outside the board). */
+  private shownAnchor = 0;
   /** The name of our own we had before our chain fell short of NAME_AT, to have back when it's there again. */
   private kept: string | null;
   private readonly send: (msg: BoardMsg, target?: string) => void;
@@ -479,6 +481,11 @@ export class Board {
 
   /** Catch up on the chains of the cats here, and co-sign those we've been playing alongside (`now`: page clock). */
   update(now: number): void {
+    // (our seal: shown once the stamping has proven our chain)
+    if (this.chain.anchor !== this.shownAnchor) {
+      this.shownAnchor = this.chain.anchor;
+      this.changed();
+    }
     for (const [peerId, id] of this.peers) {
       // (an answer lost on the way, or a request that came before we'd said who we are: ask again)
       this.sync(peerId, now);

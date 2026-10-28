@@ -8,9 +8,29 @@ import { anchored, makeStamp, provenTime, upgradeStamp } from './stamp.ts';
 const STAMP_EVERY_MS = 10 * 60 * 1000, UPGRADE_EVERY_MS = 30 * 60 * 1000;
 const CHECK_MS = 60 * 1000;
 
+/** When our chain was last proven (ms), remembered between visits, so the seal is there at once (others check for themselves). */
+const anchorKey = (id: string) => `anchor-${id}`;
+
 export function startStamping(chain: Chain): void {
   let last = -Infinity;
   let busy = false;
+  try {
+    const kept = Number(localStorage.getItem(anchorKey(chain.id)));
+    if (Number.isFinite(kept) && kept > 0 && chain.stamps.length) chain.anchor = kept;
+  } catch { /* storage unavailable */ }
+  const proven = (at: number) => {
+    if (at <= chain.anchor) return;
+    chain.anchor = at;
+    try { localStorage.setItem(anchorKey(chain.id), String(at)); } catch { /* storage unavailable */ }
+  };
+  /** The newest stamp that has got as far as Bitcoin, checked against it. */
+  const prove = async () => {
+    for (const s of chain.stamps.reverse()) {
+      if (!(await anchored(chain.id, s))) continue;
+      const at = await provenTime(chain.id, s);
+      if (at !== null) return proven(at);
+    }
+  };
   const stamp = async () => {
     if (busy || chain.stamped) return;
     busy = true;
@@ -23,24 +43,17 @@ export function startStamping(chain: Chain): void {
       busy = false;
     }
   };
-  /** Complete what can be completed, and see how far back we're proven. */
+  /** Complete what can be completed (newest first), and see how far back we're proven. */
   const upgrade = async () => {
-    for (const s of chain.stamps) {
+    for (const s of chain.stamps.reverse()) {
       if (await anchored(chain.id, s)) continue;
       const up = await upgradeStamp(chain.id, s);
       if (up !== s) await chain.keepStamp(up);
     }
-    for (const s of chain.stamps.reverse()) {
-      if (!(await anchored(chain.id, s))) continue;
-      const at = await provenTime(chain.id, s);
-      if (at !== null) {
-        chain.anchor = Math.max(chain.anchor, at);
-        break;
-      }
-    }
+    await prove();
   };
-  // (anything left unstamped from last time first)
-  void stamp().then(upgrade);
+  // (what's proven already first, then anything left unstamped from last time)
+  void prove().then(stamp).then(upgrade);
   setInterval(() => { if (Date.now() - last >= STAMP_EVERY_MS) void stamp(); }, CHECK_MS);
   setInterval(() => void upgrade(), UPGRADE_EVERY_MS);
   // leaving (or hidden, which on a phone may be the last we hear): stamp what we've got

@@ -222,7 +222,7 @@ html, body {
 #board li.me .rank { color: #8a3a10; }
 
 /* naming your cat */
-#name-dialog {
+#name-dialog, #tab-dialog {
   position: fixed;
   inset: 0;
   display: grid;
@@ -230,16 +230,16 @@ html, body {
   background: rgba(10, 20, 10, 0.45);
   z-index: 10;
 }
-#name-dialog[hidden] { display: none; }
-#name-dialog form {
+#name-dialog[hidden], #tab-dialog[hidden] { display: none; }
+#name-dialog form, #tab-dialog form {
   position: static;
   width: min(340px, calc(100vw - 32px));
   padding: 4px 6px;
   font-size: 15px;
   pointer-events: auto;
 }
-#name-dialog p { margin: 0 0 10px; }
-#name-dialog input {
+#name-dialog p, #tab-dialog p { margin: 0 0 10px; }
+#name-dialog input, #tab-dialog input {
   width: 100%;
   font: inherit;
   font-size: 18px;
@@ -253,11 +253,11 @@ html, body {
   user-select: text;
   -webkit-user-select: text;
 }
-#name-dialog input:focus { border-image-source: var(--px-frame); }
-#name-dialog .error { min-height: 1.2em; margin: 6px 0; color: #a02020; font-size: 13px; }
-#name-dialog .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+#name-dialog input:focus, #tab-dialog input:focus { border-image-source: var(--px-frame); }
+#name-dialog .error, #tab-dialog .error { min-height: 1.2em; margin: 6px 0; color: #a02020; font-size: 13px; }
+#name-dialog .actions, #tab-dialog .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 /* pills at 2x */
-#name-dialog button {
+#name-dialog button, #tab-dialog button {
   font: inherit;
   font-size: 14px;
   height: 22px;
@@ -271,9 +271,9 @@ html, body {
   line-height: 0;
   cursor: pointer;
 }
-#name-dialog button:active { border-image-source: var(--px-pill-cream-down); padding: 4px 4px 0; }
-#name-dialog button[type='submit'] { border-image-source: var(--px-pill-pink); color: #fff; text-shadow: 0 1px 0 #401020; }
-#name-dialog button[type='submit']:active { border-image-source: var(--px-pill-pink-down); }
+#name-dialog button:active, #tab-dialog button:active { border-image-source: var(--px-pill-cream-down); padding: 4px 4px 0; }
+#name-dialog button[type='submit'], #tab-dialog button[type='submit'] { border-image-source: var(--px-pill-pink); color: #fff; text-shadow: 0 1px 0 #401020; }
+#name-dialog button[type='submit']:active, #tab-dialog button[type='submit']:active { border-image-source: var(--px-pill-pink-down); }
 #credit a { color: inherit; pointer-events: auto; }
 
 /* how to play: a wooden sign with the keys on it */

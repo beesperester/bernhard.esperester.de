@@ -4,6 +4,7 @@ import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
 import { setupFullscreen } from './ui/fullscreen.ts';
 import { loading } from './ui/loading.ts';
+import { oneTab } from './ui/oneTab.ts';
 import { Identity, useIdentity, verify } from './net/identity.ts';
 import { Chain } from './net/ledger.ts';
 import { idbChainStore, useChain } from './net/chainStore.ts';
@@ -17,6 +18,8 @@ import '@fontsource/pixelify-sans/latin-700.css';
 import '@fontsource/pixelify-sans/latin-ext-700.css';
 
 applyPixelUI();
+// (one tab at a time has the cat: oneTab.ts)
+await oneTab();
 loading(0.15, 600);
 // which garden is this? the cats already here know its seed (with none here, it's a new one): start asking at once
 const net = new Net();
