@@ -3,7 +3,7 @@
 // the landmark follies); the first cat into an empty garden picks a seed, and
 // from that seed this lays out the rest on the open ground: lawns and
 // meadows, flower beds and their box hedges, the maze, the tree house, the
-// themed zones (themes.ts: a carnival, say), the trees, bushes and rocks, and
+// themed zones (themes.ts: a funfair, say), the trees, bushes and rocks, and
 // the furniture. Every cat that joins is handed
 // the seed (net.ts) and lays out the same garden; when the last cat leaves,
 // the garden is gone, and the next one is a new one.
@@ -42,7 +42,7 @@ export interface Layout {
   rows: string[];
   /** Furniture by its top-left tile. */
   furniture: { kind: FurnitureKind; tx: number; ty: number }[];
-  /** The themed zones (a carnival, say): their tiles are laid with their own floor in `rows`. */
+  /** The themed zones (a funfair, say): their tiles are laid with their own floor in `rows`. */
   zones: ThemedZone[];
 }
 

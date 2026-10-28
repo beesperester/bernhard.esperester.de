@@ -1,5 +1,5 @@
 // Themed zones: now and then a part of the park is given over to something
-// (a carnival; later a farmer's market, a ren-fair …). The open lawn left
+// (a funfair; later a farmer's market, a ren-fair …). The open lawn left
 // once the fixed landscape, the maze and the tree house are in place is cut
 // into cells round points scattered by the garden's seed, each tile going to
 // the point it is the fewest steps from (a Voronoi diagram, measured on foot,
@@ -12,10 +12,10 @@
 type Pt = [number, number];
 
 /** What a zone is given over to. */
-export type Theme = 'carnival';
+export type Theme = 'funfair';
 
 /** Each theme, and how likely a garden is to have one. */
-export const THEMES: { theme: Theme; chance: number }[] = [{ theme: 'carnival', chance: 0.55 }];
+export const THEMES: { theme: Theme; chance: number }[] = [{ theme: 'funfair', chance: 0.55 }];
 
 /** The most zones a garden has. */
 export const MAX_ZONES = 3;

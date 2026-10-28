@@ -3,7 +3,7 @@
 // play in random order (never the same one twice in a row), so a single song
 // simply loops; at dusk and dawn the song fades out and the other list takes
 // over. If one list is empty, the other plays all the time. A themed zone can
-// have a playlist of its own (src/music/carnival/ …): while our cat is in the
+// have a playlist of its own (src/music/funfair/ …): while our cat is in the
 // zone that plays instead, and on leaving, the song from before carries on
 // where it left off. Browsers only allow sound after the visitor interacts,
 // so the music starts on the first key press or tap.

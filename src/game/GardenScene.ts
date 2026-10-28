@@ -160,7 +160,7 @@ export class GardenScene extends Phaser.Scene {
   private ambient!: Ambient;
   private referee!: Referee;
   private weather!: Weather;
-  /** The themed zones (a carnival's music, …). */
+  /** The themed zones (a funfair's music, …). */
   private zones!: Zones;
   private streams!: Streams;
   private landmarks!: Landmarks;
