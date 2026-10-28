@@ -84,35 +84,61 @@ const upWalk2 = patch(upStand, [
   [3, 14, 'oooo'],
 ]);
 
-// ---- side (facing left; flipped for right) ----
+// ---- side (facing left; flipped for right): the head turned to us, on a short body, the tail up ----
 const sideStand = [
   '................',
   '................',
-  '..o..o..........',
-  '.opoobo.........',
-  '.obbbbbo.....oo.',
-  'obbdbdbo....obbo',
-  'obebbbbo....obo.',
-  'obebbbbo....obo.',
-  'pbbbbbbbo...obo.',
-  'owwbbbbbooooobo.',
-  '.owwwbbdbdbdbbo.',
-  '..oowbbbbbbbbbo.',
-  '...owwwbbbbbbbo.',
-  '...obwobbbbobwo.',
-  '...obwo.oooobwo.',
-  '...ooo......ooo.',
+  '..............o.',
+  '.o.......o...obo',
+  'opo.....opo..obo',
+  'obbooooobbo.obo.',
+  'obdbbdbbdbo.obo.',
+  'obbbbbbbbbo.obo.',
+  'obbebbbebbooobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '..obwoobwoobwo..',
+  '..ooo.ooo.ooo...',
 ];
-const sideWalk1 = patch(sideStand, [
-  [0, 13, '..obwwobbbbobbwo'],
-  [0, 14, '..oooo..ooo.ooo.'],
-  [0, 15, '................'],
-]);
-const sideWalk2 = patch(sideStand, [
-  [0, 13, '...owbobbbobwo..'],
-  [0, 14, '...obwoooooooo..'],
-  [0, 15, '...ooo..........'],
-]);
+const sideWalk1 = [
+  '................',
+  '................',
+  '..............o.',
+  '.o.......o...obo',
+  'opo.....opo..obo',
+  'obbooooobbo.obo.',
+  'obdbbdbbdbo.obo.',
+  'obbbbbbbbbo.obo.',
+  'obbebbbebbooobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '.obwo.obwo..obwo',
+  '.ooo..ooo...ooo.',
+];
+const sideWalk2 = [
+  '................',
+  '................',
+  '..............o.',
+  '.o.......o...obo',
+  'opo.....opo..obo',
+  'obbooooobbo.obo.',
+  'obdbbdbbdbo.obo.',
+  'obbbbbbbbbo.obo.',
+  'obbebbbebbooobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '...obwobwoobwo..',
+  '...oooooooooo...',
+];
 
 // ---- sitting ----
 const sitDown = patch(downStand, [
@@ -124,20 +150,20 @@ const sitDown = patch(downStand, [
 const sitSide = [
   '................',
   '................',
-  '...o..o.........',
-  '..opoobo........',
-  '..obbbbbo.......',
-  '.obbdbdbo.......',
-  '.obebbbbo.......',
-  '.obebbbbo.......',
-  '.pbbbbbbbo......',
-  '.owwbbbbbbo.....',
-  '..owwwbbdbbo....',
-  '...owwbbbdbbo...',
-  '...owwbbbbdbo...',
-  '...owwbbbbbbo...',
-  '..owwobbbbbbboo.',
-  '..oooooooooddddo',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebbo.....',
+  'obbebbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owwwrwwwobdbbo.',
+  '..owwwwwobbbdbo.',
+  '..owwwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
 ];
 
 // ---- licking paw (sitting) ----
@@ -153,43 +179,80 @@ const lickDown2 = patch(lickDown1, [
   [3, 10, 'ww'],
   [5, 10, 'rp'],
 ]);
-const lickSide1 = patch(sitSide, [
-  [0, 6, '.obobbbbo.......'],
-  [0, 7, '.obbbbbbo.......'],
-  [0, 9, 'oowwbbbbbbo.....'],
-  [0, 10, 'owwowbbdbbo.....'],
-  [0, 11, '.oowwbbbbdbbo...'],
-]);
-const lickSide2 = patch(lickSide1, [
-  [0, 8, 'rpbbbbbbbo......'],
-  [0, 9, 'owwwbbbbbbo.....'],
-]);
-
-// ---- hissing (side, arched back, puffed tail) ----
-const hiss1 = [
-  '...........o.o.o',
-  '.....ooooo..obdo',
-  '....obdbdbo.obbo',
-  '.o.obbbbbbboobdo',
-  'opoobbbbbbbbbbo.',
-  'obbbbdbbbbbbbbo.',
-  'oebbbbbbbbbbbo..',
-  'oebbbbdbbdbbbo..',
-  'prbbbbbbbbbbbo..',
-  'owwwbooooobbbo..',
-  '.owwbo...obbo...',
-  '..obwo...obwo...',
-  '..obwo...obwo...',
-  '..obwo...obwo...',
-  '..obwo...obwo...',
-  '..ooo....ooo....',
+const lickSide1 = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbbbbbebbo.....',
+  'obbobbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owworwwwobdbbo.',
+  '.owwowwwobbbdbo.',
+  '..oowwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
 ];
-const hiss2 = patch(hiss1, [
-  [0, 0, '..........o.o.o.'],
-  [0, 7, 'orbbbbdbbdbbbo..'],
-  [0, 8, 'prrbbbbbbbbbbo..'],
-  [0, 9, 'orrwbooooobbbo..'],
-]);
+const lickSide2 = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbbbbbebbo.....',
+  'obbobbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owworwwwobdbbo.',
+  '.owwowwwobbbdbo.',
+  '..oowwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
+];
+
+// ---- hissing (side): mouth wide open, fur on end, the tail puffed up ----
+const hiss1 = [
+  '................',
+  '............oo.o',
+  '............obob',
+  '.o.......o..obbo',
+  'opo.....opo.obbo',
+  'obbooooobbo.obbo',
+  'obdbbdbbdbo.obbo',
+  'obbbbbbbbbooobbo',
+  'obbebbbebbbbobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.oowrrrwoobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '..obwoobwoobwo..',
+  '..ooo.ooo.ooo...',
+];
+const hiss2 = [
+  '................',
+  '............o.oo',
+  '............bobo',
+  '.o.......o..obbo',
+  'opo.....opo.obbo',
+  'obbooooobbo.obbo',
+  'obdbbdbbdbo.obbo',
+  'obbbbbbbbbooobbo',
+  'obbebbbebbbbobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.oowrrrwoobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '..obwoobwoobwo..',
+  '..ooo.ooo.ooo...',
+];
 
 // ---- hissing, facing us: ears flat, fur on end, mouth wide open ----
 const hissDown1 = sym([
@@ -293,17 +356,42 @@ const sleep2 = patch(sleep1, [
 ]);
 
 // ---- catching: paw raised, then swiped down-forward ----
-const catch1 = patch(sitSide, [
-  [0, 9, 'owwobbbbbbo.....'],
-  [0, 10, 'owwowwbbdbbo....'],
-  [0, 11, '.oo.owbbbdbbo...'],
-]);
-const catch2 = patch(sitSide, [
-  [0, 11, '..owwwbbbdbbo...'],
-  [0, 12, '.owwobbbbbdbo...'],
-  [0, 13, 'owwo.owbbbbbo...'],
-  [0, 14, 'oooo.obbbbbbboo.'],
-]);
+const catch1 = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebbo.....',
+  'obbebbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owwwrwwwobdbbo.',
+  'owwowwwwobbbdbo.',
+  'ooowwwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
+];
+const catch2 = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebbo.....',
+  'obbebbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owwwrwwwobdbbo.',
+  '..owwwwwobbbdbo.',
+  '..owwwwwobbbbbo.',
+  'owwowowwobbbbbo.',
+  'owwowowwobbbbboo',
+  'oooooooooooodddo',
+];
 // facing us: a paw raised beside the face, then slammed down in front
 const catchDown1 = patch(sitDown, [
   [0, 5, '.oo.'],
@@ -333,42 +421,84 @@ const catchUp2 = patch(upStand, [
   [3, 3, 'obo'],
 ]);
 // ---- eating: chewing with the mouth open ----
-const chew = patch(sitSide, [
-  [0, 8, '.prbbbbbbo......'],
-  [0, 9, '.orwbbbbbbo.....'],
-]);
+const chew = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebbo.....',
+  'obbebbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owwwrwwwobdbbo.',
+  '..owwrwwobbbdbo.',
+  '..owwwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
+];
 const chewDown = patch(sitDown, [
   [0, 10, '.owwbbprrpbbwwo.'],
   [0, 11, '..owwwwrrwwwwo..'],
 ]);
 
-// ---- crouching low and sneaking: belly to the ground, head forward, tail flat ----
+// ---- crouching low and sneaking: belly to the ground, tail out flat behind ----
 const sideCrouch = [
   '................',
   '................',
   '................',
   '................',
-  '................',
-  '..o..o..........',
-  '.opoobo.........',
-  '.obbbbboooooooo.',
-  'obbdbdbbbdbdbbbo',
-  'obebbbbbbbbbbbbo',
-  'obebbbbbbbbbbbo.',
-  'pbbbbbbbbbbbboo.',
-  'owwwbbbbbbbbbddo',
-  '.owwobbbbbbbboo.',
-  '.obwoowwoobwwo..',
-  '.oooo.oo..ooo...',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebboooo..',
+  'obbebbbebbbdbdo.',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbddo',
+  '..owwwwwobbbbbo.',
+  '.obwwoowwoobbwo.',
+  '.oooo.oooo.ooo..',
 ];
-const sideSneak1 = patch(sideCrouch, [
-  [0, 14, '.obwooowwobbwo..'],
-  [0, 15, 'ooooo..ooo.ooo..'],
-]);
-const sideSneak2 = patch(sideCrouch, [
-  [0, 14, '..obwoowwwoobwo.'],
-  [0, 15, '..oooo.....oooo.'],
-]);
+const sideSneak1 = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebboooo..',
+  'obbebbbebbbdbdo.',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbddo',
+  '..owwwwwobbbbbo.',
+  'obwwo.owwoobbwo.',
+  'ooooo.oooo.ooo..',
+];
+const sideSneak2 = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebboooo..',
+  'obbebbbebbbdbdo.',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbddo',
+  '..owwwwwobbbbbo.',
+  '..obwwowwoobbbwo',
+  '..ooooooooooooo.',
+];
 const downCrouch = [
   '................',
   '................',
