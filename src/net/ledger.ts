@@ -261,7 +261,11 @@ export class Chain {
     for (const b of blocks) {
       // (our own blocks: the clock rules were met when we made them; but not one from before blocks had beacons)
       const next = sanitizeBlock(b) ? await extend(this.tally, b, Infinity, check, { own: true }) : 'not a block';
-      if (typeof next === 'string') break;
+      if (typeof next === 'string') {
+        // (something went wrong keeping it: say what, so it can be looked into)
+        console.warn(`[chain] read back ${this.tally.n} of ${blocks.length} blocks (score ${this.tally.s}): block ${b.d?.n} is ${next}`);
+        break;
+      }
       this.blocks.push(b);
       this.hashes.push(next.h);
       this.tally = next;

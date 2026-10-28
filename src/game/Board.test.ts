@@ -225,11 +225,37 @@ describe('the board', () => {
       expect(again.me.custom).toBe(false);
       expect(givenName(again.me.name)).toBe(true);
       expect(store.has(`named-${a.me.id}`)).toBe(false);
+      // the name it had is kept for when it's earned again
+      expect(JSON.parse(store.get('cat-name')!).kept).toBe('Tiger');
       // with the snacks for it, the name stays
       for (let i = 0; i < 9; i++) await a.chain.append(7, Prey.Find, i, 12);
       store.set('cat-name', JSON.stringify({ name: 'Tiger', custom: true }));
       const named = new Board(0, { id: a.me.id, peer: 'peer-a3', sign: (d) => a.me.sign(d), now: () => clock, chain: a.chain, check: verify, seed: 7 }, () => {}, () => {});
       expect(named.me).toMatchObject({ name: 'Tiger', custom: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('gives a name of its own back once the chain earns it again', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+    try {
+      const a = await newCat('peer-a');
+      // read back short: a given name meanwhile, the old one kept
+      store.set('cat-name', JSON.stringify({ name: 'Tiger', custom: true }));
+      const short = new Board(0, { id: a.me.id, peer: 'peer-a2', sign: (d) => a.me.sign(d), now: () => clock, chain: a.chain, check: verify, seed: 7 }, () => {}, () => {});
+      expect(short.me.custom).toBe(false);
+      expect(short.restore()).toBe(false);
+      for (let i = 0; i < 9; i++) await a.chain.append(7, Prey.Find, i, 12);
+      // there again: it's back without asking...
+      expect(short.restore()).toBe(true);
+      expect(short.me).toMatchObject({ name: 'Tiger', custom: true });
+      expect(JSON.parse(store.get('cat-name')!)).toEqual({ name: 'Tiger', custom: true });
+      // ...and on a later visit too, if it got there before reloading
+      store.set('cat-name', JSON.stringify({ name: 'Sleepy Paws', custom: false, kept: 'Tiger' }));
+      const later = new Board(0, { id: a.me.id, peer: 'peer-a3', sign: (d) => a.me.sign(d), now: () => clock, chain: a.chain, check: verify, seed: 7 }, () => {}, () => {});
+      expect(later.me).toMatchObject({ name: 'Tiger', custom: true });
     } finally {
       vi.unstubAllGlobals();
     }

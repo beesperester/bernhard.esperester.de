@@ -922,7 +922,8 @@ export class GardenScene extends Phaser.Scene {
   private grown(): void {
     const me = this.board.me;
     this.grow();
-    if (this.chain.top < NAME_AT || me.custom || this.naming || asked(this.board.id)) return;
+    // (back at NAME_AT with the name we had before: it's ours again, no need to ask)
+    if (this.chain.top < NAME_AT || me.custom || this.naming || this.board.restore() || asked(this.board.id)) return;
     this.naming = true;
     // the keyboard belongs to the text field while the dialog is open
     const kb = this.input.keyboard!;

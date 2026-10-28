@@ -159,6 +159,8 @@ export class Board {
   private readonly stampsOf = new Map<string, Stamp[]>();
   /** Stamps of heads a cat's chain passed through that weren't proven when we got there: to look at again ([stamp, when]). */
   private readonly unproven = new Map<string, [Stamp, number][]>();
+  /** The name of our own we had before our chain fell short of NAME_AT, to have back when it's there again. */
+  private kept: string | null;
   private readonly send: (msg: BoardMsg, target?: string) => void;
   private readonly changed: () => void;
 
@@ -171,15 +173,21 @@ export class Board {
     this.known = loadKnown();
     // the name given on the first visit (or chosen since) comes back on later ones
     let saved = loadName();
-    // a name of its own is earned (NAME_AT snacks): a chain that's short of that again (a new cat, or one
-    // started over) goes back to a given name, and is asked for one again when it gets there
+    this.kept = saved?.kept ?? null;
+    // a name of its own is earned (NAME_AT snacks): a chain that's short of that again (a new cat, one
+    // started over, or one that read back short) goes by a given name meanwhile; the name it had is
+    // kept, and it gets it back on getting there again (or is asked for one, if it had none)
     if (saved && this.chain.top < NAME_AT && (saved.custom || !givenName(saved.name))) {
+      if (saved.custom) this.kept = saved.name;
       saved = null;
       try { localStorage.removeItem(`named-${this.id}`); } catch { /* storage unavailable */ }
+    } else if (this.kept && this.chain.top >= NAME_AT && !saved?.custom) {
+      saved = { name: this.kept, custom: true, kept: null };
+      this.kept = null;
     }
     this.mine = { id: this.id, name: saved?.name ?? randomName(), coat, custom: saved?.custom ?? false, t: 0, p: signer.peer, ...this.chain.head };
     this.signed = signer.sign(this.mine);
-    saveName(this.me);
+    saveName(this.me, this.kept);
   }
 
   get me(): Entry {
@@ -305,7 +313,16 @@ export class Board {
   }
 
   rename(name: string): void {
+    this.kept = null;
     this.restate({ name: name.trim().slice(0, NAME_MAX), custom: true });
+  }
+
+  /** Back at NAME_AT snacks: take back the name of our own we had before (if no cat here has it now). */
+  restore(): boolean {
+    const name = this.kept;
+    if (!name || this.mine.custom || this.chain.top < NAME_AT || !this.available(name)) return false;
+    this.rename(name);
+    return true;
   }
 
   /**
@@ -488,7 +505,7 @@ export class Board {
 
   private restate(change: Partial<Entry>, blocks?: Block[]): void {
     this.mine = { ...this.mine, ...change, ...this.chain.head, t: Math.max(this.mine.t + 1, Math.round(this.signer.now())) };
-    saveName(this.mine);
+    saveName(this.mine, this.kept);
     this.signed = this.signer.sign(this.mine);
     void this.signed.then((me) => this.send({ me, ...(blocks ? { blocks } : {}) }));
     this.changed();
@@ -505,16 +522,19 @@ export class Board {
   }
 }
 
-function loadName(): { name: string; custom: boolean } | null {
+const okName = (n: unknown): n is string => typeof n === 'string' && !!n.trim() && n.length <= NAME_MAX;
+
+/** Our name, and the name of our own we had before our chain fell short of NAME_AT (`kept`). */
+function loadName(): { name: string; custom: boolean; kept: string | null } | null {
   try {
     const v = JSON.parse(localStorage.getItem('cat-name') ?? 'null');
-    return v && typeof v.name === 'string' && v.name.trim() && v.name.length <= NAME_MAX ? { name: v.name, custom: !!v.custom } : null;
+    return v && okName(v.name) ? { name: v.name, custom: !!v.custom, kept: okName(v.kept) ? v.kept : null } : null;
   } catch {
     return null;
   }
 }
-export function saveName(e: { name: string; custom: boolean }): void {
-  try { localStorage.setItem('cat-name', JSON.stringify({ name: e.name, custom: e.custom })); } catch { /* storage unavailable */ }
+export function saveName(e: { name: string; custom: boolean }, kept: string | null = null): void {
+  try { localStorage.setItem('cat-name', JSON.stringify({ name: e.name, custom: e.custom, ...(kept ? { kept } : {}) })); } catch { /* storage unavailable */ }
 }
 
 /** The cats this browser has met (written by us, but storage is storage: only what still makes sense). */
