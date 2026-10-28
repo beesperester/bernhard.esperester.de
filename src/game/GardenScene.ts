@@ -160,7 +160,7 @@ export class GardenScene extends Phaser.Scene {
   private ambient!: Ambient;
   private referee!: Referee;
   private weather!: Weather;
-  /** The themed zones (a funfair's music, …). */
+  /** The themed zones (a funfair's bunting and lights, the zones' music). */
   private zones!: Zones;
   private streams!: Streams;
   private landmarks!: Landmarks;
@@ -277,7 +277,7 @@ export class GardenScene extends Phaser.Scene {
       for (let tx = 0; tx < MAP_W; tx++) if (groundOf(tileAt(tx, ty)) === 'flowers') flowers.push([tx * TILE + 8, ty * TILE + 8]);
     this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: reflect.props });
     this.weather = new Weather(this, props, water);
-    this.zones = new Zones();
+    this.zones = new Zones(this, toCanvas);
     this.streams = new Streams(this, water);
     this.puddles = new Puddles(this, this.ambient.fx);
 
@@ -612,6 +612,7 @@ export class GardenScene extends Phaser.Scene {
     this.sun.update(time, dt, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), light.day);
     this.lanterns.update(light, time);
     this.train.light(light);
+    this.zones.light(light, time);
     this.nightWater.update(light, time, view);
     this.waterSurface.update(light, gt, time, overcast, view);
     // keep the clock in the status line current

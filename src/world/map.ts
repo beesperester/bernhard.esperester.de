@@ -303,6 +303,10 @@ const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, n
   barrow: [[8, 6, 26, 13, BARROW_H]],
   // the post
   hotel: [[6, 10, 10, 14, 30]],
+  // a funfair's: a tent's round wall (its roof is out of reach anyway), a booth's counter, a bunting pole
+  tent: [[4, 14, 60, 44, 32]],
+  booth: [[4, 14, 44, 26, 9]],
+  pole: [[6, 9, 10, 13, 28]],
 };
 
 /** Inside the box's walls, relative to its top-left tile. */

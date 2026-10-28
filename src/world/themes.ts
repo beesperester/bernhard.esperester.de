@@ -23,6 +23,19 @@ export const MAX_ZONES = 3;
 /** The floor a zone is laid with (legend.ts). */
 export const ZONE_FLOOR = 'Z';
 
+/** What a zone is filled with: they stand in the park like the furniture (layout.ts, map.ts). */
+export type ZonePiece = 'tent' | 'booth' | 'pole';
+
+/** Tiles each piece takes up. */
+export const PIECE_SIZE: Record<ZonePiece, [number, number]> = { tent: [4, 3], booth: [3, 2], pole: [1, 1] };
+
+/** What each theme puts up, biggest first, and at most how many of each (as many as fit). */
+const FILL: Record<Theme, [Exclude<ZonePiece, 'pole'>, number][]> = {
+  funfair: [['tent', 2], ['booth', 3]],
+};
+/** Themes with bunting round the edge: on poles this far apart (tiles). */
+const POLES: Partial<Record<Theme, number>> = { funfair: 4 };
+
 export interface ThemedZone {
   theme: Theme;
   /** The point its cell grew from. */
@@ -100,6 +113,70 @@ export function carveZones(T: string[][], E: number[][], order: Pt[], hash: (x: 
     }
   for (const z of zones) for (const [x, y] of z.tiles) T[y][x] = ZONE_FLOOR;
   return zones;
+}
+
+/**
+ * Fill a zone with its pieces: the big ones inside it with a tile of floor all round each (to walk
+ * between them), as many as fit; poles for its bunting round its edge.
+ */
+export function furnishZone(z: ThemedZone, order: Pt[], W: number): { kind: ZonePiece; tx: number; ty: number }[] {
+  const has = new Set(z.tiles.map(([x, y]) => y * W + x));
+  const taken = new Set<number>();
+  const out: { kind: ZonePiece; tx: number; ty: number }[] = [];
+  const inZone = order.filter(([x, y]) => has.has(y * W + x));
+  for (const [kind, most] of FILL[z.theme]) {
+    const [w, h] = PIECE_SIZE[kind];
+    let placed = 0;
+    for (const [x, y] of inZone) {
+      if (placed >= most) break;
+      let ok = true;
+      // (the piece and a tile round it all floor; the piece clear of the others by a tile at least)
+      for (let j = -1; j <= h && ok; j++)
+        for (let i = -1; i <= w && ok; i++) {
+          const k = (y + j) * W + x + i, inner = i >= 0 && j >= 0 && i < w && j < h;
+          if (!has.has(k)) ok = false;
+          else if (inner && [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => taken.has(k + dy * W + dx)))) ok = false;
+        }
+      if (!ok) continue;
+      for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) taken.add((y + j) * W + x + i);
+      out.push({ kind, tx: x, ty: y });
+      placed++;
+    }
+  }
+  // the poles: on the zone's edge, spaced out
+  const apart = POLES[z.theme];
+  if (apart) {
+    const edge = inZone.filter(([x, y]) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !has.has((y + dy) * W + x + dx)));
+    const poles: Pt[] = [];
+    for (const [x, y] of edge) {
+      if (taken.has(y * W + x) || poles.some(([px, py]) => Math.max(Math.abs(px - x), Math.abs(py - y)) < apart)) continue;
+      poles.push([x, y]);
+      taken.add(y * W + x);
+      out.push({ kind: 'pole', tx: x, ty: y });
+    }
+  }
+  return out;
+}
+
+/** Which poles the bunting hangs between: each to its nearest one or two neighbours, over the zone's own floor. */
+export function buntingStrings(poles: Pt[], floor: (x: number, y: number) => boolean, reach = 7): [number, number][] {
+  const pairs = new Set<string>(), out: [number, number][] = [];
+  poles.forEach(([x, y], i) => {
+    const near = poles
+      .map(([px, py], j) => ({ j, d: Math.hypot(px - x, py - y) }))
+      .filter(({ j, d }) => j !== i && d <= reach)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 2);
+    for (const { j } of near) {
+      const [a, b] = i < j ? [i, j] : [j, i];
+      // (hanging over the zone, not across the lawn outside it)
+      const mx = Math.round((poles[a][0] + poles[b][0]) / 2), my = Math.round((poles[a][1] + poles[b][1]) / 2);
+      if (pairs.has(`${a},${b}`) || !floor(mx, my)) continue;
+      pairs.add(`${a},${b}`);
+      out.push([a, b]);
+    }
+  });
+  return out;
 }
 
 function boxOf(tiles: Pt[]): [number, number, number, number] {

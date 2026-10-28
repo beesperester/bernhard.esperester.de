@@ -4,6 +4,7 @@ import {
   buildBarrow, buildBasket, buildBench, buildBirdBath, buildBistroTable, buildBlanket, buildBox, buildCatnip, buildChair, buildInsectHotel,
   buildPicnicTable, buildPump, buildPumpPuddle, buildRaisedBed, dressForSeason,
 } from '../art/furniture.ts';
+import { buildBooth, buildPole, buildTent } from '../art/funfair.ts';
 import { FURNITURE, TILE } from '../world/map.ts';
 import { SEASON } from '../world/season.ts';
 import { Act } from './state.ts';
@@ -75,6 +76,9 @@ export class Furniture {
         case 'bed': sprite('bed', buildRaisedBed, ox, oy - 4, oy + 6); break;
         case 'barrow': sprite('barrow', buildBarrow, ox - 1, oy - 5, oy + 5); break;
         case 'hotel': sprite('hotel', buildInsectHotel, ox, oy - 16, oy + 13); break;
+        case 'tent': sprite('tent', buildTent, ox + 2, oy - 13, oy + 44); break;
+        case 'booth': sprite('booth', buildBooth, ox + 2, oy - 11, oy + 26); break;
+        case 'pole': sprite('pole', buildPole, ox + 5, oy - 18, oy + 13); break;
       }
     }
   }

@@ -16,17 +16,19 @@ import { hash2 } from '../art/raster.ts';
 import { BASE, ELEV, LANDMARK_SPOTS, ZONES } from './garden.ts';
 import { LANDMARK_SIZE } from './landmarks.ts';
 import { trackside } from './track.ts';
-import { carveZones, type ThemedZone } from './themes.ts';
+import { PIECE_SIZE, carveZones, furnishZone, type ThemedZone, type ZonePiece } from './themes.ts';
 
 type Pt = [number, number];
 
-export type FurnitureKind = 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath' | 'box' | 'pump' | 'catnip' | 'bed' | 'barrow' | 'hotel';
+/** The garden furniture, and what the themed zones put up (themes.ts). */
+export type FurnitureKind = 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath' | 'box' | 'pump' | 'catnip' | 'bed' | 'barrow' | 'hotel' | ZonePiece;
 
 /** Tiles each kind of furniture takes up. */
 export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
   bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3], birdbath: [1, 1],
   // (the pump's puddle takes the tile to its right)
   box: [2, 1], pump: [2, 1], catnip: [2, 1], bed: [3, 2], barrow: [2, 1], hotel: [1, 1],
+  ...PIECE_SIZE,
 };
 
 /** How many of each piece a garden gets, in the order they are placed. */
@@ -145,6 +147,8 @@ export function layOut(seed: number): Layout {
 
   // the themed zones, each taking a cell of the lawn left (nothing else grows there)
   const zones = carveZones(T, E, order, hash);
+  // and filled with what they're about (a funfair's tents and booths, its bunting's poles)
+  const furniture: Layout['furniture'] = zones.flatMap((z) => furnishZone(z, order, W));
 
   // meadows and flower beds
   for (let y = 1; y < H - 1; y++)
@@ -198,7 +202,6 @@ export function layOut(seed: number): Layout {
     }
 
   // garden furniture beside the paths
-  const furniture: Layout['furniture'] = [];
   for (const [kind, count] of WANT) {
     let placed = 0;
     for (const [x, y] of order) {

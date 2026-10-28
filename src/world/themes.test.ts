@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { layOut } from './layout.ts';
 import { ELEV } from './garden.ts';
-import { MAX_ZONES, ZONE_FLOOR } from './themes.ts';
+import { MAX_ZONES, PIECE_SIZE, ZONE_FLOOR, buntingStrings } from './themes.ts';
 
 describe('themed zones', () => {
   const gardens = Array.from({ length: 40 }, (_, i) => layOut(1000 + i * 7919));
@@ -46,13 +46,35 @@ describe('themed zones', () => {
     expect(layOut(4242).zones).toEqual(layOut(4242).zones);
   });
 
-  it('have nothing growing or standing in them', () => {
+  it('have nothing growing or standing in them but their own pieces', () => {
     for (const g of gardens) {
       const zoned = new Set(g.zones.flatMap((z) => z.tiles.map(([x, y]) => `${x},${y}`)));
-      for (const f of g.furniture) expect(zoned.has(`${f.tx},${f.ty}`)).toBe(false);
+      for (const f of g.furniture) expect(zoned.has(`${f.tx},${f.ty}`)).toBe(f.kind in PIECE_SIZE);
       let floor = 0;
       for (const row of g.rows) for (const ch of row) if (ch === ZONE_FLOOR) floor++;
       expect(floor).toBe(zoned.size);
     }
+  });
+
+  it('a funfair has tents or booths in it, a tile apart, and bunting on poles round its edge', () => {
+    let pieces = 0, strings = 0;
+    for (const g of gardens)
+      for (const z of g.zones) {
+        const has = new Set(z.tiles.map(([x, y]) => `${x},${y}`));
+        const mine = g.furniture.filter((f) => has.has(`${f.tx},${f.ty}`));
+        const big = mine.filter((f) => f.kind !== 'pole'), poles = mine.filter((f) => f.kind === 'pole');
+        pieces += big.length;
+        expect(poles.length).toBeGreaterThan(2);
+        // (between any two of the big ones, a tile of floor to walk through)
+        for (let i = 0; i < big.length; i++)
+          for (let j = i + 1; j < big.length; j++) {
+            const [a, b] = [big[i], big[j]], [aw, ah] = PIECE_SIZE[a.kind as 'tent'], [bw, bh] = PIECE_SIZE[b.kind as 'tent'];
+            const gapX = Math.max(b.tx - (a.tx + aw), a.tx - (b.tx + bw)), gapY = Math.max(b.ty - (a.ty + ah), a.ty - (b.ty + bh));
+            expect(Math.max(gapX, gapY)).toBeGreaterThanOrEqual(1);
+          }
+        strings += buntingStrings(poles.map((p) => [p.tx, p.ty]), (x, y) => has.has(`${x},${y}`)).length;
+      }
+    expect(pieces).toBeGreaterThan(0);
+    expect(strings).toBeGreaterThan(0);
   });
 });

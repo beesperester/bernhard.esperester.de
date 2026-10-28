@@ -1,3 +1,4 @@
+import { PIECE_SIZE, ZONE_FLOOR } from './themes.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GRAVITY, JUMP_V } from '../game/state.ts';
 import { STEP_UP, step } from '../game/movement.ts';
@@ -155,7 +156,8 @@ describe('furniture', () => {
   it('stands on plain lawn, inside the fence, without overlapping', () => furnitureOnLawn(map));
 
   it('has one of every kind', () => {
-    for (const kind of Object.keys(map.FURNITURE_SIZE)) expect(map.FURNITURE.some((f) => f.kind === kind)).toBe(true);
+    // (not counting what only a themed zone puts up)
+    for (const kind of Object.keys(map.FURNITURE_SIZE)) if (!(kind in PIECE_SIZE)) expect(map.FURNITURE.some((f) => f.kind === kind)).toBe(true);
   });
 
   it('has cardboard boxes a cat (a kitten too) hops into, and sits in hidden', () => {
@@ -198,7 +200,9 @@ function furnitureOnLawn({ FURNITURE, FURNITURE_SIZE, tileAt }: Map): void {
       const [w, h] = FURNITURE_SIZE[f.kind];
       for (let y = f.ty; y < f.ty + h; y++)
         for (let x = f.tx; x < f.tx + w; x++) {
-          expect(`${f.kind} at ${x},${y}: ${tileAt(x, y)}`).toBe(`${f.kind} at ${x},${y}: .`);
+          // (a themed zone's pieces stand on its floor)
+          const ground = f.kind in PIECE_SIZE ? ZONE_FLOOR : '.';
+          expect(`${f.kind} at ${x},${y}: ${tileAt(x, y)}`).toBe(`${f.kind} at ${x},${y}: ${ground}`);
           expect(taken.has(`${x},${y}`)).toBe(false);
           taken.add(`${x},${y}`);
         }
