@@ -2,13 +2,14 @@
 // drawn shifted up by its height, with an earthy cliff face hanging below
 // wherever the ground in front is lower. Stairs bridge one level on south faces.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { applySeason, bayer } from './tiles.ts';
+import { LAWN, applySeason } from './tiles.ts';
+import { dab } from './paint.ts';
 import { LEVEL, MAP_H, MAP_W, TILE, levelAt, tileAt } from '../world/map.ts';
 import { isStairs } from '../world/legend.ts';
 
-const K = { lip: hex('#2e6e24'), lip2: hex('#4c9a34'), k0: hex('#e2c08a'), k1: hex('#c0965e'), k2: hex('#93693e'), k3: hex('#5c3e24'), k4: hex('#3a2616') };
-const S = { s0: hex('#e8e4d8'), s1: hex('#c4bfb0'), s2: hex('#94907f'), s3: hex('#56534a'), moss: hex('#5aaa3e') };
-const RIM = hex('#90d468'), EDGE = hex('#2e6e24');
+const K = { lip: LAWN[0], lip2: LAWN[2], k0: hex('#d4b48a'), k1: hex('#b08a64'), k2: hex('#86644c'), k3: hex('#55403a'), k4: hex('#33242a') };
+const S = { s0: hex('#e0dcd0'), s1: hex('#bcb6ac'), s2: hex('#8e8884'), s3: hex('#504a50'), moss: hex('#6a9448') };
+const RIM = LAWN[6], EDGE = LAWN[0];
 
 export interface TerrainPiece {
   raster: Raster;
@@ -47,10 +48,13 @@ function face(r: Raster, ox: number, oy: number, h: number, tx: number, ty: numb
       if (u === 0 || v === 0) c = K.k3;
       else if (u === 1 || v === 1) c = cell < 0.3 ? S.s0 : K.k0;
       else if (u === CW - 1 || v === CH - 1) c = K.k2;
-      if (c !== K.k3 && hash2(wx, ty * 1000 + y, 38) < 0.05) c = K.k2;
+      // (weathered in dabs)
+      const w = dab(wx, ty * 1000 + y, 38);
+      if (c !== K.k3 && w < -0.3) c = K.k2;
+      else if (c === K.k1 && w > 0.32) c = K.k0;
       // deeper shade towards the foot, dithered
       const down = y / h;
-      if (down > 0.6 && bayer(wx, y) < (down - 0.6) * 1.5 && c !== K.k3) c = c === K.k0 || c === S.s0 ? K.k1 : K.k2;
+      if (down > 0.6 && dab(wx, y, 41) + 0.5 < (down - 0.6) * 1.5 && c !== K.k3) c = c === K.k0 || c === S.s0 ? K.k1 : K.k2;
       if (y === h - 1) c = K.k4;
       // corners where the wall turns
       if (leftOpen && x === 0) c = K.k4;
@@ -106,7 +110,7 @@ export function buildTerrain(ground: Raster): TerrainPiece[] {
           }
         // rims: a sunlit lip on the far edge, darker grass where it drops to the sides
         if (levelAt(tx, ty - 1) < e) for (let x = 0; x < TILE; x++) r.set(ox + x, 0, RIM);
-        if (topLevel(tx - 1, ty) < e) for (let y = 0; y < TILE; y++) { r.set(ox, y, EDGE); if (bayer(tx, y) < 0.5) r.set(ox + 1, y, EDGE); }
+        if (topLevel(tx - 1, ty) < e) for (let y = 0; y < TILE; y++) { r.set(ox, y, EDGE); if (hash2(tx, y, 42) < 0.5) r.set(ox + 1, y, EDGE); }
         if (topLevel(tx + 1, ty) < e) for (let y = 0; y < TILE; y++) { r.set(ox + TILE - 1, y, EDGE); r.set(ox + TILE - 2, y, EDGE); }
         const fh = faceH(tx);
         if (fh) {

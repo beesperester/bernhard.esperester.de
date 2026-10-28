@@ -4,19 +4,28 @@ import { SEASON, type Season } from '../world/season.ts';
 import { DEFAULT_LIGHT, sunLight, type ScreenLight } from './lighting.ts';
 import { LEGEND, isPath, isStairs, isWaterway } from '../world/legend.ts';
 import { trackPoints } from '../world/track.ts';
+import { dab, noise, patch, ramp, tone } from './paint.ts';
+
+/** The lawn, painted: deep teal shadows to warm yellow-green lights. */
+export const LAWN = ramp(7, '#2a4c3e', '#44744a', '#66944e', '#96b462');
+/** Tall grass: darker at its roots, its blades' tips catching the light. */
+const TALL = ramp(6, '#1f3d36', '#35603f', '#5c8646', '#a4b25e');
+/** The paths' gravel: purplish-grey in the dips to warm beige on top, and the dark rim along the grass. */
+export const GRAVEL = ramp(5, '#74625e', '#a08a76', '#c6b092', '#e2cea8');
+const RIM = hex('#5c4a3e');
 
 const C = {
-  g0: hex('#68b848'), g1: hex('#90d468'), g2: hex('#4c9a34'), g3: hex('#2e6e24'), g4: hex('#5aaa3e'), g5: hex('#78c454'),
-  daisy: hex('#f8f8f0'), clover: hex('#b8e070'),
-  p0: hex('#ecd8a0'), p1: hex('#d4b878'), p2: hex('#a88a52'),
-  w0: hex('#4a8ce0'), w1: hex('#8cc4f8'), w2: hex('#2a5cb0'), w3: hex('#d8ecff'),
+  g0: LAWN[3], g1: LAWN[6], g2: LAWN[1], g3: LAWN[0], g4: LAWN[2], g5: LAWN[4],
+  daisy: hex('#f4f0e4'), clover: hex('#aac868'),
+  p0: GRAVEL[3], p1: GRAVEL[2], p2: GRAVEL[1],
+  w0: hex('#4682b8'), w1: hex('#88b8d8'), w2: hex('#2c5a8c'), w3: hex('#d4e8f4'),
   // the water's edge: in the shade of the bank, and wet earth catching the light
-  wb: hex('#2b4744'), we: hex('#7d9479'),
-  h0: hex('#3c8c3a'), h1: hex('#5cac48'), h2: hex('#256a2a'), h3: hex('#163c1a'),
-  m0: hex('#1e5424'),
-  f0: hex('#f8f0d8'), f1: hex('#d0a870'), f2: hex('#7a5530'),
-  r0: hex('#d8d8d0'), r1: hex('#b0b0a8'), r2: hex('#848480'), r3: hex('#4a4a48'),
-  t0: hex('#a06a38'), t1: hex('#6a4220'), t2: hex('#3a2410'),
+  wb: hex('#26403e'), we: hex('#728a70'),
+  h0: hex('#4a7a46'), h1: hex('#76a058'), h2: hex('#2f573e'), h3: hex('#172e28'),
+  m0: hex('#213e30'),
+  f0: hex('#ece0c8'), f1: hex('#c4a47e'), f2: hex('#74543e'),
+  r0: hex('#d4d0c6'), r1: hex('#a8a49e'), r2: hex('#7a7680'), r3: hex('#403c48'),
+  t0: hex('#9a6a44'), t1: hex('#6a4630'), t2: hex('#3a2420'),
   c0: hex('#80cc58'), c1: hex('#54a83c'), c2: hex('#347c2c'), c3: hex('#1a4a1e'),
   yellow: hex('#f8d038'), orange: hex('#f89838'),
 };
@@ -30,51 +39,25 @@ const isPathCh = isPath;
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 export const bayer = (x: number, y: number) => BAYER[(y & 3) * 4 + (x & 3)];
 
-/** Lattice values of the noise are remembered per seed for this many points each way (the map needs fewer). */
-const LATTICE = 160;
-const lattices = new Map<number, Float64Array>();
-
-/** The noise's random value at lattice point (xi, yi): hash2, looked up once and then remembered. */
-function latticeAt(xi: number, yi: number, s: number): number {
-  if (xi < 0 || yi < 0 || xi >= LATTICE || yi >= LATTICE) return hash2(xi, yi, s);
-  let values = lattices.get(s);
-  if (!values) lattices.set(s, (values = new Float64Array(LATTICE * LATTICE).fill(-1)));
-  const i = yi * LATTICE + xi;
-  let v = values[i];
-  if (v < 0) values[i] = v = hash2(xi, yi, s);
-  return v;
-}
-
-/** Smooth value noise in [0,1), deterministic. */
-export function noise(x: number, y: number, s: number): number {
-  const xi = Math.floor(x), yi = Math.floor(y);
-  const fx = x - xi, fy = y - yi;
-  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
-  const a = latticeAt(xi, yi, s), b = latticeAt(xi + 1, yi, s), c = latticeAt(xi, yi + 1, s), d = latticeAt(xi + 1, yi + 1, s);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-}
+export { noise };
 
 function grass(r: Raster, ox: number, oy: number, tx: number, ty: number, dark = 0): void {
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
       const px = tx * TILE + x, py = ty * TILE + y;
-      // large soft patches of darker and lighter green, dithered
-      const n = noise(px / 56, py / 56, 2) * 0.7 + noise(px / 17, py / 17, 3) * 0.3 + dark;
-      const d = bayer(px, py) * 0.16 - 0.08;
-      let c = n + d > 0.62 ? C.g4 : n + d < 0.34 ? C.g5 : C.g0;
-      if (n + d > 0.8) c = C.g2;
-      const h = hash2(px, py, 1);
-      if (h < 0.05) c = c === C.g5 ? C.g1 : C.g5;
-      else if (h > 0.965) c = C.g2;
-      r.set(ox + x, oy + y, c);
+      // lusher and drier patches, broken into dabs of paint
+      const v = 0.5 + patch(px, py, 2, 56) * 0.55 + patch(px, py, 3, 15) * 0.25 + dab(px, py, 4) * 0.5 - dark;
+      r.set(ox + x, oy + y, tone(LAWN, 0.12 + Math.max(0, Math.min(1, v)) * 0.72));
     }
-  // little tufts and the odd daisy / clover
-  for (let k = 0; k < 3; k++) {
-    if (hash2(tx, ty, 10 + k) < 0.3) continue;
-    const x = ox + 1 + Math.floor(hash2(tx, ty, 20 + k) * 12);
-    const y = oy + 2 + Math.floor(hash2(tx, ty, 30 + k) * 11);
-    r.set(x, y + 1, C.g2); r.set(x + 1, y + 2, C.g2); r.set(x + 2, y + 1, C.g2); r.set(x + 3, y, C.g2);
-  }
+  // short blades standing up out of it: a lit tip over a dark root
+  for (let y = 1; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const px = tx * TILE + x, py = ty * TILE + y, h = hash2(px, py, 1);
+      if (h > 0.07) continue;
+      const v = 0.5 + patch(px, py, 2, 56) * 0.55 - dark;
+      r.set(ox + x, oy + y - 1, tone(LAWN, v + 0.3));
+      r.set(ox + x, oy + y, tone(LAWN, v - 0.25));
+    }
   if (!dark && hash2(tx, ty, 90) < 0.18) {
     const x = ox + 2 + Math.floor(hash2(tx, ty, 91) * 12), y = oy + 2 + Math.floor(hash2(tx, ty, 92) * 12);
     const white = hash2(tx, ty, 93) < 0.6;
@@ -83,9 +66,24 @@ function grass(r: Raster, ox: number, oy: number, tx: number, ty: number, dark =
   }
 }
 
-
+/** Tall grass: a thicket of blades, each dark at its root and lit at its tip, leaning a little every which way. */
 function tallGrass(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
-  grass(r, ox, oy, tx, ty, 0.25);
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const px = tx * TILE + x, py = ty * TILE + y;
+      r.set(ox + x, oy + y, tone(TALL, 0.25 + dab(px, py, 6) * 0.4 + patch(px, py, 7, 30) * 0.3));
+    }
+  for (let k = 0; k < 34; k++) {
+    const bx = Math.floor(hash2(tx, ty, 500 + k) * TILE), by = 3 + Math.floor(hash2(tx, ty, 600 + k) * TILE);
+    const len = 3 + Math.floor(hash2(tx, ty, 700 + k) * 3), lean = hash2(tx, ty, 800 + k) < 0.3 ? -1 : hash2(tx, ty, 800 + k) > 0.8 ? 1 : 0;
+    const lit = patch(tx * TILE + bx, ty * TILE + by, 7, 30) * 0.4;
+    for (let j = 0; j < len; j++) {
+      const t = j / (len - 1);
+      const x = bx + (t > 0.6 ? lean : 0), y = by - j;
+      if (x < 0 || x >= TILE || y < 0 || y >= TILE) continue;
+      r.set(ox + x, oy + y, tone(TALL, 0.15 + t * 0.85 + lit));
+    }
+  }
 }
 
 function flowers(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
@@ -103,23 +101,43 @@ function flowers(r: Raster, ox: number, oy: number, tx: number, ty: number): voi
   }
 }
 
+/**
+ * Gravel: beige stones in dabs, darker pebbles here and there with a lit side, a dark rim of earth
+ * where it meets the grass, and the grass fraying over that edge.
+ */
 function path(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
-  r.rect(ox, oy, TILE, TILE, C.p0);
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
-      const h = hash2(tx * TILE + x, ty * TILE + y, 5);
-      if (h < 0.06) r.set(ox + x, oy + y, C.p1);
-      else if (h < 0.075) r.set(ox + x, oy + y, C.p2);
+      const px = tx * TILE + x, py = ty * TILE + y;
+      r.set(ox + x, oy + y, tone(GRAVEL, 0.62 + dab(px, py, 5) * 0.35 + patch(px, py, 8, 24) * 0.25));
+    }
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const px = tx * TILE + x, py = ty * TILE + y, h = hash2(px, py, 5);
+      if (h < 0.035) {
+        r.set(ox + x, oy + y, GRAVEL[h < 0.012 ? 0 : 1]);
+        if (h < 0.02) r.set(ox + x + 1, oy + y, GRAVEL[1]);
+      } else if (h > 0.975) r.set(ox + x, oy + y, GRAVEL[4]);
     }
   const n = !isPathCh(tileAt(tx, ty - 1)), s = !isPathCh(tileAt(tx, ty + 1));
   const w = !isPathCh(tileAt(tx - 1, ty)), e = !isPathCh(tileAt(tx + 1, ty));
-  for (let i = 0; i < TILE; i++) {
-    const wob = hash2(tx * TILE + i, ty, 6) < 0.3 ? 1 : 0;
-    if (n) { r.set(ox + i, oy, C.g0); r.set(ox + i, oy + wob, C.g0); r.set(ox + i, oy + 1 + wob, C.p1); }
-    if (s) { r.set(ox + i, oy + 15, C.p2); r.set(ox + i, oy + 14, C.p1); }
-    if (w) { r.set(ox, oy + i, C.g0); r.set(ox + wob, oy + i, C.g0); r.set(ox + 1 + wob, oy + i, C.p1); }
-    if (e) { r.set(ox + 15, oy + i, C.g0); r.set(ox + 15 - wob, oy + i, C.g0); r.set(ox + 14 - wob, oy + i, C.p1); }
-  }
+  // (the grass's edge: 0 to 2 px in, ragged; the earth's rim just inside it)
+  const fray = (i: number, side: number) => Math.floor(hash2(tx * TILE + i, ty * TILE + side, 6) * 2.4);
+  const edge = (side: number, at: (i: number, d: number) => [number, number]) => {
+    for (let i = 0; i < TILE; i++) {
+      const f = fray(i, side);
+      for (let d = 0; d < f; d++) {
+        const [x, y] = at(i, d);
+        r.set(ox + x, oy + y, tone(LAWN, 0.35 + dab(tx * TILE + x, ty * TILE + y, 4) * 0.5));
+      }
+      const [x, y] = at(i, f);
+      r.set(ox + x, oy + y, RIM);
+    }
+  };
+  if (n) edge(1, (i, d) => [i, d]);
+  if (s) edge(2, (i, d) => [i, 15 - d]);
+  if (w) edge(3, (i, d) => [d, i]);
+  if (e) edge(4, (i, d) => [15 - d, i]);
 }
 
 function water(r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number): void {
@@ -172,8 +190,10 @@ function hedge(r: Raster, ox: number, oy: number, tx: number, ty: number, tall =
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
       const h = hash2(tx * TILE + x, ty * TILE + y, 7);
-      if ((x + (y % 4 < 2 ? 0 : 2)) % 4 === 0 && y % 2 === 0) r.set(ox + x, oy + y, lit);
-      else if (h < 0.12) r.set(ox + x, oy + y, tall ? C.h3 : C.h2);
+      // (leaves in dabs: lit clusters, darker hollows)
+      const v = dab(tx * TILE + x, ty * TILE + y, 7);
+      if (v > 0.2) r.set(ox + x, oy + y, lit);
+      else if (v < -0.25 || h < 0.06) r.set(ox + x, oy + y, tall ? C.h3 : C.h2);
     }
   const isH = (x: number, y: number) => tileAt(x, y) === me;
   const n = !isH(tx, ty - 1), s = !isH(tx, ty + 1), w = !isH(tx - 1, ty), e = !isH(tx + 1, ty);
@@ -336,7 +356,7 @@ const BUSH = [
  * specks and patches are kept as an offset from how the default light would
  * shade it, so under that light it looks exactly as drawn.
  */
-function litBlob(r: Raster, ox: number, oy: number, art: string[], fixed: Record<string, RGB>, tones: string, ramp: RGB[]): void {
+function litBlob(r: Raster, ox: number, oy: number, art: string[], fixed: Record<string, RGB>, tones: string, ramp: RGB[], tx: number, ty: number): void {
   r.paint(art, ox, oy, fixed);
   let x0 = 99, y0 = 99, x1 = -1, y1 = -1;
   art.forEach((row, y) => [...row].forEach((ch, x) => {
@@ -344,15 +364,17 @@ function litBlob(r: Raster, ox: number, oy: number, art: string[], fixed: Record
     x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
   }));
   const mx = (x0 + x1 + 1) / 2, my = (y0 + y1 + 1) / 2, rx = (x1 - x0 + 1) / 2, ry = (y1 - y0 + 1) / 2;
-  const shade = (nx: number, ny: number, L: ScreenLight) => {
-    const v = (nx * L.x + ny * L.y) * L.k;
+  const shade = (nx: number, ny: number, L: ScreenLight, j = 0) => {
+    const v = (nx * L.x + ny * L.y) * L.k + j;
     return v > 0.35 ? 0 : v > -0.25 ? 1 : 2;
   };
   art.forEach((row, y) => [...row].forEach((ch, x) => {
     const drawn = tones.indexOf(ch);
     if (drawn < 0) return;
     const nx = (x + 0.5 - mx) / rx, ny = (y + 0.5 - my) / ry;
-    const tone = Math.max(0, Math.min(2, shade(nx, ny, sunLight) + drawn - shade(nx, ny, DEFAULT_LIGHT)));
+    // (in dabs, like the leaves on the trees)
+    const j = dab(tx * TILE + x, ty * TILE + y, 13) * 0.6;
+    const tone = Math.max(0, Math.min(2, shade(nx, ny, sunLight, j) + drawn - shade(nx, ny, DEFAULT_LIGHT)));
     r.set(ox + x, oy + y, ramp[tone]);
   }));
 }
@@ -430,8 +452,8 @@ export const TILE_ART: Record<string, { ground?: Painter; upright?: Painter }> =
   m: { upright: (r, ox, oy, tx, ty) => hedge(r, ox, oy, tx, ty, true) },
   F: { upright: (r, ox, oy, tx, ty) => fence(r, ox, oy, tx, ty) },
   g: { ground: (r, ox, oy, tx, ty) => path(r, ox, oy, tx, ty), upright: (r, ox, oy, tx, ty) => gate(r, ox, oy, tx, ty) },
-  b: { upright: (r, ox, oy) => litBlob(r, ox, oy, BUSH, { o: C.h3 }, 'ld2', [C.h1, C.h0, C.h2]) },
-  r: { upright: (r, ox, oy) => litBlob(r, ox, oy, ROCK, { o: C.r3, g: C.g2 }, 'lmd', [C.r0, C.r1, C.r2]) },
+  b: { upright: (r, ox, oy, tx, ty) => litBlob(r, ox, oy, BUSH, { o: C.h3 }, 'ld2', [C.h1, C.h0, C.h2], tx, ty) },
+  r: { upright: (r, ox, oy, tx, ty) => litBlob(r, ox, oy, ROCK, { o: C.r3, g: C.g2 }, 'lmd', [C.r0, C.r1, C.r2], tx, ty) },
   o: { upright: (r, ox, oy) => fountain(r, ox, oy) },
 };
 
@@ -517,10 +539,10 @@ const ICE: [RGB, RGB][] = [[C.w0, hex('#a6d4ec')], [C.w1, hex('#e2f4ff')], [C.w2
 /** Everything green or earthy that snow settles on, and the flowers that are gone under it. */
 const SNOWY: RGB[] = [
   C.g0, C.g1, C.g2, C.g3, C.g4, C.g5, C.daisy, C.clover, C.yellow, C.orange, C.p0, C.p1, C.p2,
-  C.h0, C.h1, C.h2, C.h3, C.m0, C.c0, C.c1, C.c2, C.c3, C.r0, ...FLOWERS,
+  C.h0, C.h1, C.h2, C.h3, C.m0, C.c0, C.c1, C.c2, C.c3, C.r0, ...FLOWERS, ...LAWN, ...TALL, ...GRAVEL, RIM,
   hex('#2e6e24'), hex('#4c9a34'), hex('#90d468'), hex('#5aaa3e'),
 ];
-const GREENS: RGB[] = [C.g0, C.g1, C.g2, C.g3, C.g4, C.g5, C.clover, C.c0, C.c1, C.c2, C.c3];
+const GREENS: RGB[] = [...LAWN, ...TALL, C.clover, C.c0, C.c1, C.c2, C.c3];
 const FLOWERY = new Set([...FLOWERS, C.daisy, C.yellow, C.orange].map(key));
 /** The dark ones become the outlines of the snow, the rest a snow tone by brightness. */
 function snowFor(c: RGB): RGB {

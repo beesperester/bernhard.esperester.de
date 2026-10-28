@@ -73,39 +73,79 @@ export function buildTent(): Raster {
   return r;
 }
 
+/** A little gold star, 5×5, its middle at (x, y). */
+function star(r: Raster, x: number, y: number): void {
+  for (const [dx, dy] of [[0, -2], [-1, -1], [0, -1], [1, -1], [-2, 0], [-1, 0], [0, 0], [1, 0], [2, 0], [-1, 1], [0, 1], [1, 1], [-1, 2], [1, 2]])
+    r.set(x + dx, y + dy, dy < 0 ? YELLOW.l : YELLOW.b);
+}
+
 /**
- * A booth: a wooden counter (blue along its front) with prizes on it, under a striped awning on
- * two posts. 44×38, its foot on the bottom row; the counter top is at rows 21–23.
+ * A booth: under a striped canopy (rising to a flag with a star, scalloped round its edge, a rosette
+ * at each corner), a row of pennants, lanterns on its two posts, prizes on a wooden counter, and the
+ * counter's red front in three panels, a gold star on the middle one. 44×48, its foot on the bottom
+ * row; the counter top is at rows 31–33.
  */
 export function buildBooth(): Raster {
-  const W = 44, H = 38, r = new Raster(W, H);
-  // the posts
-  for (const x of [3, 39]) {
-    r.rect(x, 8, 2, 15, WOOD.b);
-    r.rect(x, 8, 1, 15, WOOD.l);
+  const W = 44, H = 48, r = new Raster(W, H), cx = 22;
+  // the back of the booth, in the shade under the canopy
+  r.rect(4, 22, W - 8, 10, INSIDE);
+  // a row of pennants hanging under the canopy's edge
+  for (let i = 0; i < 9; i++) {
+    const x0 = 4 + i * 4, c = i % 2 ? CREAM : RED;
+    for (let k = 0; k < 4; k++) for (let x = x0 + Math.ceil(k / 2); x < x0 + 4 - Math.ceil(k / 2); x++) r.set(x, 24 + k, k ? c.b : c.l);
   }
-  // the counter: its top, then its front
-  r.rect(2, 21, 40, 1, WOOD.s);
-  r.rect(2, 22, 40, 2, WOOD.l);
-  for (let y = 24; y < H; y++)
-    for (let x = 2; x < 42; x++) r.set(x, y, y < 27 ? BLUE.l : y > 34 ? BLUE.d : (x - 2) % 8 === 0 ? BLUE.d : BLUE.b);
-  // prizes on the counter: balls and a little plush or two
-  for (let i = 0; i < 7; i++) {
-    const x = 6 + i * 5 + Math.floor(hash2(i, 0, 91) * 2), c = PENNANTS[Math.floor(hash2(i, 1, 92) * PENNANTS.length)];
-    r.rect(x, 18, 3, 3, c);
-    r.set(x, 18, CREAM.l);
+  // the posts, with a lantern on each
+  for (const x of [2, 40]) {
+    r.rect(x, 20, 2, 27, WOOD.b);
+    r.rect(x, 20, 1, 27, WOOD.l);
+    r.rect(x - 1, 25, 4, 1, WOOD.d);
+    r.rect(x - 1, 26, 4, 4, YELLOW.b);
+    r.rect(x, 27, 2, 2, YELLOW.l);
+    r.rect(x - 1, 30, 4, 1, WOOD.d);
   }
-  // the awning, striped, its front edge scalloped
-  for (let y = 2; y < 11; y++)
-    for (let x = 0; x < W; x++) {
-      const c = Math.floor(x / 5) % 2 ? CREAM : RED;
-      r.set(x, y, y < 4 ? c.l : y > 8 ? c.d : c.b);
+  // prizes on the counter: jars and boxes and a plush or two
+  for (let i = 0; i < 8; i++) {
+    const x = 6 + i * 4 + Math.floor(hash2(i, 0, 91) * 2), c = PENNANTS[Math.floor(hash2(i, 1, 92) * PENNANTS.length)];
+    const tall = hash2(i, 2, 93) < 0.4 ? 1 : 0;
+    r.rect(x, 28 - tall, 3, 3 + tall, c);
+    r.set(x, 28 - tall, CREAM.l);
+    r.set(x + 2, 30, DARK);
+  }
+  // the counter: its top, then its front in three red panels framed in wood, gold studs along the top
+  r.rect(2, 31, W - 4, 1, WOOD.s);
+  r.rect(2, 32, W - 4, 2, WOOD.l);
+  for (let y = 34; y < H; y++)
+    for (let x = 2; x < W - 2; x++) {
+      const frame = y === 34 || y === H - 1 || x < 4 || x >= W - 4 || x === 15 || x === 16 || x === 27 || x === 28;
+      r.set(x, y, frame ? (y === 34 ? WOOD.l : WOOD.d) : y < 37 ? RED.l : y > H - 4 ? RED.d : RED.b);
     }
-  for (let i = 0; i * 5 < W; i++) {
-    const c = i % 2 ? CREAM : RED;
-    for (let x = i * 5 + 1; x < Math.min(W, i * 5 + 4); x++) r.set(x, 11, c.d);
-    if (i * 5 + 2 < W) r.set(i * 5 + 2, 12, c.d);
+  for (let x = 6; x < W - 6; x += 3) if (x < 14 || x > 30) r.set(x, 36, YELLOW.d);
+  // the middle panel: a banner hanging down with the star on it
+  for (let y = 35; y < H - 2; y++) for (let x = 18; x < 26; x++) if (y < H - 5 || Math.abs(x - 21.5) > H - 3 - y) r.set(x, y, y === 35 ? RED.l : RED.d);
+  star(r, cx - 1, 40);
+  // the canopy: a low cone rising to the flagpole, striped down from the top
+  for (let y = 9; y <= 21; y++) {
+    const half = 3 + ((y - 9) / 12) * 19;
+    for (let x = Math.ceil(cx - half); x < cx + half; x++) {
+      const u = (x + 0.5 - cx) / half, stripe = Math.floor((u + 1) * 3.5) % 2 ? CREAM : RED;
+      r.set(x, y, y === 9 ? stripe.l : tone(stripe, (u + 1) / 2));
+    }
   }
+  // its edge, scalloped, red and cream by turns
+  for (let i = 0; i < 11; i++) {
+    const x0 = i * 4, c = i % 2 ? CREAM : RED;
+    for (let x = x0; x < x0 + 4; x++) for (let y = 21; y <= 22 + (x === x0 || x === x0 + 3 ? 0 : 1); y++) r.set(x, y, c.d);
+  }
+  // a rosette at each corner
+  for (const x of [2, 41]) {
+    for (const [dx, dy] of [[0, -1], [-1, 0], [0, 0], [1, 0], [0, 1], [-1, -1], [1, 1], [1, -1], [-1, 1]]) r.set(x + dx, 21 + dy, RED.d);
+    r.set(x, 21, YELLOW.b);
+  }
+  // the flag on top, with a star
+  r.rect(cx, 1, 1, 9, WOOD.d);
+  for (let y = 1; y < 7; y++) for (let x = cx + 1; x < cx + 9 - (y === 3 || y === 4 ? 2 : 0); x++) r.set(x, y, y === 1 ? RED.l : RED.b);
+  r.set(cx + 4, 3, YELLOW.l); r.set(cx + 3, 4, YELLOW.b); r.set(cx + 4, 4, YELLOW.b); r.set(cx + 5, 4, YELLOW.b); r.set(cx + 4, 5, YELLOW.d);
+  r.set(cx, 0, YELLOW.l);
   outline(r);
   return r;
 }

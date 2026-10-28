@@ -4,7 +4,7 @@
 // top and its front, a column its round top and its shaded side. Moss grows
 // on the tops, ivy down some fronts, and broken things have jagged tops.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { bayer } from './tiles.ts';
+import { dab, paintOver } from './paint.ts';
 import { snowCap } from './furniture.ts';
 import { SEASON, type Season } from '../world/season.ts';
 import { LANDMARK_SHAPES, LANDMARK_SPRITE, ROUND, type LandmarkKind, type Material, type Shape } from '../world/landmarks.ts';
@@ -14,12 +14,12 @@ type Tone = { o: RGB; d: RGB; b: RGB; l: RGB; s: RGB };
 const tone = (o: string, d: string, b: string, l: string, s: string): Tone => ({ o: hex(o), d: hex(d), b: hex(b), l: hex(l), s: hex(s) });
 
 const TONES: Record<Material, Tone> = {
-  stone: tone('#3a3830', '#8a8678', '#aaa594', '#c8c3b0', '#e2dccb'),
+  stone: tone('#2e2c36', '#827e84', '#a29e9e', '#c2beb6', '#dedad0'),
   dark: tone('#1e1c1e', '#4a4448', '#5e585a', '#78706e', '#958c86'),
   brick: tone('#3a1a14', '#7e3a2c', '#9c4a36', '#b45e46', '#cc7c60'),
   bronze: tone('#1a3a30', '#3e7c66', '#5a9a80', '#7cbaa0', '#a8d8c0'),
   gold: tone('#4a3410', '#a07a2a', '#c49a3a', '#dcb850', '#f0d880'),
-  white: tone('#4a4a48', '#b8b6ae', '#d8d6ce', '#ecebe4', '#faf9f4'),
+  white: tone('#3e3e48', '#b0aeb0', '#d2d0ca', '#e8e6de', '#f8f6ee'),
   paint: tone('#3a3a3a', '#8c8c88', '#a8a8a2', '#c4c4be', '#dcdcd6'),
   iron: tone('#141418', '#2a2a30', '#3c3c44', '#56565e', '#74747c'),
   ochre: tone('#4a3418', '#b08440', '#cca056', '#e0bc72', '#f0d494'),
@@ -80,7 +80,7 @@ function drawShape(c: Canvas, s: Shape, ox: number, oy: number, seed: number): v
         let col = left ? t.l : right ? t.d : t.b;
         if (joint(s.mat, x - x0, top - 1 - z)) col = t.d;
         if (s.mat === 'paint') col = mural(x, z, seed, t);
-        if (k < 2 && bayer(x, fy) < 0.5) col = t.d;
+        if (k < 2 && dab(x, fy, seed) < 0) col = t.d;
         c.put(x + ox, fy + oy, y1 - 0.5, col);
       }
     }
@@ -97,7 +97,7 @@ function drawShape(c: Canvas, s: Shape, ox: number, oy: number, seed: number): v
         c.put(x + ox, cy + dy - top + oy, cy + dy, dx < 0 && dy < 0 ? t.s : t.l);
       // its side, lit on the left, in shade on the right
       for (let z = top - 1; z >= z0; z--) {
-        const v = u + (bayer(x, z) - 0.5) * 0.15;
+        const v = u + dab(x, z, seed) * 0.25;
         let col = v < 0.25 ? t.l : v < 0.4 ? t.s : v < 0.65 ? t.l : v < 0.85 ? t.b : t.d;
         if ((s.mat === 'stone' || s.mat === 'dark') && (top - 1 - z) % 6 === 5) col = t.b;
         if (s.mat === 'brick' && (top - 1 - z) % 2 === 1) col = t.d;
@@ -115,7 +115,7 @@ function drawShape(c: Canvas, s: Shape, ox: number, oy: number, seed: number): v
     for (let dx = -r; dx <= r; dx++) {
       const nx = dx / r, ny = dy <= 0 ? dy / ry : dy / lip;
       if (nx * nx + ny * ny > 1) continue;
-      const lit = -nx * 0.6 - ny * 0.5 + (bayer(dx, dy) - 0.5) * 0.25;
+      const lit = -nx * 0.6 - ny * 0.5 + dab(dx, dy, seed) * 0.35;
       let col = lit > 0.55 ? t.s : lit > 0.15 ? t.l : lit > -0.3 ? t.b : t.d;
       if ('dome' in s && s.ribs) {
         // an open iron frame: ribs and rings, the sky (nothing) between
@@ -235,6 +235,7 @@ export function buildLandmark(kind: LandmarkKind, s: Season = SEASON): Raster {
   details(kind, c.r, -ox, -oy);
   overgrow(c.r, LANDMARK_SHAPES[kind], -ox, -oy, seed);
   outline(c.r, TONES[LANDMARK_SHAPES[kind][0].mat].o);
+  paintOver(c.r, seed);
   snowCap(c.r, s.snow, seed);
   return c.r;
 }

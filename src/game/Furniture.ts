@@ -6,6 +6,7 @@ import {
 } from '../art/furniture.ts';
 import { buildBooth, buildPlatform, buildPole, buildTent } from '../art/funfair.ts';
 import { PLATFORM } from '../world/coaster.ts';
+import { paintOver } from '../art/paint.ts';
 import { FURNITURE, TILE } from '../world/map.ts';
 import { SEASON } from '../world/season.ts';
 import { Act } from './state.ts';
@@ -42,6 +43,7 @@ export class Furniture {
       if (!canvas) {
         const r = build();
         dressForSeason(r, key);
+        paintOver(r, key.length * 31 + key.charCodeAt(0));
         art.set(key, (canvas = toCanvas(r)));
         scene.textures.addCanvas(`furniture-${key}`, canvas);
       }
@@ -78,7 +80,7 @@ export class Furniture {
         case 'barrow': sprite('barrow', buildBarrow, ox - 1, oy - 5, oy + 5); break;
         case 'hotel': sprite('hotel', buildInsectHotel, ox, oy - 16, oy + 13); break;
         case 'tent': sprite('tent', buildTent, ox + 2, oy - 13, oy + 44); break;
-        case 'booth': sprite('booth', buildBooth, ox + 2, oy - 11, oy + 26); break;
+        case 'booth': sprite('booth', buildBooth, ox + 2, oy - 21, oy + 26); break;
         case 'pole': sprite('pole', buildPole, ox + 5, oy - 18, oy + 13); break;
         // (the rollercoaster's track and car are game/Coasters.ts's)
         case 'coaster': {

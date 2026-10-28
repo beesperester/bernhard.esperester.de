@@ -8,7 +8,8 @@ import { groundOf, isPond } from '../world/legend.ts';
 
 export const LEANS = 5;
 
-const G = { d: hex('#2c7426'), m: hex('#4ca43a'), l: hex('#86d45c'), t: hex('#b4ea84') };
+/** Blades: a deep teal root, olive along them, a warm lit tip (the tall grass in tiles.ts, standing up). */
+const G = { d: hex('#28483a'), m: hex('#46724a'), l: hex('#76a056'), t: hex('#b4ba68') };
 const CATTAIL = { h0: hex('#6a3c20'), h1: hex('#9a6034'), s: hex('#5a8a34') };
 const PETALS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f8f8f8'), hex('#c078f0'), hex('#58a0f8'), hex('#f890c8')];
 
@@ -39,9 +40,10 @@ const tuft = blades('tuft', 11, 10, [
   { x: 3, h: 5, tilt: -2 }, { x: 4, h: 8, tilt: -1 }, { x: 5, h: 9, tilt: 0 }, { x: 6, h: 7, tilt: 1 }, { x: 7, h: 5, tilt: 2 },
 ]);
 
-const tall = blades('tall', 15, 15, [
-  { x: 3, h: 8, tilt: -3 }, { x: 5, h: 12, tilt: -1 }, { x: 6, h: 14, tilt: 0 }, { x: 8, h: 11, tilt: 1 },
-  { x: 9, h: 13, tilt: 2 }, { x: 10, h: 8, tilt: 3 }, { x: 7, h: 6, tilt: -1 },
+// (a dense clump of short, nearly upright blades)
+const tall = blades('tall', 15, 12, [
+  { x: 3, h: 6, tilt: -2 }, { x: 4, h: 9, tilt: -1 }, { x: 5, h: 7, tilt: -1 }, { x: 6, h: 10, tilt: 0 }, { x: 7, h: 8, tilt: 0 },
+  { x: 8, h: 11, tilt: 1 }, { x: 9, h: 7, tilt: 1 }, { x: 10, h: 9, tilt: 1 }, { x: 11, h: 6, tilt: 2 }, { x: 6, h: 5, tilt: -1 },
 ], true);
 
 function flower(i: number): FloraKind {
@@ -84,7 +86,8 @@ export function buildFloraSheet(k: FloraKind): Raster {
   const r = new Raster(k.w * LEANS, k.h);
   for (let f = 0; f < LEANS; f++) k.draw(r, f * k.w, f - 2);
   if (SEASON.hay > 0) {
-    const greens = new Map([G.d, G.m, G.l, G.t, CATTAIL.s].map((c) => [c.join(), drabFor(c, SEASON.hay)]));
+    // (going over only half way: tufts of straw in the green, not a field of wheat)
+    const greens = new Map([G.d, G.m, G.l, G.t, CATTAIL.s].map((c) => [c.join(), drabFor(c, SEASON.hay * 0.5)]));
     for (let i = 0; i < r.data.length; i += 4) {
       const c = greens.get(`${r.data[i]},${r.data[i + 1]},${r.data[i + 2]}`);
       if (c) r.set((i / 4) % r.w, Math.floor(i / 4 / r.w), c);
@@ -116,9 +119,9 @@ export function placeFlora(): Plant[] {
       if (furnished(tx, ty)) continue;
       const h = hash2(tx, ty, 100);
       if (ground === 'tall') {
-        for (let k = 0; k < 4; k++) at(1, tx, ty, k);
-        at(0, tx, ty, 4);
-        if (h < 0.2) at(flowerKind(tx, ty), tx, ty, 5);
+        for (let k = 0; k < 6; k++) at(1, tx, ty, k);
+        at(0, tx, ty, 6);
+        if (h < 0.2) at(flowerKind(tx, ty), tx, ty, 7);
       } else if (ground === 'lawn') {
         if (nearWater(tx, ty)) {
           if (h < 0.75) at(2, tx, ty, 0);

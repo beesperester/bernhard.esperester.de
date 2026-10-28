@@ -7,6 +7,7 @@ import { Raster, hex, hash2, mulberry32, type RGB } from './raster.ts';
 import { SEASON, type Season } from '../world/season.ts';
 import { DEFAULT_LIGHT, type ScreenLight } from './lighting.ts';
 import { SNOW, bayer } from './tiles.ts';
+import { dab } from './paint.ts';
 import { FORK_Z } from '../world/map.ts';
 import { TREES, type Perch, type TreePlan } from '../world/trees.ts';
 
@@ -24,21 +25,22 @@ export interface Prop {
 }
 
 // [highlight, light, mid, dark, outline]
+// (painted: the lights warm and yellowish, the shadows cool and bluish, the outline a deep version of them)
 const CANOPIES: { c: RGB[]; dots?: RGB[] }[] = [
-  { c: ['#a6e070', '#72c050', '#4c9c3c', '#307430', '#173f1c'].map(hex) },
-  { c: ['#7cc85e', '#52a242', '#378036', '#245c2a', '#10301a'].map(hex) },
-  { c: ['#fff0f6', '#f9c0d8', '#ee92b8', '#c86492', '#5c2642'].map(hex), dots: [hex('#ffffff')] },
-  { c: ['#a6e070', '#72c050', '#4c9c3c', '#307430', '#173f1c'].map(hex), dots: [hex('#e83838'), hex('#ff6a50')] },
+  { c: ['#c2d47e', '#8eb35e', '#5f8c4a', '#3c6440', '#1c3326'].map(hex) },
+  { c: ['#a6c472', '#6f9c54', '#4a7a46', '#2f5440', '#142a22'].map(hex) },
+  { c: ['#fff0ee', '#f6c4d2', '#e494b4', '#b46290', '#4e2440'].map(hex), dots: [hex('#ffffff')] },
+  { c: ['#c2d47e', '#8eb35e', '#5f8c4a', '#3c6440', '#1c3326'].map(hex), dots: [hex('#d83838'), hex('#f06a50')] },
 ];
 /** A pine's needles: darker and bluer than the leaves, the same all year. */
-const NEEDLES = ['#86c08a', '#58996a', '#3a7652', '#25543e', '#102c22'].map(hex);
-const BARK = ['#b88048', '#86532a', '#5a3417', '#2e1a0a'].map(hex);
+const NEEDLES = ['#8cb48a', '#5c8a6a', '#3c6a56', '#284a44', '#122626'].map(hex);
+const BARK = ['#a87850', '#7a5034', '#523424', '#2a1a16'].map(hex);
 /** Autumn foliage: yellow, orange, red and russet, same tone order as the canopies. */
 const AUTUMN: RGB[][] = [
-  ['#fff2a8', '#f8d450', '#e0a430', '#b07420', '#4a2c10'].map(hex),
-  ['#ffdc98', '#f8a444', '#d87028', '#a04818', '#4a2010'].map(hex),
-  ['#ffb898', '#ea6444', '#c23a2a', '#862222', '#3e1010'].map(hex),
-  ['#e8c890', '#c89458', '#9c6a38', '#6e4626', '#36200e'].map(hex),
+  ['#f6e0a0', '#e8bc5a', '#c88e3a', '#94642c', '#43281a'].map(hex),
+  ['#f6cc94', '#e49a54', '#c06c38', '#8a4a2e', '#42221c'].map(hex),
+  ['#f0a890', '#d0604e', '#a83c3a', '#742a34', '#381620'].map(hex),
+  ['#e2c294', '#bc8e5e', '#8e6440', '#624432', '#30201a'].map(hex),
 ];
 /** Planks, light to dark. */
 const WOOD = ['#e2b47a', '#b98250', '#87582e', '#4e3018'].map(hex);
@@ -74,7 +76,8 @@ function leafTone(p: Extract<LitPixel, { leaf: true }>, L: ScreenLight): number 
   const l = facing * L.k + (p.cx * L.x + p.cy * L.y) * 0.5 * L.k + p.jit;
   let tone = l > 0.55 ? 0 : l > 0.05 ? 1 : l > -0.45 ? 2 : 3;
   // leaf speckle
-  if (p.speck < 0.07 && tone > 0) tone--;
+  // (pale dabs where the leaves turn up to the sky)
+  if ((p.speck < 0.07 || (p.speck < 0.16 && p.ny < -0.25)) && tone > 0) tone--;
   else if (p.speck > 0.95 && tone < 3) tone++;
   return tone;
 }
@@ -153,9 +156,9 @@ class Sketch {
     const { crown, t } = this;
     const px: LitPixel = {
       leaf: true, pal, nx, ny, cx: (x - crown.x) / crown.rx, cy: (y - crown.y) / crown.ry,
-      // (needles keep their old grain; leaves are smoother)
-      jit: t.shape === 'pine' ? (bayer(x, y) - 0.5) * 0.35 + (hash2(x, y, t.seed + salt) - 0.5) * 0.25 : (bayer(x, y) - 0.5) * 0.2 + (hash2(x, y, t.seed + salt) - 0.5) * 0.08,
-      speck: t.shape === 'pine' ? hash2(x, y, t.seed * 7 + salt) : 0.5, rim,
+      // (needles keep their fine grain; leaves come in dabs, little clusters of them catching the light)
+      jit: t.shape === 'pine' ? (bayer(x, y) - 0.5) * 0.35 + (hash2(x, y, t.seed + salt) - 0.5) * 0.25 : dab(x, y, t.seed + salt) * 0.7,
+      speck: hash2(x, y, t.seed * 7 + salt), rim,
     };
     this.lit.set(y * this.W + x, px);
     this.r.set(x, y, litColour(px, DEFAULT_LIGHT));
@@ -252,12 +255,12 @@ class Sketch {
     const behind: Clump[] = [], front: Clump[] = [];
     this.group = this.clumps;
     for (let i = 0; i < n; i++) {
-      const x = this.cx + x0 + (span * (i + 0.5)) / n + (this.rnd() - 0.5) * 4, r = 4 + this.rnd() * 2;
+      const x = this.cx + x0 + (span * (i + 0.5)) / n + (this.rnd() - 0.5) * 4, r = 5 + this.rnd() * 2.5;
       behind.push({ x, y: line - rise(x) + r - 1 + this.rnd() * 2, r });
     }
     // the top row, its puffs rising to the line and a little over
     for (let i = 0; i <= n; i++) {
-      const x = this.cx + x0 + (span * i) / n + (this.rnd() - 0.5) * 2, r = 4.5 + this.rnd() * 2;
+      const x = this.cx + x0 + (span * i) / n + (this.rnd() - 0.5) * 2, r = 5.5 + this.rnd() * 2.5;
       front.push({ x, y: line - rise(x) + r, r });
     }
     // filling the middle, where a high crown would leave a gap

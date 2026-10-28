@@ -59,9 +59,10 @@ export function moonPhase(ms: number): number {
 
 // scene tint by sun elevation (degrees)
 const TINT: [number, RGB][] = [
-  [-12, [72, 92, 160]],
-  [-7, [92, 106, 176]],
-  [-3, [168, 140, 178]],
+  // (a deep blue-violet night that still shows the garden's colours, not a black one)
+  [-12, [104, 112, 178]],
+  [-7, [118, 120, 186]],
+  [-3, [172, 146, 184]],
   [0, [240, 170, 150]],
   [4, [255, 206, 170]],
   [10, [255, 234, 210]],
