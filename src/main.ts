@@ -74,9 +74,11 @@ const unlock = () => {
 };
 window.addEventListener('keydown', (e) => {
   // typing a name is not playing
-  if (!(e.target instanceof HTMLInputElement)) unlock();
+  if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) unlock();
 });
-window.addEventListener('pointerdown', unlock);
+// (Safari doesn't count a pointerdown as a gesture that may start sound: the
+// end of a click or tap it does; unlocking twice does no harm)
+for (const type of ['pointerdown', 'pointerup', 'touchend', 'click']) window.addEventListener(type, unlock);
 for (const [btn, target] of [[musicBtn, music], [soundBtn, sound]] as const) {
   btn.addEventListener('pointerdown', (e) => e.stopPropagation());
   btn.addEventListener('click', () => {
