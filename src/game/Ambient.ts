@@ -98,6 +98,18 @@ export class Ambient {
     return this.birds.perchedNear(x, y, range);
   }
 
+  /** What a cat crouched here would pounce on: the nearest catchable thing on the ground within `reach` (not a fish: those are fished for). */
+  pounceTarget(cat: CatView, reach: number): PreyRef | null {
+    let best: PreyRef | null = null, bestDist = reach * reach;
+    for (const p of this.prey) {
+      if (p.air || PREY[p.kind].swipeOnly || !canCatch(cat.stage, p.kind)) continue;
+      if (p.h - cat.z < -REACH_BELOW || p.h - cat.z > REACH_ABOVE) continue;
+      const d = (p.x - cat.x) ** 2 + (p.y - cat.y) ** 2;
+      if (d < bestDist) { bestDist = d; best = p; }
+    }
+    return best;
+  }
+
   /** The nearest catchable thing within a tile of this cat, if any (things on the wing only in mid-jump). */
   preyNear(cat: CatView): PreyRef | null {
     let best: PreyRef | null = null, bestDist = Infinity;

@@ -5,7 +5,7 @@
 //   A       jump (↓ up a tree drops back down)
 //   B       paw: a tap swipes (catch, splash for fish, paw at a tree or a
 //           monument); held, the cat crouches and creeps; let go after
-//           creeping, a grown cat pounces (a younger one swipes)
+//           creeping, it leaps at the nearest prey within reach
 //   SELECT  a tap mews; held, ← hiss, ↑ mew, → roll
 //
 // What each button means from moment to moment is worked out here, free of
@@ -48,7 +48,7 @@ export interface PawEvents {
   swipe: boolean;
   /** Crouched, creeping (while held). */
   low: boolean;
-  /** Let go after creeping: pounce (or swipe, for a cat too young to pounce). */
+  /** Let go after creeping: pounce (or swipe, with the dash still resting). */
   pounce: boolean;
 }
 

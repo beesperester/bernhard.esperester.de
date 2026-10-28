@@ -89,8 +89,10 @@ const FIRST_LOOK_MS = 300;
 
 /** Where to put a cat: x, y, height, facing. */
 type Pose = [number, number, number, number];
-/** How long a pounce carries the cat. */
-const POUNCE_MS = 300;
+/** A pounce leaps at prey up to this far off (a kitten's is shorter), for at most POUNCE_MS. */
+const POUNCE_REACH = 56, KITTEN_POUNCE_REACH = 36, POUNCE_MS = 340;
+/** How high a pounce goes at most (px). */
+const POUNCE_HEIGHT = 7;
 
 export class GardenScene extends Phaser.Scene {
   private me!: CatView;
@@ -106,8 +108,8 @@ export class GardenScene extends Phaser.Scene {
   private readonly emotes = new Emotes();
   /** The emote choice, up over the cat while the emote button is held. */
   private emoteBubble!: Phaser.GameObjects.Text;
-  /** A pounce runs this way (the cat leaps whichever way it faces, arrows held or not). */
-  private pounceDir: { x: number; y: number } | null = null;
+  /** A pounce leaps this way (at its prey, or the way the cat faces), arrows held or not, for `ms`. */
+  private pounceDir: { x: number; y: number; ms: number } | null = null;
   private lastInput = 0;
   private nextLick = 0;
   private youMarker!: Phaser.GameObjects.Image;
@@ -571,19 +573,29 @@ export class GardenScene extends Phaser.Scene {
     // a direction tapped twice dashes, for as long as it stays held
     const doubled = this.doubleTap.update(steer ? dir : '', now) && me.act !== Act.Jump;
     const paw = this.paw.update(down(k.paw, 'paw'), now, me.act === Act.Jump);
-    // let go after creeping: a grown cat pounces the way it faces (a younger one just swipes)
-    const pounce = paw.pounce && canPounce(me.stage) && this.dash.cooldown(now) === 0 && !this.dash.active;
+    // let go after creeping: a leap at whatever is nearest (just short of it, so the paws land on it),
+    // else the way the cat faces; with the dash still resting, it only swipes
+    const pounce = paw.pounce && me.act !== Act.Jump && this.dash.cooldown(now) === 0 && !this.dash.active;
     const grab = paw.swipe || (paw.pounce && !pounce);
     const sneakHeld = paw.low;
     if (pounce) {
+      const prey = this.ambient.pounceTarget(me, me.stage === Stage.Kitten ? KITTEN_POUNCE_REACH : POUNCE_REACH);
       const f = me.facing;
-      this.pounceDir = { x: f === Facing.Left ? -1 : f === Facing.Right ? 1 : 0, y: f === Facing.Up ? -1 : f === Facing.Down ? 1 : 0 };
+      let ux = f === Facing.Left ? -1 : f === Facing.Right ? 1 : 0, uy = f === Facing.Up ? -1 : f === Facing.Down ? 1 : 0;
+      let ms = POUNCE_MS;
+      if (prey) {
+        const d = Math.hypot(prey.x - me.x, prey.y - me.y);
+        if (d > 0.5) { ux = (prey.x - me.x) / d; uy = (prey.y - me.y) / d; }
+        ms = Math.min(POUNCE_MS, Math.max(120, (Math.max(0, d - 6) / DASH_SPEED) * 1000));
+        me.facing = facingTowards(me, prey);
+      }
+      this.pounceDir = { x: ux, y: uy, ms };
     }
     const dash = doubled || pounce;
     // (a pounce runs its course; a dash runs while the direction is held)
     const dashHeld = this.pounceDir !== null || (dir !== '' && steer);
     if (this.pounceDir && !this.dash.active && !pounce) this.pounceDir = null;
-    if (this.pounceDir && dx === 0 && dy === 0) {
+    if (this.pounceDir) {
       dx = this.pounceDir.x;
       dy = this.pounceDir.y;
     }
@@ -638,10 +650,17 @@ export class GardenScene extends Phaser.Scene {
     // dash runs while the key is held (up to DASH_MS), then needs a long rest
     // a kitten's dash is short, and running it out ends in a tumble
     // (a pounce is a leap, not a run)
-    this.dash.limit = this.pounceDir ? POUNCE_MS : me.stage === Stage.Kitten ? KITTEN_DASH_MS : DASH_MS;
+    this.dash.limit = this.pounceDir ? this.pounceDir.ms : me.stage === Stage.Kitten ? KITTEN_DASH_MS : DASH_MS;
     const dashing = this.dash.active;
     this.dash.update(dash, dashHeld, now);
-    if (dashing && !this.dash.active && this.dash.ranOut && me.stage === Stage.Kitten && me.act !== Act.Jump) {
+    // the pounce is a low leap, as long as the run up to the prey
+    if (pounce && this.dash.active) {
+      begin(Act.Jump);
+      this.vz = Math.min((GRAVITY * this.pounceDir!.ms) / 2000, Math.sqrt(2 * GRAVITY * Math.min(STAGE_JUMP[me.stage], POUNCE_HEIGHT)));
+      this.dropFrom = Infinity;
+      this.airCatch = { got: null };
+    }
+    if (dashing && !this.dash.active && this.dash.ranOut && me.stage === Stage.Kitten && me.act !== Act.Jump && !this.pounceDir) {
       me.seq = (me.seq + 1) & 0xffff;
       me.setAct(Act.Roll, now - (ROLL_MS - TUMBLE_MS));
     }
@@ -649,6 +668,16 @@ export class GardenScene extends Phaser.Scene {
     if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || mew || grab)) me.setAct(Act.Idle, now);
 
+    // mid-pounce, the paws grab whatever they come down on
+    if (this.pounceDir && me.act === Act.Jump && this.airCatch && this.airCatch.got === null) {
+      const prey = this.ambient.preyNear(me);
+      if (prey && !PREY[prey.kind].swipeOnly) {
+        this.ambient.catchPrey(prey.kind, prey.id, me);
+        this.net.catchPrey(prey.kind, prey.id);
+        this.ate(prey.kind, prey.id, prey.colour);
+        this.airCatch.got = prey.kind;
+      }
+    }
     // in mid-jump: one swipe at whatever flies within reach, a bird or bat on the wing included
     if (grab && me.act === Act.Jump && !this.airCatch) {
       this.airCatch = { got: null };
@@ -742,7 +771,7 @@ export class GardenScene extends Phaser.Scene {
         me.setAct(Act.Idle, now);
       if (dx !== 0) me.facing = dx < 0 ? Facing.Left : Facing.Right;
       else me.facing = dy < 0 ? Facing.Up : Facing.Down;
-      if (dx !== 0 && dy !== 0) { dx *= Math.SQRT1_2; dy *= Math.SQRT1_2; }
+      if (dx !== 0 && dy !== 0 && !this.pounceDir) { dx *= Math.SQRT1_2; dy *= Math.SQRT1_2; }
       const speed = low ? SNEAK_SPEED : this.dash.active ? DASH_SPEED : WALK_SPEED;
       wx = dx * speed;
       wy = dy * speed;
@@ -786,6 +815,11 @@ export class GardenScene extends Phaser.Scene {
         me.z = ground;
         this.vz = 0;
         this.dropFrom = Infinity;
+        // (a pounce ends where it lands)
+        if (this.pounceDir) {
+          this.dash.stop(now);
+          this.pounceDir = null;
+        }
         me.setAct(moving ? Act.Walk : Act.Idle, now);
         // landing with something caught on the way: eat it
         const got = this.airCatch?.got ?? null;
