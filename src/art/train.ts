@@ -15,11 +15,15 @@ import { Raster, hex, type RGB } from './raster.ts';
 /** Pictures for this many headings round the circle. */
 export const HEADINGS = 16;
 
-export type CarKind = 'lok' | 'blue' | 'yellow';
+/** The train's cars, and a funfair rollercoaster's little car (world/coaster.ts), modelled the same way. */
+export type CarKind = 'lok' | 'blue' | 'yellow' | 'coaster';
 
 /** Length of each car (px along the track); all are CAR_W wide. */
-export const CAR_LEN: Record<CarKind, number> = { lok: 28, blue: 22, yellow: 22 };
+export const CAR_LEN: Record<CarKind, number> = { lok: 28, blue: 22, yellow: 22, coaster: 18 };
 export const CAR_W = 12;
+/** The coaster car is narrower: two cats one behind the other. */
+const COASTER_W = 10;
+const halfWidth = (kind: CarKind) => (kind === 'coaster' ? COASTER_W : CAR_W) / 2;
 /** Thickness of the cars' walls (px). */
 export const CAR_WALL = 1.5;
 /** The lok's cab: from its back end this far forward. */
@@ -32,7 +36,7 @@ const TOP = 19;
 
 type Mat = 'frame' | 'wheel' | 'hub' | 'floor' | 'body' | 'rim' | 'buffer' | 'boiler' | 'band' | 'smoke' | 'chimney' | 'dome' | 'lamp' | 'cab';
 
-const BODY: Record<CarKind, RGB> = { lok: hex('#d8443c'), blue: hex('#3c7ad8'), yellow: hex('#f0b030') };
+const BODY: Record<CarKind, RGB> = { lok: hex('#d8443c'), blue: hex('#3c7ad8'), yellow: hex('#f0b030'), coaster: hex('#e04a78') };
 const COLOURS: Record<Exclude<Mat, 'body'>, RGB> = {
   frame: hex('#3a3a44'), wheel: hex('#c03028'), hub: hex('#f0c040'), floor: hex('#8a5a32'), rim: hex('#fff2d8'),
   buffer: hex('#2a2a30'), boiler: hex('#d8443c'), band: hex('#f0c040'), smoke: hex('#2e2e36'), chimney: hex('#26262c'),
@@ -42,6 +46,7 @@ const OUTLINE = hex('#2a1418');
 
 /** What the model of a `kind` car is made of at (u, v, z), if anything. */
 function solid(kind: CarKind, u: number, v: number, z: number): Mat | null {
+  if (kind === 'coaster') return coasterSolid(u, v, z);
   const hl = CAR_LEN[kind] / 2, hw = CAR_W / 2, av = Math.abs(v);
   // buffers at both ends
   if (Math.abs(u) > hl && Math.abs(u) < hl + 1.5 && av > 2 && av < 4 && z > 3.5 && z < 5.5) return 'buffer';
@@ -79,6 +84,28 @@ function solid(kind: CarKind, u: number, v: number, z: number): Mat | null {
   return null;
 }
 
+/**
+ * The rollercoaster car, standing on the track's deck (z 0): little wheels under it, a floor, low
+ * sides with a gold rim (so its riders show), a divider between its two seats, and a rounded nose
+ * in front rising higher.
+ */
+function coasterSolid(u: number, v: number, z: number): Mat | null {
+  const hl = CAR_LEN.coaster / 2, hw = COASTER_W / 2, av = Math.abs(v);
+  if (Math.abs(u) > hl || av > hw) return null;
+  // the nose: rounded off at the front, as high as a cat's chin
+  const nose = u > hl - 4;
+  if (nose && (u - (hl - 4)) ** 2 / 16 + (av / hw) ** 2 > 1) return null;
+  const top = nose ? 9 : 6;
+  if (z > top) return null;
+  if (z < 1.6) {
+    for (const wu of [-hl + 4, hl - 5]) if (av > hw - 2 && (u - wu) ** 2 + (z - 0.9) ** 2 <= 1.2) return 'wheel';
+    return z > 0.7 && av < hw - 1 ? 'frame' : null;
+  }
+  const wall = nose || Math.abs(u) > hl - CAR_WALL || av > hw - CAR_WALL || (Math.abs(u) < 0.8 && z < 5);
+  if (wall) return z > top - 1 ? 'band' : 'body';
+  return z < 2.6 ? 'floor' : null;
+}
+
 /** Lighter or darker (k > 0 lighter). */
 const tone = (c: RGB, k: number): RGB => (k >= 0 ? (c.map((x) => Math.round(x + (255 - x) * k)) as unknown as RGB) : (c.map((x) => Math.round(x * (1 + k))) as unknown as RGB));
 
@@ -95,8 +122,8 @@ export function buildCar(kind: CarKind, h: number): { back: Raster; front: Raste
   };
   // what lies further down the screen than anywhere a rider can sit is in front of it: the near
   // wall, or the boiler of a lok heading down (the cab with its rider is behind the boiler then)
-  const hl = CAR_LEN[kind] / 2 - CAR_WALL, hw = CAR_W / 2 - CAR_WALL;
-  const front = kind === 'lok' ? -CAR_LEN.lok / 2 + CAB_LEN - 2 : hl;
+  const hl = CAR_LEN[kind] / 2 - CAR_WALL, hw = halfWidth(kind) - CAR_WALL;
+  const front = kind === 'lok' ? -CAR_LEN.lok / 2 + CAB_LEN - 2 : kind === 'coaster' ? CAR_LEN.coaster / 2 - 4 : hl;
   const seats = Math.max(...[-hl, front].flatMap((u) => [-hw, hw].map((v) => u * sa + v * ca)));
   const colour = new Array<RGB | null>(W * H).fill(null);
   const near = new Array<boolean>(W * H).fill(false);

@@ -148,7 +148,7 @@ export function layOut(seed: number): Layout {
   // the themed zones, each taking a cell of the lawn left (nothing else grows there)
   const zones = carveZones(T, E, order, hash);
   // and filled with what they're about (a funfair's tents and booths, its bunting's poles)
-  const furniture: Layout['furniture'] = zones.flatMap((z) => furnishZone(z, order, W));
+  const furniture: Layout['furniture'] = zones.flatMap((z) => furnishZone(z, order, W, hash));
 
   // meadows and flower beds
   for (let y = 1; y < H - 1; y++)

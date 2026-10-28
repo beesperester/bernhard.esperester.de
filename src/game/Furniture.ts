@@ -4,7 +4,8 @@ import {
   buildBarrow, buildBasket, buildBench, buildBirdBath, buildBistroTable, buildBlanket, buildBox, buildCatnip, buildChair, buildInsectHotel,
   buildPicnicTable, buildPump, buildPumpPuddle, buildRaisedBed, dressForSeason,
 } from '../art/furniture.ts';
-import { buildBooth, buildPole, buildTent } from '../art/funfair.ts';
+import { buildBooth, buildPlatform, buildPole, buildTent } from '../art/funfair.ts';
+import { PLATFORM } from '../world/coaster.ts';
 import { FURNITURE, TILE } from '../world/map.ts';
 import { SEASON } from '../world/season.ts';
 import { Act } from './state.ts';
@@ -79,6 +80,12 @@ export class Furniture {
         case 'tent': sprite('tent', buildTent, ox + 2, oy - 13, oy + 44); break;
         case 'booth': sprite('booth', buildBooth, ox + 2, oy - 11, oy + 26); break;
         case 'pole': sprite('pole', buildPole, ox + 5, oy - 18, oy + 13); break;
+        // (the rollercoaster's track and car are game/Coasters.ts's)
+        case 'coaster': {
+          const { x0, x1, y0, y1, h } = PLATFORM;
+          sprite('platform', () => buildPlatform(x1 - x0, y1 - y0, h), ox + x0, oy + y0 - h - 9, oy + y0);
+          break;
+        }
       }
     }
   }

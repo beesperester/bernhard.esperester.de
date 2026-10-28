@@ -155,8 +155,8 @@ export class CatView {
     // cliff from behind, it stands a hair short of the cliff's row and must stay behind it)
     const d = this.ride ?? (tree >= 0 ? TREES[tree].y + 0.6 : folly !== null ? folly + 0.6 : this.y);
     this.depth = d;
-    // the shadow lies on whatever surface is below the cat
-    const below = Math.round(surfaceAt(this.x, this.y, z));
+    // the shadow lies on whatever surface is below the cat (riding, the floor of its car)
+    const below = Math.round(this.ride !== null ? z : surfaceAt(this.x, this.y, z));
     this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft).setScale(Math.min(1, k + 0.15));
     // standing in the shade of something: it darkens step by step (a sliver of shadow crossed
     // on the way barely shows, so the cat doesn't flicker) and brightens at once in the sun

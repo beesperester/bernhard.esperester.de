@@ -4,6 +4,7 @@
 // garden's seed (layout.ts, seed.ts) when this is first loaded. Tile kinds are
 // in legend.ts.
 
+import { PLATFORM, seatHeightNear } from './coaster.ts';
 import { hash2 } from '../art/raster.ts';
 import { SEASON } from './season.ts';
 import { ELEV, LANDMARK_SPOTS, SPAWN } from './garden.ts';
@@ -307,7 +308,22 @@ const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, n
   tent: [[4, 14, 60, 44, 32]],
   booth: [[4, 14, 44, 26, 9]],
   pole: [[6, 9, 10, 13, 28]],
+  // the rollercoaster's station platform (the track and its trestles are walked under and through)
+  coaster: [[PLATFORM.x0, PLATFORM.y0, PLATFORM.x1, PLATFORM.y1, PLATFORM.h]],
 };
+
+/** The funfairs' rollercoasters: the top-left of each one's box (world px), and how high the ground is there. */
+export const COASTERS: { x: number; y: number; ground: number }[] = FURNITURE.filter((f) => f.kind === 'coaster')
+  .map((f) => ({ x: f.tx * TILE, y: f.ty * TILE, ground: levelAt(f.tx, f.ty) * LEVEL }));
+
+/** How high a cat at (x, y, z) would be sitting in a rollercoaster's car, if it could be in one there (else null). */
+export function coasterSeatAt(x: number, y: number, z: number): number | null {
+  for (const c of COASTERS) {
+    const h = seatHeightNear(x - c.x, y - 2 - c.y, z - c.ground);
+    if (h !== null) return c.ground + h;
+  }
+  return null;
+}
 
 /** Inside the box's walls, relative to its top-left tile. */
 const BOX_INSIDE = { x0: 6, y0: 5, x1: 26, y1: 13 };

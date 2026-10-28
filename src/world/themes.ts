@@ -9,6 +9,8 @@
 // as fits (game/…, later). Like everything else in the layout it follows
 // from the seed, so every cat in the garden has the same zones.
 
+import { COASTER_SIZE } from './coaster.ts';
+
 type Pt = [number, number];
 
 /** What a zone is given over to. */
@@ -24,14 +26,14 @@ export const MAX_ZONES = 3;
 export const ZONE_FLOOR = 'Z';
 
 /** What a zone is filled with: they stand in the park like the furniture (layout.ts, map.ts). */
-export type ZonePiece = 'tent' | 'booth' | 'pole';
+export type ZonePiece = 'coaster' | 'tent' | 'booth' | 'pole';
 
 /** Tiles each piece takes up. */
-export const PIECE_SIZE: Record<ZonePiece, [number, number]> = { tent: [4, 3], booth: [3, 2], pole: [1, 1] };
+export const PIECE_SIZE: Record<ZonePiece, [number, number]> = { coaster: COASTER_SIZE, tent: [4, 3], booth: [3, 2], pole: [1, 1] };
 
-/** What each theme puts up, biggest first, and at most how many of each (as many as fit). */
-const FILL: Record<Theme, [Exclude<ZonePiece, 'pole'>, number][]> = {
-  funfair: [['tent', 2], ['booth', 3]],
+/** What each theme puts up, biggest first: at most how many of each (as many as fit), and how likely a zone is to have it at all. */
+const FILL: Record<Theme, [Exclude<ZonePiece, 'pole'>, number, number][]> = {
+  funfair: [['coaster', 1, 0.75], ['tent', 2, 0.9], ['booth', 3, 1]],
 };
 /** Themes with bunting round the edge: on poles this far apart (tiles). */
 const POLES: Partial<Record<Theme, number>> = { funfair: 4 };
@@ -100,10 +102,12 @@ export function carveZones(T: string[][], E: number[][], order: Pt[], hash: (x: 
   // which themes this garden has, and a cell for each
   const themes = THEMES.filter((t, i) => hash(i, 0, 201) < t.chance).slice(0, MAX_ZONES);
   const zones: ThemedZone[] = [];
-  const candidates = sites.map((_, i) => i).sort((a, b) => hash(a, 1, 202) - hash(b, 1, 202));
+  // (the roomier cells first, by and large: a zone wants space for its big pieces)
+  const tidied = sites.map((_, i) => tidy(i));
+  const candidates = sites.map((_, i) => i).sort((a, b) => tidied[b].length * (0.5 + hash(b, 1, 202)) - tidied[a].length * (0.5 + hash(a, 1, 202)));
   for (const { theme } of themes)
     for (const i of candidates) {
-      const tiles = tidy(i);
+      const tiles = tidied[i];
       if (tiles.length < MIN_TILES) continue;
       const box = boxOf(tiles);
       if (box[2] - box[0] + 1 < MIN_SIDE || box[3] - box[1] + 1 < MIN_SIDE) continue;
@@ -119,12 +123,13 @@ export function carveZones(T: string[][], E: number[][], order: Pt[], hash: (x: 
  * Fill a zone with its pieces: the big ones inside it with a tile of floor all round each (to walk
  * between them), as many as fit; poles for its bunting round its edge.
  */
-export function furnishZone(z: ThemedZone, order: Pt[], W: number): { kind: ZonePiece; tx: number; ty: number }[] {
+export function furnishZone(z: ThemedZone, order: Pt[], W: number, hash: (x: number, y: number, s: number) => number): { kind: ZonePiece; tx: number; ty: number }[] {
   const has = new Set(z.tiles.map(([x, y]) => y * W + x));
   const taken = new Set<number>();
   const out: { kind: ZonePiece; tx: number; ty: number }[] = [];
   const inZone = order.filter(([x, y]) => has.has(y * W + x));
-  for (const [kind, most] of FILL[z.theme]) {
+  for (const [n, [kind, most, chance]] of FILL[z.theme].entries()) {
+    if (hash(z.site[0], z.site[1], 210 + n) >= chance) continue;
     const [w, h] = PIECE_SIZE[kind];
     let placed = 0;
     for (const [x, y] of inZone) {

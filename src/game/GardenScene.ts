@@ -6,7 +6,7 @@ import { buildProps, type Prop } from '../art/trees.ts';
 import type { Raster } from '../art/raster.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
 import { HOUSES, TREES, standingOn, surfaceAt } from '../world/trees.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, COASTERS, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow } from './Meadow.ts';
@@ -53,10 +53,13 @@ import { worldSeed } from '../world/seed.ts';
 import { askName, renderBoard } from '../ui/board.ts';
 import { setupCollar } from '../ui/collar.ts';
 import { cullerFor } from './Culler.ts';
-import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canDrive, canPounce, canShake, nextAt, stageOf } from './growth.ts';
+import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canDrive, canPounce, canRide, canShake, nextAt, stageOf } from './growth.ts';
 import { Fader } from '../ui/fader.ts';
 import { logSnack } from '../ui/feed.ts';
 import { Zones } from './Zones.ts';
+import { Coasters } from './Coasters.ts';
+import { Rides } from './rides.ts';
+import { PLATFORM } from '../world/coaster.ts';
 import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
 import { catnipUp } from '../art/furniture.ts';
@@ -187,10 +190,16 @@ export class GardenScene extends Phaser.Scene {
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
   private vel = { x: 0, y: 0 };
   /** A hop somewhere (out of the pond, off the track, into a waggon: then it lands where that is by then). */
-  private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number; car?: { i: number; u: number; v: number } } | null = null;
+  private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number; car?: { i: number; u: number; v: number }; coaster?: { i: number; seat: number } } | null = null;
   private train!: TrainView;
   /** Where in the train our cat rides (car, along it, across it), or null. */
   private riding: { i: number; u: number; v: number } | null = null;
+  /** The funfairs' rollercoasters, and who rides them when. */
+  private rides!: Rides;
+  private coasters!: Coasters;
+  /** The rollercoaster our cat sits in (which, and the seat), or null; and when it last told the others so (page ms). */
+  private aboard: { i: number; seat: number } | null = null;
+  private toldRide = -Infinity;
   /** Got on properly (F beside a car), not jumped in over the side. */
   private boarded = false;
   /** When the lok's chimney puffs next (s), and how many it has puffed (every fourth is the strong one). */
@@ -376,8 +385,23 @@ export class GardenScene extends Phaser.Scene {
         const seat = aboard(poses(msg[0]), cat.tx, cat.ty, cat.tz, 2 + Math.abs(msg[1]) * 0.3);
         this.train.receive(id, msg, this.net.now(), performance.now(), canDrive(cat.stage) && seat?.i === 0);
       },
+      // another cat rides a rollercoaster (believed of one at it, as far as we can see)
+      onCoaster: (id, msg) => {
+        const cat = this.remotes.get(id), c = COASTERS[msg[0]];
+        if (!cat || !c || this.referee.ignored(id)) return;
+        if (cat.tx < c.x - 32 || cat.tx > c.x + 160 || cat.ty < c.y - 32 || cat.ty > c.y + 120) return;
+        const gt = this.net.now();
+        if (!this.rides.receive(id, msg, gt)) return;
+        // (two in the same seat at once: the one with the higher id moves to the other, if it's free)
+        const a = this.aboard;
+        if (a && a.i === msg[0] && a.seat === msg[2] && id < this.net.id && this.rides.seats(a.i, gt)[1 - a.seat] === null) {
+          a.seat = 1 - a.seat;
+          this.tellRide(this.rides.board(this.net.id, a.i, a.seat, gt));
+        }
+      },
       onLeave: (id) => {
         this.referee.leave(id);
+        this.rides.forget(id, this.net.now());
         this.remotes.get(id)?.destroy();
         this.remotes.delete(id);
         this.board.leave(id);
@@ -416,6 +440,8 @@ export class GardenScene extends Phaser.Scene {
       const lok = this.train.cars[0];
       void sound.play('whistle', { at: { x: lok.x, y: lok.y }, volume: 0.45 });
     };
+    this.rides = new Rides(COASTERS.length);
+    this.coasters = new Coasters(this, toCanvas, this.rides);
     this.referee = new Referee(this.net.id, {
       vote: (msg) => this.net.vote(msg),
       judgeCatch: (peer, kind, id) => {
@@ -532,6 +558,12 @@ export class GardenScene extends Phaser.Scene {
     const before = this.train.cars;
     this.train.update(gt, performance.now(), dt);
     this.carry(before);
+    this.coasters.update(gt, dt);
+    // (riding, it says so now and then: for whoever didn't hear, or has just come)
+    if (this.aboard && performance.now() - this.toldRide > 1000) {
+      const msg = this.rides.told(this.net.id);
+      if (msg) this.tellRide(msg);
+    }
     // (before the cat moves: one the train has rolled onto is pushed off, not lifted onto it)
     this.trainRules(time, gt);
     this.updateLocal(time, dt);
@@ -552,12 +584,14 @@ export class GardenScene extends Phaser.Scene {
       }
       cat.step(dt);
       this.seat(cat, dt);
+      this.rideSeat(cat, gt);
       cat.render(time);
     }
     // (on top of it, in front of the whole car; in it, between its halves)
-    this.me.ride = this.riding ? this.train.cars[this.riding.i].y + (this.me.z > FLOOR_H + 1.5 ? 1 : 0) : null;
+    this.me.ride = this.aboard ? this.coasters.car(this.aboard.i, gt).y : this.riding ? this.train.cars[this.riding.i].y + (this.me.z > FLOOR_H + 1.5 ? 1 : 0) : null;
     this.me.render(time);
     this.train.render(this.cameras.main.worldView);
+    this.coasters.render(gt, this.cameras.main.worldView);
     this.chuff(dt);
     this.wearCap();
 
@@ -733,7 +767,15 @@ export class GardenScene extends Phaser.Scene {
         }
         this.hop = null;
         me.setAct(Act.Idle, now);
+        if (h.coaster) {
+          this.aboard = h.coaster;
+          me.setAct(Act.Sit, now);
+        }
       }
+      return;
+    }
+    if (this.aboard) {
+      this.rideCoaster(now, jump);
       return;
     }
 
@@ -800,6 +842,11 @@ export class GardenScene extends Phaser.Scene {
       const prey = this.ambient.preyNear(me);
       // (with nothing in reach it swipes the way it faces)
       if (prey) me.facing = facingTowards(me, prey);
+      // at a rollercoaster's waiting car: in (from a young cat up)
+      else if (this.coasterSpot()) {
+        this.getIn(now, this.coasterSpot()!);
+        return;
+      }
       // beside the train: in through the door (a grown cat at the lok into the driver's seat, if it's free)
       else if (this.boardable()) {
         this.hopInto(now, this.boardable()!);
@@ -1109,6 +1156,73 @@ export class GardenScene extends Phaser.Scene {
     me.setAct(Act.Jump, now);
   }
 
+  /** The seat in a rollercoaster's waiting car a paw now would get our cat into (none for a kitten: too small). */
+  private coasterSpot(): { i: number; seat: number } | null {
+    const me = this.me;
+    if (!canRide(me.stage) || this.aboard || this.riding || this.hop || me.act === Act.Jump) return null;
+    return this.coasters.near(me.x, me.y, me.z, this.net.now());
+  }
+
+  /** A hop into a rollercoaster's car: the car sets off a moment later (with whoever else gets in by then). */
+  private getIn(now: number, at: { i: number; seat: number }): void {
+    const me = this.me, gt = this.net.now();
+    this.tellRide(this.rides.board(this.net.id, at.i, at.seat, gt));
+    const p = this.coasters.seat(at.i, at.seat, gt);
+    this.startHop(now, { fx: me.x, fy: me.y, tx: p.x, ty: p.y, tz: p.z, t0: now, coaster: at });
+  }
+
+  /**
+   * Our cat in a rollercoaster's car: it goes along, sitting tight (no getting out on the way, only
+   * before it sets off, with a jump); back at the station it hops out onto the platform.
+   */
+  private rideCoaster(now: number, jump: boolean): void {
+    const me = this.me, a = this.aboard!, gt = this.net.now();
+    const boarding = this.rides.boarding(a.i, gt);
+    if (!boarding && !this.rides.away(a.i, gt)) {
+      this.getOut(now);
+      return;
+    }
+    if (jump && boarding) {
+      const msg = this.rides.leave(this.net.id, gt);
+      if (msg) this.tellRide(msg);
+      this.getOut(now);
+      return;
+    }
+    const p = this.coasters.seat(a.i, a.seat, gt);
+    [me.x, me.y, me.z] = [p.x, p.y, p.z];
+    this.vz = 0;
+    if (Math.abs(p.car.dx) > 0.3) me.facing = p.car.dx < 0 ? Facing.Left : Facing.Right;
+    else if (me.facing === Facing.Up) me.facing = Facing.Down;
+    if (me.act !== Act.Sit) me.setAct(Act.Sit, now);
+  }
+
+  /** Out of the rollercoaster's car, onto its platform. */
+  private getOut(now: number): void {
+    const me = this.me, a = this.aboard!, c = COASTERS[a.i];
+    this.aboard = null;
+    this.rides.leave(this.net.id, this.net.now());
+    const x = Math.max(c.x + PLATFORM.x0 + 4, Math.min(c.x + PLATFORM.x1 - 4, me.x)), y = c.y + (PLATFORM.y0 + PLATFORM.y1) / 2;
+    this.startHop(now, { fx: me.x, fy: me.y, tx: x, ty: y, tz: c.ground + PLATFORM.h, t0: now });
+  }
+
+  private tellRide(msg: [number, number, number]): void {
+    this.net.coaster(msg);
+    this.toldRide = performance.now();
+  }
+
+  /** Another cat in a rollercoaster's car, as we see it: in its seat, wherever the car has got to. */
+  private rideSeat(cat: RemoteCat, gt: number): void {
+    const at = cat.id ? this.rides.seatOf(cat.id, gt) : null;
+    if (!at) return;
+    const p = this.coasters.seat(at.i, at.seat, gt);
+    // (what it last said of where it is should be about there: a moment behind the car, on the way)
+    if (Math.hypot(cat.tx - p.x, cat.ty - p.y) > (this.rides.away(at.i, gt) ? 64 : 24)) return;
+    cat.x = cat.tx = p.x;
+    cat.y = cat.ty = p.y;
+    cat.z = cat.tz = p.z;
+    cat.ride = p.car.y;
+  }
+
   /**
    * Another cat in the train, as we see it: kept in its car. What it says of where it is is a moment
    * old (the car has rolled on since), so it is placed by where in the car it is, not where on the map.
@@ -1267,7 +1381,7 @@ export class GardenScene extends Phaser.Scene {
     const me = this.me;
     const free = this.revealed && !this.hop && !this.youMarker.active && (me.act === Act.Idle || me.act === Act.Walk || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Crouch || me.act === Act.Sneak || me.act === Act.Mew);
     const show = free && !wetAt(me.x, me.y) && (!!this.ambient.preyNear(me) || this.landmarks.near(me.x, me.y) || this.catnipNear(this.time.now)
-      || (!SEASON.frozen && me.z < 2 && !!furnitureNear('pump', me.x, me.y, PAW_REACH)) || (canShake(me.stage) && trunkNear(me.x, me.y, me.z) >= 0) || !!this.boardable());
+      || (!SEASON.frozen && me.z < 2 && !!furnitureNear('pump', me.x, me.y, PAW_REACH)) || (canShake(me.stage) && trunkNear(me.x, me.y, me.z) >= 0) || !!this.boardable() || !!this.coasterSpot());
     this.hint.setVisible(show);
     // (just over the head: a crouching cat's is lower)
     const low = me.act === Act.Crouch || me.act === Act.Sneak ? 3 : 0;

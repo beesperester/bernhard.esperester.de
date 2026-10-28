@@ -165,3 +165,96 @@ export function buntingLights(dx: number, dy: number): { x: number; y: number }[
   }
   return out;
 }
+
+const STEEL = { d: hex('#3c5a78'), b: hex('#5e86ac'), l: hex('#9cc0de') };
+const RAIL = { d: hex('#8a9098'), l: hex('#f6f4ee') };
+const SPINE = { d: hex('#8e2430'), b: hex('#d0404a') };
+const TIMBER = { d: hex('#6e4624'), b: hex('#a8743e'), l: hex('#c89058') };
+const CHAIN = hex('#2a2a30');
+
+/** A bit of the track: a point along it (local px, every half px or so), which way it runs, its deck's height, how far round. */
+interface TrackBit { x: number; y: number; z: number; dx: number; dy: number; s: number }
+
+/**
+ * A stretch of the rollercoaster's track as it stands, bold and toy-like: a fat red spine with two
+ * white rails on it, carried on chunky steel columns (each with a cap under the deck, and struts
+ * up to it either way along the track where it's high), a chain up the lift. Returns the picture
+ * and where the local origin is in it.
+ */
+export function buildTrack(bits: TrackBit[], lift: (s: number) => boolean): { r: Raster; ox: number; oy: number } {
+  const px = new Map<string, RGB>();
+  const put = (x: number, y: number, c: RGB) => px.set(`${Math.round(x)},${Math.round(y)}`, c);
+  const line = (x0: number, y0: number, x1: number, y1: number, c: RGB, w = 1) => {
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))));
+    for (let i = 0; i <= n; i++) for (let k = 0; k < w; k++) put(x0 + ((x1 - x0) * i) / n + k, y0 + ((y1 - y0) * i) / n, c);
+  };
+  // the columns: one every 16 px along it, where the deck is up off the ground
+  for (const b of bits) {
+    if (Math.abs(b.s / 16 - Math.round(b.s / 16)) > 0.01 || b.z < 4) continue;
+    const top = b.y - b.z + 3;
+    // (a foot, a post three wide lit from the left, a cap across under the deck)
+    line(b.x - 2, b.y, b.x + 2, b.y, STEEL.d);
+    line(b.x - 1, b.y - 1, b.x - 1, top, STEEL.l);
+    line(b.x, b.y - 1, b.x, top, STEEL.b);
+    line(b.x + 1, b.y - 1, b.x + 1, top, STEEL.d);
+    const nx = -b.dy, ny = b.dx;
+    line(b.x - nx * 4 - 0.5, top - ny * 4, b.x + nx * 4 - 0.5, top + ny * 4, STEEL.d, 2);
+    // struts from halfway up the post to the deck either way along the track
+    if (b.z > 14)
+      for (const k of [-1, 1]) {
+        const u = Math.min(7, b.z / 3);
+        line(b.x, b.y - b.z / 2, b.x + k * u * b.dx, b.y + k * u * b.dy - b.z + 3, STEEL.b);
+      }
+  }
+  for (const b of bits) {
+    const nx = -b.dy, ny = b.dx, sy = b.y - b.z;
+    // the spine: a fat red band under the rails, darker on its underside
+    for (let v = -3; v <= 3; v++) {
+      put(b.x + nx * v, sy + ny * v + 1, SPINE.b);
+      put(b.x + nx * v, sy + ny * v + 2, SPINE.d);
+    }
+    if (lift(b.s) && Math.round(b.s) % 2 === 0) put(b.x, sy, CHAIN);
+  }
+  // the rails, two px wide each, on top
+  for (const b of bits) {
+    const nx = -b.dy, ny = b.dx, sy = b.y - b.z;
+    for (const v of [-4, -3, 3, 4]) {
+      put(b.x + nx * v, sy + ny * v - 1, RAIL.l);
+      put(b.x + nx * v, sy + ny * v, RAIL.d);
+    }
+  }
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const k of px.keys()) {
+    const [x, y] = k.split(',').map(Number);
+    [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
+  }
+  // (a pixel of room all round for the outline)
+  const r = new Raster(x1 - x0 + 3, y1 - y0 + 3);
+  for (const [k, c] of px) {
+    const [x, y] = k.split(',').map(Number);
+    r.set(x - x0 + 1, y - y0 + 1, c);
+  }
+  outline(r);
+  return { r, ox: 1 - x0, oy: 1 - y0 };
+}
+
+/**
+ * The station platform beside the track: a plank deck `w` wide and `d` deep at height `h`, its
+ * front in boards, a striped railing at the back ends and a little sign. Its foot on the bottom row.
+ */
+export function buildPlatform(w: number, d: number, h: number): Raster {
+  const r = new Raster(w, d + h + 9);
+  const top = 9;
+  // the deck, planks running along
+  for (let y = 0; y < d; y++) for (let x = 0; x < w; x++) r.set(x, top + y, y % 3 === 2 ? TIMBER.d : x % 11 === 0 ? TIMBER.b : TIMBER.l);
+  // its front
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) r.set(x, top + d + y, x % 6 === 0 ? TIMBER.d : TIMBER.b);
+  // the sign on two posts at the left: red and gold
+  r.rect(2, 2, 1, 8, TIMBER.d);
+  r.rect(13, 2, 1, 8, TIMBER.d);
+  r.rect(1, 0, 14, 5, RED.b);
+  r.rect(1, 0, 14, 1, RED.l);
+  for (let x = 3; x < 13; x += 2) r.set(x, 2, YELLOW.l);
+  outline(r);
+  return r;
+}

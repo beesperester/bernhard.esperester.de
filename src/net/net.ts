@@ -3,10 +3,11 @@
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
 import type { Prey, CatMsg } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeSeed, sanitizeShake, sanitizeTrain, sanitizeVote, sanitizeWorld, type TrainMsg, type VoteMsg, type WorldMsg } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeCoaster, sanitizeSeed, sanitizeShake, sanitizeTrain, sanitizeVote, sanitizeWorld, type CoasterMsg, type TrainMsg, type VoteMsg, type WorldMsg } from './protocol.ts';
 import { NOTCHES, SPEEDS, TRACK_LENGTH } from '../game/train.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 import { newSeed, older, type WorldSeed } from '../world/seed.ts';
+import { MAX_ZONES } from '../world/themes.ts';
 
 // unversioned until the site is released; after that, version it when the protocol changes
 const APP_ID = 'bernhard.esperester.de/garden-of-cats';
@@ -108,6 +109,8 @@ export interface NetEvents {
   onVote: (peerId: string, msg: VoteMsg) => void;
   /** The cat driving the train says where it is. */
   onTrain: (peerId: string, msg: TrainMsg) => void;
+  /** Another cat rides (or is about to ride) a rollercoaster. */
+  onCoaster: (peerId: string, msg: CoasterMsg) => void;
 }
 
 const trainOf = (d: unknown) => sanitizeTrain(d, TRACK_LENGTH, NOTCHES, SPEEDS[NOTCHES]);
@@ -130,6 +133,7 @@ export class Net {
   private sendWorld: ((msg: WorldMsg, target: string) => void) | null = null;
   private sendSeed: ((s: [number, number], target?: string) => void) | null = null;
   private sendTrain: ((msg: TrainMsg) => void) | null = null;
+  private sendCoaster: ((msg: CoasterMsg) => void) | null = null;
   /** Peer clock minus our clock, in ms, measured once when a peer joins. */
   private offsets = new Map<string, number>();
   readonly id = selfId;
@@ -263,6 +267,11 @@ export class Net {
     this.sendTrain?.(msg);
   }
 
+  /** Our cat rides a rollercoaster (or got out of it before it left). */
+  coaster(msg: CoasterMsg): void {
+    this.sendCoaster?.(msg);
+  }
+
   /**
    * Shared garden clock (ms). Everyone follows the clock of the peer with the
    * lowest id, so seeded fauna plays out identically for all visitors.
@@ -330,6 +339,12 @@ export class Net {
     train.onMessage = (data, { peerId }) => {
       const msg = this.room === room ? trainOf(data) : null;
       if (msg) this.deliver((ev) => ev.onTrain(peerId, msg));
+    };
+    const coaster = room.makeAction<CoasterMsg>('coaster');
+    this.sendCoaster = (msg) => void coaster.send(msg).catch(() => {});
+    coaster.onMessage = (data, { peerId }) => {
+      const msg = this.room === room ? sanitizeCoaster(data, MAX_ZONES) : null;
+      if (msg) this.deliver((ev) => ev.onCoaster(peerId, msg));
     };
     // which garden this is: the seed it grew from, told to every cat that arrives
     const seed = room.makeAction<[number, number]>('seed');

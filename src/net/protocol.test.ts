@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Prey } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeSeed, sanitizeShake, sanitizeVote, sanitizeWorld } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeCoaster, sanitizeSeed, sanitizeShake, sanitizeVote, sanitizeWorld } from './protocol.ts';
 
 describe('sanitizeCat', () => {
   it('accepts a well-formed state and truncates the integer fields', () => {
@@ -98,5 +98,16 @@ describe('garden seeds', () => {
     expect(sanitizeSeed([1, 5])).toBeNull();
     expect(sanitizeSeed([1, Date.now() + 1e9])).toBeNull();
     expect(sanitizeSeed({ seed: 1, born: 1.75e12 })).toBeNull();
+  });
+});
+
+describe('sanitizeCoaster', () => {
+  it('accepts a ride on one of the coasters, in one of its seats (or out of it)', () => {
+    expect(sanitizeCoaster([0, 12345, 1], 3)).toEqual([0, 12345, 1]);
+    expect(sanitizeCoaster([2, 12345, -1], 3)).toEqual([2, 12345, -1]);
+  });
+
+  it('rejects anything else', () => {
+    for (const d of [[3, 1, 0], [0.5, 1, 0], [0, 0, 0], [0, 1, 2], [0, 1, 0.5], [0, NaN, 0], [0, 1], 'x', null]) expect(sanitizeCoaster(d, 3)).toBeNull();
   });
 });

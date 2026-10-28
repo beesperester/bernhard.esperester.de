@@ -52,3 +52,5 @@ export const canLure = (stage: Stage): boolean => stage === Stage.Grown;
 export const canShake = (stage: Stage): boolean => stage === Stage.Grown;
 /** Only a grown cat drives the train. */
 export const canDrive = (stage: Stage): boolean => stage === Stage.Grown;
+/** A kitten is too small for the rollercoaster: from a young cat up. */
+export const canRide = (stage: Stage): boolean => stage !== Stage.Kitten;

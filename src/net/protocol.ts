@@ -43,6 +43,21 @@ export function sanitizeTrain(d: unknown, length: number, notches: number, top: 
   return [s, v, notch, driving, t, toots];
 }
 
+/**
+ * A ride on a funfair's rollercoaster: which coaster (its index among the garden's), the garden time
+ * (ms) its car sets off (or set off), and the seat the sender sits in (0 front, 1 back; -1: it got
+ * out again before the car left). Riders say it again every so often till the ride is over.
+ */
+export type CoasterMsg = [number, number, number];
+
+/** Accept only a ride on one of the garden's `coasters` (at most), in one of its two seats. */
+export function sanitizeCoaster(d: unknown, coasters: number): CoasterMsg | null {
+  if (!Array.isArray(d) || d.length !== 3 || !d.every((x) => typeof x === 'number' && Number.isFinite(x))) return null;
+  const [i, t, seat] = d as number[];
+  if (!Number.isInteger(i) || i < 0 || i >= coasters || t <= 0 || !Number.isInteger(seat) || seat < -1 || seat > 1) return null;
+  return [i, t, seat];
+}
+
 /** What the cats already in the garden tell a newcomer: prey caught lately, fruit shaken down ([tree, gt]), and where the train is. */
 export type WorldMsg = { caught: [Prey, number][]; shakes: [number, number][]; train?: TrainMsg };
 
