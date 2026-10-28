@@ -11,6 +11,7 @@
 // wall), wherever in the car it sits.
 
 import { Raster, hex, type RGB } from './raster.ts';
+import { paintOver } from './paint.ts';
 
 /** Pictures for this many headings round the circle. */
 export const HEADINGS = 16;
@@ -158,6 +159,9 @@ export function buildCar(kind: CarKind, h: number): { back: Raster; front: Raste
     const c = outlined[i];
     if (c) (near[i] ? before : behind).set(i % W, Math.floor(i / W), c);
   }
+  // (painted over like everything else; the same dabs on both halves)
+  paintOver(behind, 70 + h, 0.8);
+  paintOver(before, 70 + h, 0.8);
   return { back: behind, front: before, ox: OX, oy: OY };
 }
 

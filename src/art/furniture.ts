@@ -7,12 +7,12 @@ import { Raster, hex, hash2, type RGB } from './raster.ts';
 import { SNOW } from './tiles.ts';
 import { SEASON, type Season } from '../world/season.ts';
 
-const WOOD = { o: hex('#3b2412'), d: hex('#7a4522'), b: hex('#a8642e'), l: hex('#c07a3e'), s: hex('#e2a868') };
+const WOOD = { o: hex('#2e1c18'), d: hex('#5e3a28'), b: hex('#86563a'), l: hex('#a8724a'), s: hex('#cc9864') };
 const IRON = { o: hex('#18141a'), d: hex('#2e2a30'), l: hex('#5a5460') };
 const CREAM = hex('#f0e8d0'), CREAM_D = hex('#c8bca0');
 const GLASS = { b: hex('#6aa8e0'), l: hex('#bce0f8') };
 const SAGE = { o: hex('#1e3428'), d: hex('#3e6a52'), b: hex('#5e927a'), l: hex('#8cbca0') };
-const WICKER = { o: hex('#4a2c12'), d: hex('#8a5a2a'), b: hex('#c08848'), l: hex('#e0b070') };
+const WICKER = { o: hex('#3e2618'), d: hex('#7a5232'), b: hex('#a87c4a'), l: hex('#cca46c') };
 const CLOTH = { r: hex('#d84848'), rd: hex('#a83434'), c: hex('#f8ecd8'), cd: hex('#e0ccb0') };
 
 /** A dark outline around everything drawn so far. */
@@ -188,7 +188,7 @@ const CARD = { o: hex('#4a3018'), in: hex('#3e2a16'), d: hex('#8a5e30'), b: hex(
 const GREEN_IRON = { o: hex('#10241a'), d: hex('#1e4630'), b: hex('#2e6a44'), l: hex('#4e9466'), s: hex('#7cbc8c') };
 const TERRA = { o: hex('#4a2010'), d: hex('#9a4424'), b: hex('#c4643a'), l: hex('#e08a5a') };
 const SOIL = { d: hex('#3a2416'), b: hex('#5a3a24'), l: hex('#7a5436') };
-const LEAF = { d: hex('#2e6a2a'), b: hex('#4e9a3a'), l: hex('#86c85a'), s: hex('#b8e888') };
+const LEAF = { d: hex('#3c6440'), b: hex('#5f8c4a'), l: hex('#8eb35e'), s: hex('#c2d47e') };
 const PUDDLE = hex('#4a8ce0');
 const NEPETA = { d: hex('#4a6a52'), b: hex('#6e9478'), l: hex('#98bca0'), f: hex('#a890d8'), fl: hex('#d0c4f0'), dry: hex('#8a7448') };
 

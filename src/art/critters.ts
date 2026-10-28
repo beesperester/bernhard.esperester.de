@@ -2,7 +2,7 @@
 // fireflies, lanterns, glows, ripples, sleep Zs, dust.
 import { Raster, hex, type RGB } from './raster.ts';
 
-const OUTLINE = hex('#202020');
+const OUTLINE = hex('#24181c');
 
 // butterfly: 7x5, frame 0 wings open, frame 1 wings up
 const BUTTERFLY = [
@@ -246,11 +246,12 @@ export function buildGlow(w: number, h: number, colour: RGB, bands = 5): Raster 
 export const LANTERN_W = 6;
 export const LANTERN_H = 16;
 export function buildLantern(): Raster {
-  const rows = ['.oooo.', 'oooooo', 'ogllgo', 'ogllgo', 'oooooo', '..oo..', '..om..', '..om..', '..om..', '..om..', '..om..', '..om..', '..om..', '..om..', '.oooo.', 'oooooo'];
+  // (a chunky old brass lamp with a fat glass, on a wrought post: warm even unlit)
+  const rows = ['..oo..', '.obbo.', 'oglsgo', 'ollsgo', 'ollsgo', 'oglggo', '.obbo.', '..om..', '..om..', '..om..', '..om..', '..om..', '..om..', '.obbo.', 'obbbbo', 'oooooo'];
   const r = new Raster(LANTERN_W * 2, LANTERN_H);
-  const base = { o: hex('#26262c'), m: hex('#4a4a54'), g: hex('#3c3c44') };
-  r.paint(rows, 0, 0, { ...base, l: hex('#707060') });
-  r.paint(rows, LANTERN_W, 0, { ...base, l: hex('#fff0a0') });
+  const base = { o: hex('#2a1c1e'), m: hex('#5a3e34'), b: hex('#a0703e') };
+  r.paint(rows, 0, 0, { ...base, g: hex('#4a4450'), l: hex('#7a7468'), s: hex('#b0a890') });
+  r.paint(rows, LANTERN_W, 0, { ...base, g: hex('#ffb85a'), l: hex('#ffe08a'), s: hex('#fff6d0') });
   return r;
 }
 
