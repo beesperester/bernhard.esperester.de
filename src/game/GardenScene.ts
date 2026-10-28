@@ -113,6 +113,8 @@ export class GardenScene extends Phaser.Scene {
   private lastInput = 0;
   private nextLick = 0;
   private youMarker!: Phaser.GameObjects.Image;
+  /** A little "!" over our cat's head: something in reach to catch, eat or paw at. */
+  private hint!: Phaser.GameObjects.Image;
   private ui!: ReturnType<typeof setupUI>;
   private lastSent: CatMsg | null = null;
   private lastSentAt = 0;
@@ -260,6 +262,7 @@ export class GardenScene extends Phaser.Scene {
     loading(0.65, 200, 'looking for other cats…');
 
     this.youMarker = this.add.image(sx, sy, 'you').setOrigin(0.5, 1).setDepth(100001);
+    this.hint = this.add.image(sx, sy, 'alert').setOrigin(0.5, 1).setDepth(100001).setVisible(false);
     this.time.delayedCall(4000, () => this.youMarker.destroy());
 
     const cam = this.cameras.main;
@@ -549,6 +552,7 @@ export class GardenScene extends Phaser.Scene {
       const bob = Math.floor(time / 300) % 2;
       this.youMarker.setPosition(Math.round(this.me.x), Math.round(this.me.y - this.me.z) - 18 - bob).setVisible(Math.floor(time / 300) % 4 !== 3);
     }
+    this.updateHint();
   }
 
   private updateLocal(now: number, dt: number): void {
@@ -935,6 +939,17 @@ export class GardenScene extends Phaser.Scene {
       const g = this.add.sprite(x, y, 'glint', i % 3).setDepth(100000).setAlpha(0);
       this.tweens.add({ targets: g, alpha: { from: 1, to: 0 }, y: y - 10 - (i % 4) * 2, delay: i * 60, duration: 900, onComplete: () => g.destroy() });
     }
+  }
+
+  /** Show the "!" while there's something in reach of a swipe of the paw: prey or a find, a monument's plaque, a tree to shake. */
+  private updateHint(): void {
+    const me = this.me;
+    const free = this.revealed && !this.hop && !this.youMarker.active && (me.act === Act.Idle || me.act === Act.Walk || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Crouch || me.act === Act.Sneak || me.act === Act.Mew);
+    const show = free && !wetAt(me.x, me.y) && (!!this.ambient.preyNear(me) || this.landmarks.near(me.x, me.y) || (canShake(me.stage) && trunkNear(me.x, me.y, me.z) >= 0));
+    this.hint.setVisible(show);
+    // (just over the head: a crouching cat's is lower)
+    const low = me.act === Act.Crouch || me.act === Act.Sneak ? 3 : 0;
+    if (show) this.hint.setPosition(Math.round(me.x), Math.round(me.y - me.z) - Math.round(15 * me.size) - 2 + low);
   }
 
   /** "+3" floating up from our cat after a catch (or "-1" after a bee). */

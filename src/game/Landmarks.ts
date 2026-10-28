@@ -49,6 +49,11 @@ export class Landmarks {
     }
   }
 
+  /** Is the cat at (x, y) next to a folly (close enough to paw at it)? */
+  near(x: number, y: number): boolean {
+    return this.plaques.some((p) => x > p.x0 - READ_AT && x < p.x1 + READ_AT && y > p.y0 - READ_AT && y < p.y1 + READ_AT);
+  }
+
   /** A paw at whatever folly the cat at (x, y) is next to: its plaque comes up. True if there was one. */
   touch(x: number, y: number, now: number): boolean {
     const p = this.plaques.find((p) => x > p.x0 - READ_AT && x < p.x1 + READ_AT && y > p.y0 - READ_AT && y < p.y1 + READ_AT);
