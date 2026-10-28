@@ -365,7 +365,7 @@ export class Shadows {
       // a jumping cat's shadow slides away from it; on a ledge it lies on the ledge
       const elev = elevAt(cat.x, cat.y), up = cat.z - elev;
       const [sx, sy] = this.s;
-      s.img.setPosition(Math.round(cat.x + sx * up), Math.round(cat.y + sy * up - elev)).setAlpha(alpha)
+      s.img.setPosition(Math.round(cat.x + sx * up), Math.round(cat.y + sy * up - elev)).setAlpha(alpha).setScale(cat.scale)
         .setDepth(elev > 0 ? Math.floor(cat.y / TILE) * TILE + 0.0015 : -99992);
     }
     for (const [cat, s] of this.cats)

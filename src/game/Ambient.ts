@@ -8,6 +8,7 @@ import { FAUNA, Birds, Squirrels, type Fauna, type FaunaContext, type PreyRef } 
 import { Effects } from './fauna/Effects.ts';
 import { PREY } from './fauna/prey.ts';
 import { FIND_SLOTS } from '../world/finds.ts';
+import { canCatch } from './growth.ts';
 
 // The garden's wildlife as a whole: builds every fauna module (fauna/index.ts),
 // updates them each frame, collects what can be caught, and settles catches.
@@ -101,7 +102,8 @@ export class Ambient {
   preyNear(cat: CatView): PreyRef | null {
     let best: PreyRef | null = null, bestDist = Infinity;
     for (const p of this.prey) {
-      if (p.air && cat.act !== Act.Jump) continue;
+      // (things on the wing only in mid-jump; and nothing too big for the cat)
+      if ((p.air && cat.act !== Act.Jump) || !canCatch(cat.stage, p.kind, p.air)) continue;
       // fish are reached for a little in front of the paws
       const dx = p.x - cat.x, dy = p.y - (cat.y - (p.kind === Prey.Fish ? 3 : 0));
       if (Math.abs(dx) > TILE + 6 || Math.abs(dy) > TILE + 4) continue;

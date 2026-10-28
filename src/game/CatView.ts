@@ -5,6 +5,10 @@ import { CAT, COATS } from '../art/cat.ts';
 import { WORLD_W, WORLD_H, terrainCover, upOnFolly } from '../world/map.ts';
 import { TREES, surfaceAt, treeHolding } from '../world/trees.ts';
 import { DEPTH } from './Daylight.ts';
+import { STAGE_SCALE, Stage } from './growth.ts';
+
+/** How long growing up to the next size (a quarter bigger) takes (ms). */
+const GROW_MS = 1200;
 
 /** Colour of a cat hidden behind a hill. */
 const SILHOUETTE = 0x5ee86a;
@@ -55,6 +59,10 @@ export class CatView {
   heldKey = 'held-fish';
   /** Shown under the cat. */
   name = '';
+  /** How grown up it is (growth.ts), and the size it is drawn at (on its way to that stage's, after growing). */
+  stage: Stage = Stage.Grown;
+  scale = 1;
+  private drawnAt = -1;
   /** How many times it has mewed, and when the last one began (it can mew walking, running or mid-jump). */
   mews = 0;
   mewAt = -Infinity;
@@ -104,6 +112,12 @@ export class CatView {
 
   render(now: number): void {
     const ms = now - this.actStart;
+    // growing: up to the new size over a moment (a cat seen for the first time just is its size)
+    const target = STAGE_SCALE[this.stage];
+    if (this.drawnAt < 0) this.scale = target;
+    else if (this.scale !== target) this.scale += Math.sign(target - this.scale) * Math.min(Math.abs(target - this.scale), (0.25 * Math.max(0, now - this.drawnAt)) / GROW_MS);
+    this.drawnAt = now;
+    const k = this.scale;
     const z = this.z;
     const x = Math.round(this.x), y = Math.round(this.y);
     const dtm = now - this.last.t;
@@ -121,10 +135,10 @@ export class CatView {
     this.depth = d;
     // the shadow lies on whatever surface is below the cat
     const below = Math.round(surfaceAt(this.x, this.y, z));
-    this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft);
+    this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft).setScale(k);
     // standing in the shade of something
     const shade = catLight.shade(this.x, this.y);
-    this.sprite.setPosition(x, y - Math.round(z)).setDepth(d);
+    this.sprite.setPosition(x, y - Math.round(z)).setDepth(d).setScale(k);
     this.frame = frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
     if (shade > 0) this.sprite.setTint(Phaser.Display.Color.GetColor(255 - 90 * shade, 255 - 80 * shade, 255 - 50 * shade));
@@ -132,18 +146,20 @@ export class CatView {
     const top = y - Math.round(z);
     const rim = catLight.rim * (1 - shade);
     this.rim.setVisible(rim > 0);
-    if (rim > 0) this.rim.setPosition(x, top).setDepth(d + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour);
+    if (rim > 0) this.rim.setPosition(x, top).setDepth(d + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour).setScale(k);
     // eyes shine in the dark, unless something stands in front of this cat
-    const glow = catLight.night > 0.05 && (this.local || !catLight.occluded(x, top - 9, y));
+    const glow = catLight.night > 0.05 && (this.local || !catLight.occluded(x, top - 9 * k, y));
     this.eyes.setVisible(glow);
-    if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * (this.act === Act.Sleep ? 0 : 0.9));
+    if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setScale(k).setAlpha(catLight.night * (this.act === Act.Sleep ? 0 : 0.9));
     // our own cat, where a hill hides it: the covered part shows as a silhouette
-    const cover = this.local ? terrainCover(x, this.y, Math.round(z), CAT, CAT) : null;
+    const size = CAT * k;
+    const cover = this.local ? terrainCover(x, this.y, Math.round(z), size, size) : null;
     this.ghost.setVisible(!!cover);
     if (cover) {
-      const left = x - CAT / 2, top = y - Math.round(z) - CAT;
-      this.ghost.setPosition(x, y - Math.round(z)).setFrame(this.frame)
-        .setCrop(cover.x0 - left, cover.y0 - top, cover.x1 - cover.x0, cover.y1 - cover.y0);
+      // (the crop is in the picture's own pixels)
+      const left = x - size / 2, top = y - Math.round(z) - size;
+      this.ghost.setPosition(x, y - Math.round(z)).setFrame(this.frame).setScale(k)
+        .setCrop((cover.x0 - left) / k, (cover.y0 - top) / k, (cover.x1 - cover.x0) / k, (cover.y1 - cover.y0) / k);
     }
 
     // a fish or a bird in the mouth while eating: whole, half, bones (or a last tuft)
@@ -155,8 +171,9 @@ export class CatView {
       this.held.setTexture(this.act === Act.Feast ? this.heldKey : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2).setDepth(d + 0.5);
       // side on, the art faces left with the head at x=0: the head goes in the mouth, tail sticking out;
       // facing us, it is held crosswise in the mouth
-      if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5), y - 6 - Math.round(z));
-      else this.held.setFlipX(false).setOrigin(0.3, 0.5).setPosition(x, y - 5 - Math.round(z));
+      this.held.setScale(k);
+      if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5) * k, y - 6 * k - Math.round(z));
+      else this.held.setFlipX(false).setOrigin(0.3, 0.5).setPosition(x, y - 5 * k - Math.round(z));
     }
 
     // the name, just under the cat's feet (and under its shadow on a ledge)
@@ -176,8 +193,8 @@ export class CatView {
     this.bubble.setVisible(!!emote);
     if (emote) {
       const bob = Math.floor((mewing ? now - this.mewAt : ms) / 250) % 2;
-      const top = (this.act === Act.Roll ? y - 12 : y - 17) - Math.round(z);
-      this.bubble.setTexture(emote).setPosition(x + 4, top - bob).setDepth(100000);
+      const top = Math.round(y - (this.act === Act.Roll ? 12 : 17) * k) - Math.round(z);
+      this.bubble.setTexture(emote).setPosition(x + Math.round(4 * k), top - bob).setDepth(100000);
     }
   }
 
@@ -211,14 +228,15 @@ export class RemoteCat extends CatView {
   }
 
   apply(msg: CatMsg, now: number): void {
-    const [x, y, z, facing, act, seq, , mews] = msg;
+    const [x, y, z, facing, act, seq, , mews, stage] = msg;
+    this.stage = stage as Stage;
     if (mews !== this.mews) {
       this.mews = mews;
       this.mewAt = now;
     }
     this.tx = Phaser.Math.Clamp(x, 0, WORLD_W);
     this.ty = Phaser.Math.Clamp(y, 0, WORLD_H);
-    this.tz = Phaser.Math.Clamp(z, 0, 40);
+    this.tz = Phaser.Math.Clamp(z, 0, 200);
     this.facing = Phaser.Math.Clamp(facing, 0, 3) as Facing;
     const a = Phaser.Math.Clamp(act, 0, ACT_MAX) as Act;
     if (a !== this.act || seq !== this.seq) this.setAct(a, now);

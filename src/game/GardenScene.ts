@@ -31,7 +31,7 @@ import { berlinClock } from '../world/sky.ts';
 import { SEASON, rainfall } from '../world/season.ts';
 import { Weather } from './Weather.ts';
 import { Ambient } from './Ambient.ts';
-import { DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
+import { DASH_MS, DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { PEER, theNet, type Net, type NetEvents } from '../net/net.ts';
@@ -45,6 +45,7 @@ import { identity, verify } from '../net/identity.ts';
 import { RESUME_MS } from '../net/witness.ts';
 import { askName, renderBoard } from '../ui/board.ts';
 import { cullerFor } from './Culler.ts';
+import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canPounce, canShake, loadGrowth, nextAt, saveGrowth, stageOf } from './growth.ts';
 import { Fader } from '../ui/fader.ts';
 import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
@@ -54,6 +55,8 @@ const HOP_MS = 480;
 const HOP_HEIGHT = 16;
 /** How quickly a cat that landed on a branch settles onto its line (px/s). */
 const SETTLE_SPEED = 60;
+/** A kitten's tumble at the end of a dash that ran out (ms). */
+const TUMBLE_MS = 900;
 /** A cat this far in front of a trunk's foot is clear of it. */
 const TRUNK_CLEAR = 6;
 /** How often the pond reflections are redrawn, ms. */
@@ -118,6 +121,8 @@ export class GardenScene extends Phaser.Scene {
   private board!: Board;
   /** Offered a name of our own already (or the dialog is open). */
   private naming = false;
+  /** Points this cat has eaten, all gardens together: how grown up it is (growth.ts). */
+  private growth = 0;
   private camAnchor!: Phaser.GameObjects.Zone;
   /** Smoothed terrain height under the cat, so the view rises with the hills. */
   private camZ = 0;
@@ -233,6 +238,8 @@ export class GardenScene extends Phaser.Scene {
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
     const now = this.time.now;
     this.me = new CatView(this, sx, sy, loadCoat(), true);
+    this.growth = loadGrowth();
+    this.me.stage = stageOf(this.growth);
     this.lastDry = { x: sx, y: sy, z: 0 };
     this.lastInput = now;
     this.arrived = now;
@@ -341,7 +348,8 @@ export class GardenScene extends Phaser.Scene {
         const view = this.cameras.main.worldView;
         if (cat && (cat.tx < view.x + 8 || cat.tx > view.right - 8 || cat.ty < view.y + 8 || cat.ty > view.bottom + 24)) return null;
         const seen = cat ? this.ambient.sawWithinReach(kind, id, cat.tx, cat.ty, cat.tz) : null;
-        return { ok: !!seen, points: preyPoints(kind, seen?.colour ?? 0) };
+        // (and nothing too big for it: a kitten doesn't catch birds)
+        return { ok: !!seen && canCatch(cat!.stage, kind, seen.air), points: preyPoints(kind, seen?.colour ?? 0) };
       },
       confirmed: (peer, points) => this.board.credit(peer, points),
       ignore: (peer) => {
@@ -407,7 +415,7 @@ export class GardenScene extends Phaser.Scene {
   private state(): CatMsg {
     const m = this.me;
     const r = (v: number) => Math.round(v * 10) / 10;
-    return [r(m.x), r(m.y), r(m.z), m.facing, m.act, m.seq, m.coat, m.mews];
+    return [r(m.x), r(m.y), r(m.z), m.facing, m.act, m.seq, m.coat, m.mews, m.stage];
   }
 
   private sendState(): void {
@@ -424,7 +432,9 @@ export class GardenScene extends Phaser.Scene {
   private updateStatus(): void {
     const n = this.remotes.size;
     const others = n === 0 ? 'just you so far' : n === 1 ? '1 other cat' : `${n} other cats`;
-    this.ui.setStatus(`garden ${this.garden} · ${others} · ${berlinClock(this.net.now())}`);
+    const next = nextAt(this.me.stage);
+    const age = next === null ? '' : ` · ${STAGE_NAMES[this.me.stage]} ${this.growth}/${next}`;
+    this.ui.setStatus(`garden ${this.garden} · ${others} · ${berlinClock(this.net.now())}${age}`);
     setCatCount(n + 1);
   }
 
@@ -579,7 +589,14 @@ export class GardenScene extends Phaser.Scene {
     }
 
     // dash runs while the key is held (up to DASH_MS), then needs a long rest
+    // a kitten's dash is short, and running it out ends in a tumble
+    this.dash.limit = me.stage === Stage.Kitten ? KITTEN_DASH_MS : DASH_MS;
+    const dashing = this.dash.active;
     this.dash.update(dash, dashHeld, now);
+    if (dashing && !this.dash.active && this.dash.ranOut && me.stage === Stage.Kitten && me.act !== Act.Jump) {
+      me.seq = (me.seq + 1) & 0xffff;
+      me.setAct(Act.Roll, now - (ROLL_MS - TUMBLE_MS));
+    }
     this.ui.setDashCooldown(Math.ceil(this.dash.cooldown(now) / 1000));
     // where we are, signed now and then, for the cats to remember should we leave and come back
     if (this.revealed) this.board.moved(me.x, me.y, me.z, me.facing, now);
@@ -607,7 +624,7 @@ export class GardenScene extends Phaser.Scene {
       // pawing at a monument brings up its name; at a tree's trunk, maybe shakes something down
       else if (!this.landmarks.touch(me.x, me.y, now)) {
         const tree = trunkNear(me.x, me.y, me.z);
-        if (tree >= 0) {
+        if (tree >= 0 && canShake(me.stage)) {
           const gt = Math.round(this.net.now());
           this.ambient.shakeTree(tree, gt);
           this.net.shake(tree, gt);
@@ -618,7 +635,7 @@ export class GardenScene extends Phaser.Scene {
       return;
     }
     // pounce: dashing into prey grabs it, no swipe needed (fish have to be fished for)
-    if (this.dash.active && !busy) {
+    if (this.dash.active && !busy && canPounce(me.stage)) {
       const prey = this.ambient.preyNear(me);
       if (prey && !PREY[prey.kind].swipeOnly) {
         me.facing = facingTowards(me, prey);
@@ -663,7 +680,7 @@ export class GardenScene extends Phaser.Scene {
     else if (roll && grounded) begin(Act.Roll);
     else if (jump && grounded) {
       begin(Act.Jump);
-      this.vz = JUMP_V;
+      this.vz = Math.min(JUMP_V, Math.sqrt(2 * GRAVITY * STAGE_JUMP[me.stage]));
       this.dropFrom = Infinity;
     }
 
@@ -814,7 +831,8 @@ export class GardenScene extends Phaser.Scene {
     this.board.ate(points);
     this.scorePop(points);
     const me = this.board.me;
-    if (me.score < NAME_AT || me.custom || this.naming || asked(this.board.id)) return;
+    if (points > 0) this.grow(points);
+    if (this.growth < NAME_AT || me.custom || this.naming || asked(this.board.id)) return;
     this.naming = true;
     // the keyboard belongs to the text field while the dialog is open
     const kb = this.input.keyboard!;
@@ -827,6 +845,30 @@ export class GardenScene extends Phaser.Scene {
       kb.enableGlobalCapture();
       kb.resetKeys();
     });
+  }
+
+  /** Eating makes a cat grow up: on reaching a stage, a sparkle and a chime, and it grows to its new size. */
+  private grow(points: number): void {
+    const before = this.me.stage;
+    this.growth += points;
+    saveGrowth(this.growth);
+    this.me.stage = stageOf(this.growth);
+    if (this.me.stage !== before) {
+      sound.jingle();
+      this.sparkle();
+    }
+    this.updateStatus();
+  }
+
+  /** Glints rising around our cat. */
+  private sparkle(): void {
+    const me = this.me;
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2, r = 7 + (i % 3) * 3;
+      const x = Math.round(me.x + Math.cos(a) * r), y = Math.round(me.y - me.z - 8 + Math.sin(a) * r * 0.7);
+      const g = this.add.sprite(x, y, 'glint', i % 3).setDepth(100000).setAlpha(0);
+      this.tweens.add({ targets: g, alpha: { from: 1, to: 0 }, y: y - 10 - (i % 4) * 2, delay: i * 60, duration: 900, onComplete: () => g.destroy() });
+    }
   }
 
   /** "+3" floating up from our cat after a catch (or "-1" after a bee). */

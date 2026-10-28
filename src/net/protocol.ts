@@ -3,11 +3,11 @@
 import { Prey, type CatMsg } from '../game/state.ts';
 import type { WorldSeed } from '../world/seed.ts';
 
-/** Accept only a well-formed cat state tuple: [x, y, z, facing, act, seq, coat, mews]. */
+/** Accept only a well-formed cat state tuple: [x, y, z, facing, act, seq, coat, mews, stage]. */
 export function sanitizeCat(d: unknown): CatMsg | null {
-  if (!Array.isArray(d) || d.length !== 8 || !d.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
-  const [x, y, z, facing, act, seq, coat, mews] = d as number[];
-  return [x, y, z, facing | 0, act | 0, seq | 0, coat | 0, mews | 0];
+  if (!Array.isArray(d) || d.length !== 9 || !d.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
+  const [x, y, z, facing, act, seq, coat, mews, stage] = d as number[];
+  return [x, y, z, facing | 0, act | 0, seq | 0, coat | 0, mews | 0, Math.min(2, Math.max(0, stage | 0))];
 }
 
 const PREY_KINDS = new Set<number>(Object.values(Prey));

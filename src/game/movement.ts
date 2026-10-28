@@ -100,6 +100,9 @@ export function alignDiagonal(body: Body, dx: number, dy: number): void {
 /** The dash: runs while held for up to DASH_MS, then needs a rest that grows with how long it ran. */
 export class Dash {
   active = false;
+  /** Longest a dash runs (a kitten's is short), and whether the last one ran that long. */
+  limit = DASH_MS;
+  ranOut = false;
   private start = 0;
   private readyAt = 0;
 
@@ -107,9 +110,13 @@ export class Dash {
   update(pressed: boolean, held: boolean, now: number): void {
     if (pressed && !this.active && now >= this.readyAt) {
       this.active = true;
+      this.ranOut = false;
       this.start = now;
     }
-    if (this.active && (!held || now - this.start >= DASH_MS)) this.stop(now);
+    if (this.active && (!held || now - this.start >= this.limit)) {
+      this.ranOut = held;
+      this.stop(now);
+    }
   }
 
   /** End the dash now (it ran out, was let go, or ended in a pounce). */

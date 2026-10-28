@@ -124,6 +124,25 @@ export class Sound {
   }
 
   /** Play one sound from a group. Resolves to null if there is nothing to play (yet). */
+  /** A little rising chime (made up on the spot, no file): for growing up. */
+  jingle(notes = [523.25, 659.25, 783.99, 1046.5]): void {
+    const ctx = this.ctx, master = this.master;
+    if (!ctx || !master || document.hidden || this.muted) return;
+    const t0 = ctx.currentTime + 0.02;
+    notes.forEach((f, i) => {
+      const t = t0 + i * 0.11;
+      const osc = ctx.createOscillator(), env = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(0.18, t + 0.015);
+      env.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+      osc.connect(env).connect(master);
+      osc.start(t);
+      osc.stop(t + 0.55);
+    });
+  }
+
   async play(group: string, opts: PlayOptions = {}): Promise<Playing | null> {
     const ctx = this.ctx, master = this.master;
     if (!ctx || !master || document.hidden || this.muted) return null;

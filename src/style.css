@@ -330,6 +330,7 @@ html, body {
 #help-dialog .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
 #help-dialog .item { display: inline-flex; align-items: center; gap: 4px; }
 #help-dialog .what { margin-left: 4px; }
+#help-dialog .grow { margin: 14px 0 0; font-size: 13px; color: #f0dcb0; }
 /* key caps: 12×14 art at 2x, the letter on the cap above its skirt */
 #help-dialog kbd {
   display: inline-grid;
