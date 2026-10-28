@@ -838,12 +838,12 @@ export class GardenScene extends Phaser.Scene {
     });
   }
 
-  /** Eating makes a cat grow up: on reaching a stage, a sparkle and a chime, and it grows to its new size. */
+  /** Eating makes a cat grow up: on reaching a stage, a sparkle and a fanfare, and it grows to its new size. */
   private grow(): void {
     const before = this.me.stage;
     this.me.stage = stageOf(this.chain.top);
     if (this.me.stage !== before) {
-      sound.jingle();
+      void sound.play('levelup');
       this.sparkle();
     }
     this.updateStatus();
