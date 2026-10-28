@@ -1,7 +1,8 @@
 // DOM overlay: status line, the how-to-play sign, and Game Boy style touch controls.
 import { dpadURL } from './pixel.ts';
 
-export type Button = 'jump' | 'hiss' | 'roll' | 'dash' | 'catch' | 'sneak' | 'mew';
+/** A, B and SELECT (see game/controls.ts). */
+export type Button = 'jump' | 'paw' | 'emote';
 
 export interface Controls {
   up: boolean; down: boolean; left: boolean; right: boolean;
@@ -29,21 +30,19 @@ type Key = string;
 type Row = [Key[], string][];
 
 const KEYBOARD: Row[] = [
-  [[['arrows'], 'walk about']],
+  [[['arrows'], 'walk about; tap one twice to dash (it needs a breather after)']],
   [[['SPACE'], 'jump, up onto things and into trees'], [['down'], 'drops back down']],
-  [[['SHIFT'], 'dash (hold it; it needs a breather after)']],
-  [[['X'], 'sneak up on something, then'], [['SHIFT'], 'to pounce']],
-  [[['C'], 'catch, splash to lure fish, paw at a tree, a monument or a find']],
-  [[['H'], 'hiss'], [['R'], 'roll'], [['E'], 'mew']],
+  [[['X'], 'catch, splash to lure fish, paw at a tree or a monument']],
+  [[['X'], 'hold it to creep up on something, let go to pounce']],
+  [[['E'], 'mew; hold it and'], [['left'], 'hiss'], [['right'], 'roll']],
 ];
 
 const TOUCH: Row[] = [
-  [[['dpad'], 'walk about']],
+  [[['dpad'], 'walk about; tap a way twice to dash (it needs a breather after)']],
   [[['A'], 'jump, up onto things and into trees (down drops back down)']],
-  [[['B'], 'dash (it needs a breather after)']],
-  [[['SNEAK'], 'hold to creep up, then'], [['B'], 'to pounce']],
-  [[['CATCH'], 'splash to lure fish, paw at a tree or a monument']],
-  [[['HISS'], ''], [['ROLL'], ''], [['MEW'], 'to talk']],
+  [[['B'], 'catch, splash to lure fish, paw at a tree or a monument']],
+  [[['B'], 'hold it to creep up on something, let go to pounce']],
+  [[['SELECT'], 'mew; hold it and ← hiss, → roll']],
 ];
 
 function keyEl(key: Key, onTouch: boolean): HTMLElement {
@@ -141,13 +140,10 @@ export function setupUI(onHelp: (open: boolean) => void = () => {}): UI {
   let base = '';
   let cooldown = 0;
   const render = () => (status.textContent = cooldown ? `${base} · dash ${cooldown}s` : base);
-  const dashBtn = pad.querySelector<HTMLElement>('[data-btn="dash"]')!;
   const setDashCooldown = (s: number) => {
     if (s === cooldown) return;
     cooldown = s;
     render();
-    dashBtn.textContent = s ? String(s) : 'B';
-    dashBtn.classList.toggle('cooling', s > 0);
   };
 
   return { setStatus: (s) => { base = s; render(); }, hideHelp, setDashCooldown };

@@ -31,6 +31,7 @@ import { berlinClock } from '../world/sky.ts';
 import { SEASON, rainfall } from '../world/season.ts';
 import { Weather } from './Weather.ts';
 import { Ambient } from './Ambient.ts';
+import { DoubleTap, Emotes, Paw, dirOf } from './controls.ts';
 import { DASH_MS, DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
@@ -88,6 +89,8 @@ const FIRST_LOOK_MS = 300;
 
 /** Where to put a cat: x, y, height, facing. */
 type Pose = [number, number, number, number];
+/** How long a pounce carries the cat. */
+const POUNCE_MS = 300;
 
 export class GardenScene extends Phaser.Scene {
   private me!: CatView;
@@ -96,10 +99,15 @@ export class GardenScene extends Phaser.Scene {
   private keys!: {
     up: Phaser.Input.Keyboard.Key; down: Phaser.Input.Keyboard.Key;
     left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key;
-    jump: Phaser.Input.Keyboard.Key; hiss: Phaser.Input.Keyboard.Key; roll: Phaser.Input.Keyboard.Key;
-    dash: Phaser.Input.Keyboard.Key; catch: Phaser.Input.Keyboard.Key; sneak: Phaser.Input.Keyboard.Key;
-    mew: Phaser.Input.Keyboard.Key;
+    jump: Phaser.Input.Keyboard.Key; paw: Phaser.Input.Keyboard.Key; emote: Phaser.Input.Keyboard.Key;
   };
+  private readonly doubleTap = new DoubleTap();
+  private readonly paw = new Paw();
+  private readonly emotes = new Emotes();
+  /** The emote choice, up over the cat while the emote button is held. */
+  private emoteBubble!: Phaser.GameObjects.Text;
+  /** A pounce runs this way (the cat leaps whichever way it faces, arrows held or not). */
+  private pounceDir: { x: number; y: number } | null = null;
   private lastInput = 0;
   private nextLick = 0;
   private youMarker!: Phaser.GameObjects.Image;
@@ -265,8 +273,17 @@ export class GardenScene extends Phaser.Scene {
     const K = Phaser.Input.Keyboard.KeyCodes;
     this.keys = {
       up: kb.addKey(K.UP), down: kb.addKey(K.DOWN), left: kb.addKey(K.LEFT), right: kb.addKey(K.RIGHT),
-      jump: kb.addKey(K.SPACE), hiss: kb.addKey(K.H), roll: kb.addKey(K.R), dash: kb.addKey(K.SHIFT), catch: kb.addKey(K.C), sneak: kb.addKey(K.X), mew: kb.addKey(K.E),
+      jump: kb.addKey(K.SPACE), paw: kb.addKey(K.X), emote: kb.addKey(K.E),
     };
+    this.emoteBubble = this.add.text(0, 0, '← hiss  ↑ mew  → roll', {
+      fontFamily: PIXEL_FONT,
+      fontSize: '12px',
+      fontStyle: 'bold',
+      color: '#fff4dc',
+      backgroundColor: '#5a3a1e',
+      padding: { x: 5, y: 2 },
+      resolution: Math.max(1, window.devicePixelRatio || 1),
+    }).setOrigin(0.5, 1).setDepth(100001).setVisible(false);
 
     // the keys belong to the help sign while it is up
     this.ui = setupUI((open) => {
@@ -539,17 +556,40 @@ export class GardenScene extends Phaser.Scene {
     const k = this.keys;
     const held = (key: Phaser.Input.Keyboard.Key, t: boolean) => live && (key.isDown || t);
     const hit = (key: Phaser.Input.Keyboard.Key, b: Button) => (Phaser.Input.Keyboard.JustDown(key) || touch.pressed.has(b)) && live;
-    let dx = (held(k.right, touch.right) ? 1 : 0) - (held(k.left, touch.left) ? 1 : 0);
-    let dy = (held(k.down, touch.down) ? 1 : 0) - (held(k.up, touch.up) ? 1 : 0);
+    // (a tap quicker than a frame still counts as having been held for that frame)
+    const down = (key: Phaser.Input.Keyboard.Key, b: Button) => held(key, touch.held.has(b) || touch.pressed.has(b));
+    const right = held(k.right, touch.right), left = held(k.left, touch.left);
+    const up = held(k.up, touch.up), below = held(k.down, touch.down);
+    const dir = dirOf(up, below, left, right);
     const jump = hit(k.jump, 'jump');
-    const hiss = hit(k.hiss, 'hiss');
-    const roll = hit(k.roll, 'roll');
-    const mew = hit(k.mew, 'mew');
-    const dash = hit(k.dash, 'dash');
-    const dashHeld = held(k.dash, touch.held.has('dash'));
-    const grab = hit(k.catch, 'catch');
-    const sneakHeld = held(k.sneak, touch.held.has('sneak'));
+    // the emote button held, the D-pad picks an emote instead of walking
+    const emote = this.emotes.update(down(k.emote, 'emote'), dir, now);
+    const steer = !emote.steering;
+    let dx = steer ? (right ? 1 : 0) - (left ? 1 : 0) : 0;
+    let dy = steer ? (below ? 1 : 0) - (up ? 1 : 0) : 0;
+    const hiss = emote.emote === 'hiss', roll = emote.emote === 'roll', mew = emote.emote === 'mew';
+    // a direction tapped twice dashes, for as long as it stays held
+    const doubled = this.doubleTap.update(steer ? dir : '', now) && me.act !== Act.Jump;
+    const paw = this.paw.update(down(k.paw, 'paw'), now, me.act === Act.Jump);
+    // let go after creeping: a grown cat pounces the way it faces (a younger one just swipes)
+    const pounce = paw.pounce && canPounce(me.stage) && this.dash.cooldown(now) === 0 && !this.dash.active;
+    const grab = paw.swipe || (paw.pounce && !pounce);
+    const sneakHeld = paw.low;
+    if (pounce) {
+      const f = me.facing;
+      this.pounceDir = { x: f === Facing.Left ? -1 : f === Facing.Right ? 1 : 0, y: f === Facing.Up ? -1 : f === Facing.Down ? 1 : 0 };
+    }
+    const dash = doubled || pounce;
+    // (a pounce runs its course; a dash runs while the direction is held)
+    const dashHeld = this.pounceDir !== null || (dir !== '' && steer);
+    if (this.pounceDir && !this.dash.active && !pounce) this.pounceDir = null;
+    if (this.pounceDir && dx === 0 && dy === 0) {
+      dx = this.pounceDir.x;
+      dy = this.pounceDir.y;
+    }
     touch.pressed.clear();
+    this.emoteBubble.setVisible(emote.open);
+    if (emote.open) this.emoteBubble.setPosition(Math.round(me.x), Math.round(me.y - me.z) - 20).setScale(1 / this.cameras.main.zoom);
     // up a tree the cat walks along the branch it is on: up looks up, down drops it onto the one below
     const perch = this.hop || me.act === Act.Jump ? null : standingOn(me.x, me.y, me.z);
     if (perch && dy !== 0) {
@@ -562,7 +602,7 @@ export class GardenScene extends Phaser.Scene {
       dy = 0;
     }
     const moving = dx !== 0 || dy !== 0;
-    if (moving || jump || hiss || roll || mew || dash || grab || sneakHeld) {
+    if (moving || jump || hiss || roll || mew || dash || grab || sneakHeld || emote.steering) {
       this.lastInput = now;
       this.ui.hideHelp();
     }
@@ -597,7 +637,8 @@ export class GardenScene extends Phaser.Scene {
 
     // dash runs while the key is held (up to DASH_MS), then needs a long rest
     // a kitten's dash is short, and running it out ends in a tumble
-    this.dash.limit = me.stage === Stage.Kitten ? KITTEN_DASH_MS : DASH_MS;
+    // (a pounce is a leap, not a run)
+    this.dash.limit = this.pounceDir ? POUNCE_MS : me.stage === Stage.Kitten ? KITTEN_DASH_MS : DASH_MS;
     const dashing = this.dash.active;
     this.dash.update(dash, dashHeld, now);
     if (dashing && !this.dash.active && this.dash.ranOut && me.stage === Stage.Kitten && me.act !== Act.Jump) {

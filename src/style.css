@@ -159,15 +159,10 @@ html, body {
   text-shadow: 0 3px 0 #401020;
 }
 #buttons .a.down, #buttons .b.down { background-image: var(--px-round-down); padding: 6px 0 0; }
-#buttons button.cooling { opacity: 0.5; font-size: 16px; }
 /* Game Boy layout: B lower-left, A raised to its right */
 #buttons .b { grid-column: 1; grid-row: 1; }
 #buttons .a { grid-column: 2; grid-row: 1; transform: translateY(-18px); }
-#buttons [data-btn='hiss'] { grid-column: 1; grid-row: 2; justify-self: center; }
-#buttons [data-btn='roll'] { grid-column: 2; grid-row: 2; justify-self: center; }
-#buttons [data-btn='sneak'] { grid-column: 1; grid-row: 3; justify-self: center; }
-#buttons [data-btn='catch'] { grid-column: 2; grid-row: 3; justify-self: center; }
-#buttons [data-btn='mew'] { grid-column: 1 / span 2; grid-row: 4; justify-self: center; }
+#buttons [data-btn='emote'] { grid-column: 1 / span 2; grid-row: 2; justify-self: center; }
 
 /* scoreboard, under the music and sound buttons: a little sign of nailed-on planks */
 #board {
@@ -489,3 +484,4 @@ html, body {
   pointer-events: none;
 }
 #fader[hidden] { display: none; }
+#buttons [data-btn='emote'] { width: 90px; }

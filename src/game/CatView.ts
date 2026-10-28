@@ -33,6 +33,9 @@ export const catLight = {
   occluded: (_x: number, _y: number, _feetY: number): boolean => false,
 };
 
+/** Walking into shade, a cat takes this long to darken fully. */
+const SHADE_IN_MS = 700;
+
 /** Draws one cat (local or remote): shadow, sprite and emote bubble. */
 export class CatView {
   x: number;
@@ -70,6 +73,8 @@ export class CatView {
   mewAt = -Infinity;
 
   readonly shadow: Phaser.GameObjects.Image;
+  /** How shaded the cat looks now (0..1), catching up with the ground under it. */
+  private shaded = 0;
   private readonly sprite: Phaser.GameObjects.Sprite;
   private readonly bubble: Phaser.GameObjects.Image;
   private readonly held: Phaser.GameObjects.Image;
@@ -143,8 +148,11 @@ export class CatView {
     // the shadow lies on whatever surface is below the cat
     const below = Math.round(surfaceAt(this.x, this.y, z));
     this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft).setScale(Math.min(1, k + 0.15));
-    // standing in the shade of something
-    const shade = catLight.shade(this.x, this.y);
+    // standing in the shade of something: it darkens step by step (a sliver of shadow crossed
+    // on the way barely shows, so the cat doesn't flicker) and brightens at once in the sun
+    const dark = catLight.shade(this.x, this.y);
+    this.shaded = dark < this.shaded ? dark : Math.min(dark, this.shaded + (dtm > 0 ? dtm / SHADE_IN_MS : 0));
+    const shade = this.shaded;
     this.sprite.setPosition(x, y - Math.round(z)).setDepth(d);
     this.frame = stageRow(stage) + frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
