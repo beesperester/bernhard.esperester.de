@@ -30,8 +30,22 @@ export interface PlayOptions {
 export interface Playing {
   stop(fade?: number): void;
   setVolume(v: number): void;
-  /** Playback rate (higher and faster above 1), eased to over a moment. */
-  setRate(r: number): void;
+}
+
+/** A burst of noise made on the spot (no recording): filtered to a pitch, quick to start, dying away. */
+export interface Burst {
+  at?: Pos | null;
+  volume: number;
+  /** Middle of the band it's filtered to (Hz), and how narrow (Q). */
+  freq: number;
+  q: number;
+  /** Rise and fall (s). */
+  attack: number;
+  decay: number;
+  /** Seconds from now. */
+  delay?: number;
+  /** The band slides from freq to freq × sweep over the fall (a puff's whoosh dropping). */
+  sweep?: number;
 }
 
 /** An ambient layer: a group that plays by itself at random intervals. */
@@ -60,6 +74,8 @@ export class Sound {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private readonly buffers = new Map<string, Promise<AudioBuffer | null>>();
+  /** A second of white noise, the stuff bursts are cut from. */
+  private hiss: AudioBuffer | null = null;
   private readonly lastPick = new Map<string, string>();
   private readonly timers = new Map<string, number>();
   private readonly positioned = new Set<{ at: Pos; gain: GainNode; pan: StereoPannerNode; volume: number }>();
@@ -197,8 +213,38 @@ export class Sound {
         if (place) place.volume = v;
         vol.gain.setTargetAtTime(v * (at ? this.spatial(at).gain : 1), ctx.currentTime, 0.1);
       },
-      setRate: (r) => src.playbackRate.setTargetAtTime(r, ctx.currentTime, 0.2),
     };
+  }
+
+  /** Make a sound from noise (a steam engine's chuff, a rail joint's clack); heard where it happens, as it starts. */
+  burst(b: Burst): void {
+    const ctx = this.ctx, master = this.master;
+    if (!ctx || !master || document.hidden || this.muted || ctx.state !== 'running') return;
+    const sp = b.at ? this.spatial(b.at) : { gain: 1, pan: 0 };
+    if (sp.gain <= 0) return;
+    if (!this.hiss) {
+      this.hiss = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const d = this.hiss.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = this.hiss;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = b.q;
+    const env = ctx.createGain();
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = sp.pan;
+    src.connect(band).connect(env).connect(pan).connect(master);
+    const t = ctx.currentTime + (b.delay ?? 0), end = t + b.attack + b.decay;
+    band.frequency.setValueAtTime(b.freq, t);
+    if (b.sweep) band.frequency.exponentialRampToValueAtTime(b.freq * b.sweep, end);
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(b.volume * sp.gain, t + b.attack);
+    env.gain.exponentialRampToValueAtTime(0.0001, end);
+    // (somewhere in the second of noise, so no two sound quite alike)
+    src.start(t, Math.random() * 0.5);
+    src.stop(end + 0.02);
   }
 
   /** Volume factor and stereo pan for a sound at `p`, heard from the listener. */

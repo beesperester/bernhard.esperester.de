@@ -57,6 +57,8 @@ export class CatView {
   depth = 0;
   /** Riding the train: drawn at its car's depth (between its back and front halves), not by its own feet. */
   ride: number | null = null;
+  /** Drawn this much higher than it is (px): the engine driver up on its seat, head and all over the cab's side. */
+  perch = 0;
   private last = { x: 0, y: 0, t: -1 };
   /** Our own cat: shown through trees and hills. Others hide behind them like anything else. */
   readonly local: boolean;
@@ -134,6 +136,7 @@ export class CatView {
     this.size = k;
     const z = this.z;
     const x = Math.round(this.x), y = Math.round(this.y);
+    const lift = Math.round(z) + this.perch;
     const dtm = now - this.last.t;
     if (this.last.t >= 0 && dtm > 0) {
       const inst = Math.hypot(this.x - this.last.x, this.y - this.last.y) / (dtm / 1000);
@@ -155,12 +158,12 @@ export class CatView {
     const dark = catLight.shade(this.x, this.y);
     this.shaded = dark < this.shaded ? dark : Math.min(dark, this.shaded + (dtm > 0 ? dtm / SHADE_IN_MS : 0));
     const shade = this.shaded;
-    this.sprite.setPosition(x, y - Math.round(z)).setDepth(d);
+    this.sprite.setPosition(x, y - lift).setDepth(d);
     this.frame = stageRow(stage) + frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
     if (shade > 0) this.sprite.setTint(Phaser.Display.Color.GetColor(255 - 90 * shade, 255 - 80 * shade, 255 - 50 * shade));
     else this.sprite.clearTint();
-    const top = y - Math.round(z);
+    const top = y - lift;
     const rim = catLight.rim * (1 - shade);
     this.rim.setVisible(rim > 0);
     if (rim > 0) this.rim.setPosition(x, top).setDepth(d + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour);
@@ -169,11 +172,11 @@ export class CatView {
     this.eyes.setVisible(glow);
     if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * (this.act === Act.Sleep ? 0 : 0.9));
     // our own cat, where a hill hides it: the covered part shows as a silhouette
-    const cover = this.local ? terrainCover(x, this.y, Math.round(z), CAT, CAT) : null;
+    const cover = this.local ? terrainCover(x, this.y, lift, CAT, CAT) : null;
     this.ghost.setVisible(!!cover);
     if (cover) {
-      const left = x - CAT / 2, top = y - Math.round(z) - CAT;
-      this.ghost.setPosition(x, y - Math.round(z)).setFrame(this.frame)
+      const left = x - CAT / 2, top = y - lift - CAT;
+      this.ghost.setPosition(x, y - lift).setFrame(this.frame)
         .setCrop(cover.x0 - left, cover.y0 - top, cover.x1 - cover.x0, cover.y1 - cover.y0);
     }
 
@@ -186,8 +189,8 @@ export class CatView {
       this.held.setTexture(this.act === Act.Feast ? this.heldKey : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2).setDepth(d + 0.5);
       // side on, the art faces left with the head at x=0: the head goes in the mouth, tail sticking out;
       // facing us, it is held crosswise in the mouth
-      if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5) * k, y - 6 * k - Math.round(z));
-      else this.held.setFlipX(false).setOrigin(0.3, 0.5).setPosition(x, y - 5 * k - Math.round(z));
+      if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5) * k, y - 6 * k - lift);
+      else this.held.setFlipX(false).setOrigin(0.3, 0.5).setPosition(x, y - 5 * k - lift);
     }
 
     // the name, just under the cat's feet (and under its shadow on a ledge)
@@ -207,7 +210,7 @@ export class CatView {
     this.bubble.setVisible(!!emote);
     if (emote) {
       const bob = Math.floor((mewing ? now - this.mewAt : ms) / 250) % 2;
-      const top = Math.round(y - (this.act === Act.Roll ? 12 : 17) * k) - Math.round(z);
+      const top = Math.round(y - (this.act === Act.Roll ? 12 : 17) * k) - lift;
       this.bubble.setTexture(emote).setPosition(x + Math.round(4 * k), top - bob).setDepth(100000);
     }
   }

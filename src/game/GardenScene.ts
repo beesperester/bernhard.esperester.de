@@ -41,7 +41,7 @@ import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { PEER, theNet, type Net, type NetEvents } from '../net/net.ts';
 import { Referee } from './Referee.ts';
-import { sound, type Playing } from '../audio/sound.ts';
+import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
 import { touch, setupUI, type Button } from '../ui/ui.ts';
 import { setCatCount } from '../ui/favicon.ts';
@@ -59,6 +59,8 @@ import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
 import { catnipUp } from '../art/furniture.ts';
 
+/** How high the engine driver sits up on its seat (px): its head well over the cab's side. */
+const DRIVER_SEAT = 4;
 // a cat that lands in the pond hops straight back out to dry land
 const HOP_MS = 480;
 const HOP_HEIGHT = 16;
@@ -187,12 +189,11 @@ export class GardenScene extends Phaser.Scene {
   private riding: { i: number; u: number; v: number } | null = null;
   /** Got on properly (F beside a car), not jumped in over the side. */
   private boarded = false;
-  /** The train's chuffing while it runs within earshot: the loop, where it's heard from, and when to try starting it next. */
-  private chuffing: Playing | null = null;
-  private readonly chuffAt = { x: 0, y: 0 };
-  private chuffTry = 0;
-  /** When the lok's chimney puffs next (s). */
+  /** When the lok's chimney puffs next (s), and how many it has puffed (every fourth is the strong one). */
   private chuffIn = 0;
+  private chuffs = 0;
+  /** How far the train has run since its wheels last went over a rail joint (px). */
+  private sinceJoint = 0;
   /** The D-pad as it was last frame (the driver works the throttle with it). */
   private lastDir = '';
   private catching: { swiped: boolean; got: Prey | null } | null = null;
@@ -551,7 +552,6 @@ export class GardenScene extends Phaser.Scene {
     this.me.render(time);
     this.train.render(this.cameras.main.worldView);
     this.chuff(dt);
-    this.chuffSound(time);
     this.wearCap();
 
     // follow the cat's feet on the terrain or up a tree (not mid-jump), so the view climbs the hills smoothly
@@ -655,7 +655,7 @@ export class GardenScene extends Phaser.Scene {
     const hiss = emote.emote === 'hiss', roll = emote.emote === 'roll', mew = emote.emote === 'mew';
     // a direction tapped twice dashes, for as long as it stays held
     const doubled = this.doubleTap.update(steer ? dir : '', now) && me.act !== Act.Jump;
-    const paw = this.paw.update(down(k.paw, 'paw'), now, me.act === Act.Jump);
+    const paw = this.paw.update(!driving && down(k.paw, 'paw'), now, me.act === Act.Jump);
     // let go after creeping with an arrow held: a leap that way, or at whatever is nearest more or less
     // that way (just short of it, so the paws land on it); with the dash still resting, only a swipe.
     // Let go with no arrow held, the cat just gets up (crouch, creep, stop, get up: no pounce)
@@ -920,7 +920,8 @@ export class GardenScene extends Phaser.Scene {
 
     // vertical: fall onto whatever surface is below (also when walking off a hedge or a branch);
     // on the way up, branches are jumped through
-    const ground = surfaceAt(me.x, me.y, me.z, this.dropFrom);
+    // (riding in a car, the cat stands on its floor: a bend turning a wall in under its paws doesn't lift it up there)
+    const ground = this.riding && this.boarded && me.z <= FLOOR_H + 1.5 ? FLOOR_H : surfaceAt(me.x, me.y, me.z, this.dropFrom);
     if (me.z > ground || this.vz > 0) {
       if (me.act !== Act.Jump) me.setAct(Act.Jump, now);
       this.vz -= GRAVITY * dt;
@@ -969,10 +970,10 @@ export class GardenScene extends Phaser.Scene {
       me.setAct(Act.Sit, now);
       this.nextLick = now + 2500 + Math.random() * 4000;
     }
-    if (me.act === Act.Sit && now >= this.nextLick) begin(Act.Lick);
-    // after a long while the cat curls up and falls asleep
-    // (but not at the controls)
-    if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS && !this.train.driving) me.setAct(Act.Sleep, now);
+    // (at the controls it just sits)
+    if (me.act === Act.Sit && now >= this.nextLick && !this.train.driving) begin(Act.Lick);
+    // after a long while the cat curls up and falls asleep (but not at the controls)
+    if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS && this.riding?.i !== 0) me.setAct(Act.Sleep, now);
     // a rest in a bird house, the tree house or a cardboard box: ready to dash again
     const resting = me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep;
     if (resting && ((on && HOUSES.has(on.kind)) || inBox(me.x, me.y, me.z))) this.dash.rest(now);
@@ -1020,11 +1021,19 @@ export class GardenScene extends Phaser.Scene {
       if (!this.hopOff(now, t.cars[this.riding.i])) this.boarded = true;
       return;
     }
-    if (settled && inCab(t.cars, me.x, me.y, me.z)) {
-      if (!t.driving && canDrive(me.stage) && t.free()) t.claim(gt);
+    // (in the cab by where it sits in the lok: a bend turning the lok under it doesn't get it out)
+    if (this.riding?.i === 0 && inCab(t.cars, me.x, me.y, FLOOR_H)) {
+      if (!t.driving && canDrive(me.stage) && t.free()) {
+        t.claim(gt);
+      }
       if (!t.driving) this.hopInto(now, { i: 1, u: 0, v: 0 });
-      // (the driver looks ahead)
-      else if (Math.abs(t.heading.x) > 0.3) me.facing = t.heading.x < 0 ? Facing.Left : Facing.Right;
+      else {
+        // (the driver looks ahead, sitting up at the controls, its head over the cab's side: never
+        // licking, lying down or nodding off there)
+        if (Math.abs(t.heading.x) > 0.3) me.facing = t.heading.x < 0 ? Facing.Left : Facing.Right;
+        else if (me.facing === Facing.Up) me.facing = Facing.Down;
+        if (me.act !== Act.Sit) me.setAct(Act.Sit, now);
+      }
       return;
     }
     if (t.driving) t.release(gt);
@@ -1116,17 +1125,33 @@ export class GardenScene extends Phaser.Scene {
     cat.ride = c.y;
   }
 
-  /** The lok puffs smoke as it goes: chuff, chuff, quicker the faster it runs. */
+  /**
+   * The lok as it goes: chuff, chuff, chuff, CHUFF from its chimney (made up on the spot from
+   * filtered noise), a puff of smoke every other beat, and clickety-clack at the rail joints,
+   * all quicker the faster it runs.
+   */
   private chuff(dt: number): void {
-    const v = Math.abs(this.train.speed);
+    const v = Math.abs(this.train.speed), lok = this.train.cars[0];
+    const k = Math.min(1, v / SPEEDS[NOTCHES]);
+    this.sinceJoint += v * dt;
+    if (this.sinceJoint >= 48) {
+      this.sinceJoint %= 48;
+      // (the front wheels, then the back ones of the same car)
+      for (const delay of [0, 0.11 - 0.05 * k]) sound.burst({ at: lok, volume: 0.1 + 0.08 * k, freq: 2600, q: 6, attack: 0.002, decay: 0.035, delay });
+    }
     if (v < 4) {
       this.chuffIn = 0;
+      this.chuffs = 0;
       return;
     }
     this.chuffIn -= dt;
     if (this.chuffIn > 0) return;
-    this.chuffIn = 30 / v;
-    const lok = this.train.cars[0], view = this.cameras.main.worldView;
+    this.chuffIn = 15 / v;
+    const strong = this.chuffs % 4 === 0;
+    // (slow: long, deep breaths; fast: short and sharp)
+    sound.burst({ at: lok, volume: (strong ? 0.5 : 0.32) * (0.6 + 0.4 * k), freq: (strong ? 520 : 700) + 300 * k, q: 1.1, attack: 0.012, decay: 0.26 - 0.14 * k, sweep: 0.55 });
+    if (this.chuffs++ % 2) return;
+    const view = this.cameras.main.worldView;
     const p = world(lok, lok.len / 2 - 5, 0);
     if (!view.contains(p.x, p.y)) return;
     // (the smoke trails back off the way it's going)
@@ -1134,37 +1159,13 @@ export class GardenScene extends Phaser.Scene {
     this.ambient.fx.smoke(p.x, p.y - 19, lok.y + 1, back);
   }
 
-  /** The train's chuffing, heard from the lok: louder and quicker the faster it goes, fading out when it stops. */
-  private chuffSound(now: number): void {
-    const v = Math.abs(this.train.speed), lok = this.train.cars[0];
-    this.chuffAt.x = lok.x;
-    this.chuffAt.y = lok.y;
-    const k = Math.min(1, v / SPEEDS[NOTCHES]);
-    const running = v > 2 && Math.hypot(lok.x - this.me.x, lok.y - this.me.y) < 360;
-    if (!running) {
-      this.chuffing?.stop(0.8);
-      this.chuffing = null;
-      return;
-    }
-    const volume = 0.3 + 0.5 * k, rate = 0.7 + 0.5 * k;
-    if (this.chuffing) {
-      this.chuffing.setVolume(volume);
-      this.chuffing.setRate(rate);
-    } else if (now >= this.chuffTry) {
-      // (it may not start: the sound off, the tab hidden, not loaded yet; try again in a moment)
-      this.chuffTry = now + 1000;
-      void sound.play('chuff', { at: this.chuffAt, loop: true, volume, rate, fade: 0.5 }).then((p) => {
-        if (p && this.chuffing) p.stop(0);
-        else this.chuffing = p;
-      });
-    }
-  }
-
   /** The engine driver's cap, on whoever drives. */
   private wearCap(): void {
     const t = this.train, cap = t.cap;
     const id = t.driving ? this.me.id : t.driver;
     const cat = id === this.me.id ? this.me : id ? this.remotes.get(id) : undefined;
+    // (only the driver sits up on the seat)
+    for (const c of [this.me, ...this.remotes.values()]) c.perch = c === cat && c.act === Act.Sit ? DRIVER_SEAT : 0;
     if (!cat) {
       cap.setVisible(false);
       return;
@@ -1172,7 +1173,7 @@ export class GardenScene extends Phaser.Scene {
     const k = cat.size;
     const side = cat.facing === Facing.Left ? -1 : cat.facing === Facing.Right ? 1 : 0;
     cap.setVisible(true).setFlipX(side < 0)
-      .setPosition(Math.round(cat.x + side * 3 * k), Math.round(cat.y - cat.z - 12 * k))
+      .setPosition(Math.round(cat.x + side * 3 * k), Math.round(cat.y - cat.z - cat.perch - 12 * k))
       .setDepth(cat.depth + 0.01);
   }
 
