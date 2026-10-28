@@ -95,7 +95,7 @@ function setupHelp(onTouch: boolean, onOpen: (open: boolean) => void): { nudged:
   });
   dialog.querySelector('.close')!.addEventListener('click', () => show(false));
   window.addEventListener('keydown', (e) => {
-    if (e.target instanceof HTMLInputElement) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (e.key === '?') show(!isOpen());
     else if (isOpen() && (e.key === 'Escape' || e.key === 'Enter')) show(false);
   });

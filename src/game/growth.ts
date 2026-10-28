@@ -9,8 +9,9 @@ import { Prey } from './state.ts';
 // pounce, lure fish over with a splash, paw at a tree to shake things down,
 // and snatch birds and bats out of the air.
 //
-// How grown a cat is goes with the browser (like its name and its key), not
-// with a garden: a new garden starts its scoreboard at 0, but not the cat.
+// How grown a cat is goes by the most its chain of catches ever added up to
+// (net/ledger.ts): it goes with the cat (its key, in this browser or on its
+// collar tag), not with a garden, and a bee sting doesn't make it smaller.
 
 export const Stage = { Kitten: 0, Young: 1, Grown: 2 } as const;
 export type Stage = (typeof Stage)[keyof typeof Stage];
@@ -49,23 +50,3 @@ export function canCatch(stage: Stage, kind: Prey, air = false): boolean {
 export const canPounce = (stage: Stage): boolean => stage === Stage.Grown;
 export const canLure = (stage: Stage): boolean => stage === Stage.Grown;
 export const canShake = (stage: Stage): boolean => stage === Stage.Grown;
-
-const KEY = 'cat-growth';
-
-/** Points this browser's cat has eaten, all gardens together. */
-export function loadGrowth(): number {
-  try {
-    const n = Number(localStorage.getItem(KEY));
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-  } catch {
-    return 0;
-  }
-}
-
-export function saveGrowth(points: number): void {
-  try {
-    localStorage.setItem(KEY, String(Math.max(0, Math.floor(points))));
-  } catch {
-    // (private window: the cat grows up again next time)
-  }
-}

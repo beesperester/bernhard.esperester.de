@@ -35,6 +35,26 @@ addEventListener('pagehide', () => {
   try { localStorage.setItem('cat-left', String(Date.now())); } catch { /* storage unavailable */ }
 });
 
+// A garden lasts as long as there are cats in it: each one that arrives is
+// handed the seed. The last cat to leave keeps it a while, though: should it
+// be back within RETURN_WITHIN_MS to find the garden empty, it's the same
+// garden again (for anyone else it's gone: they plant a new one).
+const KEPT = 'garden-kept', KEEP_EVERY_MS = 30_000;
+
+/** The seed of the garden this browser was last in, if it was there within RETURN_WITHIN_MS. */
+function keptSeed(garden: number): WorldSeed | null {
+  try {
+    const [g, seed, born, at] = JSON.parse(localStorage.getItem(KEPT) ?? 'null') as number[];
+    const s = sanitizeSeed([seed, born]);
+    return s && g === garden && Date.now() - at < RETURN_WITHIN_MS ? s : null;
+  } catch {
+    return null;
+  }
+}
+function keepSeed(garden: number, s: WorldSeed): void {
+  try { localStorage.setItem(KEPT, JSON.stringify([garden, s.seed, s.born, Date.now()])); } catch { /* storage unavailable */ }
+}
+
 // Moving to another garden means laying out another park, so the page starts
 // over: these say where to go (the next garden when this one is full; or
 // this garden, grown from an older seed that turned up), for the next load only.
@@ -158,7 +178,7 @@ export class Net {
           return;
         }
         this.looking = null;
-        resolve(this.plant(this.offered ?? newSeed()));
+        resolve(this.plant(this.offered ?? keptSeed(this.garden) ?? newSeed()));
       };
       tick();
     });
@@ -168,6 +188,11 @@ export class Net {
   private plant(s: WorldSeed): WorldSeed {
     this.planted = s;
     this.sendSeed?.([s.seed, s.born]);
+    // (kept now and then, and on leaving: should we be the last cat here and come back)
+    const keep = () => !this.leaving && keepSeed(this.garden, s);
+    keep();
+    setInterval(keep, KEEP_EVERY_MS);
+    addEventListener('pagehide', keep);
     return s;
   }
 

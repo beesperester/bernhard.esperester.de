@@ -4,7 +4,9 @@ import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
 import { setupFullscreen } from './ui/fullscreen.ts';
 import { loading } from './ui/loading.ts';
-import { Identity, useIdentity } from './net/identity.ts';
+import { Identity, useIdentity, verify } from './net/identity.ts';
+import { Chain } from './net/ledger.ts';
+import { idbChainStore, useChain } from './net/chainStore.ts';
 import { Net, useNet } from './net/net.ts';
 import { plant } from './world/seed.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
@@ -18,8 +20,12 @@ loading(0.15, 600);
 const net = new Net();
 useNet(net);
 net.start();
-// who we are: this browser's key pair (made on the first visit)
-useIdentity(await Identity.load());
+// who we are: this browser's key pair (made on the first visit), and what our cat has eaten
+const me = await Identity.load();
+useIdentity(me);
+const chain = new Chain(me.id, (l) => me.sign(l), idbChainStore);
+await chain.load(verify);
+useChain(chain);
 // text drawn into the game (names, scores) needs the font ready; don't wait forever for it
 await Promise.race([
   Promise.all([document.fonts.load('16px "Pixelify Sans"'), document.fonts.load('bold 16px "Pixelify Sans"')]),

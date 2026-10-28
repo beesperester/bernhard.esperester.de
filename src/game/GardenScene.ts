@@ -6,7 +6,7 @@ import { buildProps, type Prop } from '../art/trees.ts';
 import type { Raster } from '../art/raster.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
 import { HOUSES, TREES, standingOn, surfaceAt } from '../world/trees.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, WALL, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow } from './Meadow.ts';
@@ -40,12 +40,15 @@ import { sound } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
 import { touch, setupUI, type Button } from '../ui/ui.ts';
 import { setCatCount } from '../ui/favicon.ts';
-import { Board, NAME_AT, verifyBoard, type Pose } from './Board.ts';
+import { Board, NAME_AT, verifyBoard } from './Board.ts';
 import { identity, verify } from '../net/identity.ts';
-import { RESUME_MS } from '../net/witness.ts';
+import { theChain } from '../net/chainStore.ts';
+import type { Chain } from '../net/ledger.ts';
+import { worldSeed } from '../world/seed.ts';
 import { askName, renderBoard } from '../ui/board.ts';
+import { setupCollar } from '../ui/collar.ts';
 import { cullerFor } from './Culler.ts';
-import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canPounce, canShake, loadGrowth, nextAt, saveGrowth, stageOf } from './growth.ts';
+import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canPounce, canShake, nextAt, stageOf } from './growth.ts';
 import { Fader } from '../ui/fader.ts';
 import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
@@ -78,13 +81,13 @@ function loadCoat(): number {
 }
 
 /**
- * How long the garden stays behind its curtain once it is laid out: a moment,
- * or, with other cats here, long enough for one that remembers us (from
- * before a reload) to say so; HELLO_MS more for each cat that turns up
- * meanwhile, up to LAST_LOOK_MS. (The waiting for the cats to connect at all
- * was done before: net.ts, seed().)
+ * How long the garden stays behind its curtain once it is laid out. (The
+ * waiting for the cats to connect at all was done before: net.ts, seed().)
  */
-const FIRST_LOOK_MS = 300, HELLO_MS = 1200, LAST_LOOK_MS = 4000;
+const FIRST_LOOK_MS = 300;
+
+/** Where to put a cat: x, y, height, facing. */
+type Pose = [number, number, number, number];
 
 export class GardenScene extends Phaser.Scene {
   private me!: CatView;
@@ -121,8 +124,8 @@ export class GardenScene extends Phaser.Scene {
   private board!: Board;
   /** Offered a name of our own already (or the dialog is open). */
   private naming = false;
-  /** Points this cat has eaten, all gardens together: how grown up it is (growth.ts). */
-  private growth = 0;
+  /** Our chain of catches: our score, and how grown up our cat is (growth.ts). */
+  private chain!: Chain;
   private camAnchor!: Phaser.GameObjects.Zone;
   /** Smoothed terrain height under the cat, so the view rises with the hills. */
   private camZ = 0;
@@ -139,9 +142,8 @@ export class GardenScene extends Phaser.Scene {
   private lighting!: Lighting;
   private readonly dash = new Dash();
   private lastDry = { x: 0, y: 0, z: 0 };
-  /** When we arrived, and whether a cat that stayed has put us back where we were before a reload. */
+  /** When we arrived. */
   private arrived = 0;
-  private resumed = false;
   /**
    * The garden stays behind a curtain until we know where our cat belongs: a
    * moment to hear from the cats here (longer while new ones are still saying
@@ -238,8 +240,8 @@ export class GardenScene extends Phaser.Scene {
     const [sx, sy] = spawns[Math.floor(Math.random() * spawns.length)];
     const now = this.time.now;
     this.me = new CatView(this, sx, sy, loadCoat(), true);
-    this.growth = loadGrowth();
-    this.me.stage = stageOf(this.growth);
+    this.chain = theChain();
+    this.me.stage = stageOf(this.chain.top);
     this.lastDry = { x: sx, y: sy, z: 0 };
     this.lastInput = now;
     this.arrived = now;
@@ -269,6 +271,9 @@ export class GardenScene extends Phaser.Scene {
     // the keys belong to the help sign while it is up
     this.ui = setupUI((open) => {
       kb.enabled = !open;
+      // (and the arrow keys and space go to the collar tag's text field meanwhile)
+      if (open) kb.disableGlobalCapture();
+      else kb.enableGlobalCapture();
       kb.resetKeys();
     });
     this.ui.setStatus('looking for other cats…');
@@ -276,12 +281,12 @@ export class GardenScene extends Phaser.Scene {
     const me = identity();
     this.board = new Board(
       this.me.coat,
-      { id: me.id, peer: PEER, sign: (d) => me.sign(d), now: () => this.net.now() },
+      { id: me.id, peer: PEER, sign: (d) => me.sign(d), now: () => this.net.now(), chain: this.chain, check: verify, seed: worldSeed().seed },
       (msg, target) => this.net.board(msg, target),
       () => renderBoard(this.board.ranking(), this.board.id),
     );
-    this.board.onBack = (pose) => this.resume(pose);
     renderBoard(this.board.ranking(), this.board.id);
+    setupCollar(() => ({ name: this.board.me.name, custom: this.board.me.custom, coat: this.me.coat }));
     this.net = theNet();
     const events: NetEvents = {
       onState: (id, msg) => {
@@ -313,10 +318,8 @@ export class GardenScene extends Phaser.Scene {
         this.updateStatus();
       },
       onJoin: (id) => {
-        // (give a cat that may remember us time to say so)
-        if (!this.revealed) this.revealAt = Math.min(this.arrived + LAST_LOOK_MS, Math.max(this.revealAt, this.time.now + HELLO_MS));
         this.referee.join(id);
-        this.board.greet(id);
+        this.board.greet(id, performance.now());
         const { caught, shakes } = this.ambient.memory(this.net.now());
         this.net.world({ caught, shakes }, id);
       },
@@ -327,7 +330,7 @@ export class GardenScene extends Phaser.Scene {
       // (only what checks out: signed by whom it says, the sender's own entry for this very connection)
       onBoard: (id, msg) => {
         void verifyBoard(id, msg, this.net.now(), verify).then((ok) => {
-          if (ok && !this.referee.ignored(id)) this.board.receive(id, ok);
+          if (ok && !this.referee.ignored(id)) this.board.receive(id, ok, performance.now());
         });
       },
       onStatus: (garden) => {
@@ -351,7 +354,7 @@ export class GardenScene extends Phaser.Scene {
         // (and nothing too big for it: a kitten doesn't catch birds)
         return { ok: !!seen && canCatch(cat!.stage, kind, seen.air), points: preyPoints(kind, seen?.colour ?? 0) };
       },
-      confirmed: (peer, points) => this.board.credit(peer, points),
+      refused: (peer, kind, id) => this.board.refuse(peer, kind, id),
       ignore: (peer) => {
         this.remotes.get(peer)?.destroy();
         this.remotes.delete(peer);
@@ -433,7 +436,7 @@ export class GardenScene extends Phaser.Scene {
     const n = this.remotes.size;
     const others = n === 0 ? 'just you so far' : n === 1 ? '1 other cat' : `${n} other cats`;
     const next = nextAt(this.me.stage);
-    const age = next === null ? '' : ` · ${STAGE_NAMES[this.me.stage]} ${this.growth}/${next}`;
+    const age = next === null ? '' : ` · ${STAGE_NAMES[this.me.stage]} ${this.chain.top}/${next}`;
     this.ui.setStatus(`garden ${this.garden} · ${others} · ${berlinClock(this.net.now())}${age}`);
     setCatCount(n + 1);
   }
@@ -447,6 +450,7 @@ export class GardenScene extends Phaser.Scene {
     this.updateLocal(time, dt);
     // (the referee goes by the page clock: messages keep coming while the tab is hidden and Phaser's clock stands still)
     this.referee.update(performance.now());
+    this.board.update(performance.now());
 
     this.me.name = this.board.me.name;
     // the garden clock is shared by all visitors, so wind and fauna line up
@@ -598,8 +602,6 @@ export class GardenScene extends Phaser.Scene {
       me.setAct(Act.Roll, now - (ROLL_MS - TUMBLE_MS));
     }
     this.ui.setDashCooldown(Math.ceil(this.dash.cooldown(now) / 1000));
-    // where we are, signed now and then, for the cats to remember should we leave and come back
-    if (this.revealed) this.board.moved(me.x, me.y, me.z, me.facing, now);
     if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || mew || grab)) me.setAct(Act.Idle, now);
 
@@ -611,7 +613,7 @@ export class GardenScene extends Phaser.Scene {
         me.facing = facingTowards(me, prey);
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
-        this.ate(prey.kind, prey.colour);
+        this.ate(prey.kind, prey.id, prey.colour);
         this.airCatch.got = prey.kind;
       }
     }
@@ -641,7 +643,7 @@ export class GardenScene extends Phaser.Scene {
         me.facing = facingTowards(me, prey);
         this.ambient.catchPrey(prey.kind, prey.id, me);
         this.net.catchPrey(prey.kind, prey.id);
-        this.ate(prey.kind, prey.colour);
+        this.ate(prey.kind, prey.id, prey.colour);
         this.catching = { swiped: true, got: prey.kind };
         this.dash.stop(now);
         begin(Act.Catch);
@@ -657,7 +659,7 @@ export class GardenScene extends Phaser.Scene {
         if (prey) {
           this.ambient.catchPrey(prey.kind, prey.id, me);
           this.net.catchPrey(prey.kind, prey.id);
-          this.ate(prey.kind, prey.colour);
+          this.ate(prey.kind, prey.id, prey.colour);
           c.got = prey.kind;
         }
       }
@@ -782,27 +784,8 @@ export class GardenScene extends Phaser.Scene {
     if (on && HOUSES.has(on.kind) && (me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep)) this.dash.rest(now);
   }
 
-  /**
-   * A cat that stayed in the garden remembers where ours was before a reload:
-   * carry on from there, if we've only just arrived (and it's somewhere a cat can be).
-   */
-  private resume(pose: Pose): void {
-    if (this.resumed || this.time.now - this.arrived > RESUME_MS) return;
-    const [x, y, z0] = pose;
-    const z = surfaceAt(x, y, z0 + 4);
-    if (heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1, z + 4) >= WALL || Math.abs(z - z0) > 4) return;
-    this.resumed = true;
-    // still behind the curtain: just be there when it opens. Already showing: dither out, move, dither back in
-    if (!this.revealed) {
-      this.placeAt(pose, z);
-      this.reveal();
-    } else void this.fader.close().then(() => {
-      this.placeAt(pose, z);
-      void this.fader.reveal(500);
-    });
-  }
-
-  private placeAt([x, y, , facing]: Pose, z: number): void {
+  /** Put our cat somewhere (handy from the console while developing). */
+  placeAt([x, y, , facing]: Pose, z: number): void {
     const me = this.me;
     Object.assign(me, { x, y, z });
     if (Object.values(Facing).includes(facing as Facing)) me.facing = facing as Facing;
@@ -825,14 +808,19 @@ export class GardenScene extends Phaser.Scene {
     void this.fader.reveal();
   }
 
-  /** Count a catch (bigger prey, more points), and at NAME_AT snacks offer a name of our own. */
-  private ate(kind: Prey, colour: number): void {
+  /** Count a catch (bigger prey, more points: a block on our chain), and at NAME_AT snacks offer a name of our own. */
+  private ate(kind: Prey, id: number, colour: number): void {
     const points = preyPoints(kind, colour);
-    this.board.ate(points);
     this.scorePop(points);
+    void this.board.ate(kind, id, points).then((counted) => {
+      if (counted) this.grown();
+    });
+  }
+
+  private grown(): void {
     const me = this.board.me;
-    if (points > 0) this.grow(points);
-    if (this.growth < NAME_AT || me.custom || this.naming || asked(this.board.id)) return;
+    this.grow();
+    if (this.chain.top < NAME_AT || me.custom || this.naming || asked(this.board.id)) return;
     this.naming = true;
     // the keyboard belongs to the text field while the dialog is open
     const kb = this.input.keyboard!;
@@ -848,11 +836,9 @@ export class GardenScene extends Phaser.Scene {
   }
 
   /** Eating makes a cat grow up: on reaching a stage, a sparkle and a chime, and it grows to its new size. */
-  private grow(points: number): void {
+  private grow(): void {
     const before = this.me.stage;
-    this.growth += points;
-    saveGrowth(this.growth);
-    this.me.stage = stageOf(this.growth);
+    this.me.stage = stageOf(this.chain.top);
     if (this.me.stage !== before) {
       sound.jingle();
       this.sparkle();

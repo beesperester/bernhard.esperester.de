@@ -1,8 +1,8 @@
 // Who a cat is, provably. Every browser has a key pair of its own (ECDSA P-256,
-// from the browser's built-in crypto): the private key never leaves it (it is
-// kept non-extractable in IndexedDB), and the cat's id is a hash of the public
-// key, so no one else can speak for that cat. What a cat says about itself
-// (its scoreboard entry, where it is) it signs, and the other cats pass it on
+// from the browser's built-in crypto): the private key stays in it (kept in
+// IndexedDB; it leaves only on a collar tag the player copies, collar.ts), and
+// the cat's id is a hash of the public key, so no one else can speak for that
+// cat. What a cat says about itself (its scoreboard entry, its catches) it signs, and the other cats pass it on
 // exactly as signed: change a byte and the signature no longer fits, and the
 // next cat throws it away. Each signed statement carries the garden clock, so
 // of two versions the newer one wins.
@@ -18,12 +18,12 @@ const ALGO = { name: 'ECDSA', namedCurve: 'P-256' } as const;
 const SIGN = { name: 'ECDSA', hash: 'SHA-256' } as const;
 const DB = 'cat-garden', STORE = 'keys', KEY = 'me';
 
-const b64 = (bytes: ArrayBuffer | Uint8Array): string => {
+export const b64 = (bytes: ArrayBuffer | Uint8Array): string => {
   let s = '';
   for (const b of new Uint8Array(bytes)) s += String.fromCharCode(b);
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 };
-const unb64 = (s: string): Uint8Array<ArrayBuffer> => {
+export const unb64 = (s: string): Uint8Array<ArrayBuffer> => {
   const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
@@ -64,12 +64,45 @@ export class Identity {
   /** Our key pair: the one this browser has always had, or a new one (kept for next time, where it can be). */
   static async load(): Promise<Identity> {
     let pair = await readPair();
-    if (!pair) {
-      pair = await crypto.subtle.generateKey(ALGO, false, ['sign', 'verify']);
+    // (a key that can't be read out can't go on a collar tag: such a cat starts over)
+    if (!pair || !pair.privateKey.extractable) {
+      pair = await crypto.subtle.generateKey(ALGO, true, ['sign', 'verify']);
       await writePair(pair);
     }
+    return Identity.of(pair);
+  }
+
+  /** A new identity, not kept anywhere (tests). */
+  static async make(): Promise<Identity> {
+    return Identity.of(await crypto.subtle.generateKey(ALGO, true, ['sign', 'verify']));
+  }
+
+  private static async of(pair: CryptoKeyPair): Promise<Identity> {
     const raw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
     return new Identity(await idOf(raw), b64(raw), pair.privateKey);
+  }
+
+  /** The private key, to write on a collar tag (collar.ts). */
+  async secret(): Promise<JsonWebKey> {
+    const { kty, crv, x, y, d } = await crypto.subtle.exportKey('jwk', this.key);
+    return { kty, crv, x, y, d };
+  }
+
+  /** The cat a collar tag's key belongs to (null if it isn't a key). `keep`: from now on, this browser's cat. */
+  static async adopt(jwk: JsonWebKey, keep: boolean): Promise<Identity | null> {
+    try {
+      const privateKey = await crypto.subtle.importKey('jwk', { ...jwk, key_ops: ['sign'], ext: true }, ALGO, true, ['sign']);
+      const { kty, crv, x, y } = jwk;
+      const publicKey = await crypto.subtle.importKey('jwk', { kty, crv, x, y, key_ops: ['verify'], ext: true }, ALGO, true, ['verify']);
+      const pair = { privateKey, publicKey };
+      const me = await Identity.of(pair);
+      // (the key must really be a pair: sign something and check it)
+      if (!(await verify(await me.sign({ test: 1 }), me.id))) return null;
+      if (keep) await writePair(pair);
+      return me;
+    } catch {
+      return null;
+    }
   }
 
   async sign<T extends object>(d: T): Promise<Signed<T>> {
@@ -118,11 +151,14 @@ export function signedShape(x: unknown): Signed<Record<string, unknown>> | null 
 
 // ---- keeping the key pair (IndexedDB can hold a key the page itself can't read out) ----
 
-function open(): Promise<IDBDatabase | null> {
+export function open(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
     try {
-      const req = indexedDB.open(DB, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      const req = indexedDB.open(DB, 2);
+      // (the chain of catches lives here too: chain.ts)
+      req.onupgradeneeded = () => {
+        for (const name of [STORE, 'chain', 'checks']) if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name);
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
     } catch {

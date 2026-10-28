@@ -1,5 +1,5 @@
 // The scoreboard in the corner, and the dialog for naming your cat.
-import { NAME_AT, NAME_MAX, type Entry } from '../game/Board.ts';
+import { NAME_AT, NAME_MAX, type Row } from '../game/Board.ts';
 import { WOODS, buildPlank, rasterURL } from '../art/plank.ts';
 import { CAT, buildCatSheet, frameIndex } from '../art/cat.ts';
 import { Raster } from '../art/raster.ts';
@@ -36,7 +36,7 @@ function plankArt() {
   return planks;
 }
 
-export function renderBoard(rows: (Entry & { here: boolean })[], myId: string): void {
+export function renderBoard(rows: Row[], myId: string): void {
   const list = document.querySelector<HTMLOListElement>('#board ol')!;
   const art = plankArt();
   const top = rows.filter((r) => r.score > 0 || r.id === myId).slice(0, SHOWN);

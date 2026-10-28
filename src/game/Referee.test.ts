@@ -7,47 +7,47 @@ import { groundAt, spawnPoints } from '../world/map.ts';
 
 function setup(seen = true) {
   const votes: VoteMsg[] = [];
-  const confirmed: [string, number][] = [];
+  const refused: [string, number, number][] = [];
   const ignored: string[] = [];
   const ref = new Referee('me', {
     vote: (m) => votes.push(m),
     judgeCatch: () => (seen ? { ok: true, points: 3 } : { ok: false, points: 3 }),
-    confirmed: (p, n) => confirmed.push([p, n]),
+    refused: (p, k, i) => refused.push([p, k, i]),
     ignore: (p) => ignored.push(p),
   });
-  return { ref, votes, confirmed, ignored };
+  return { ref, votes, refused, ignored };
 }
 
 const [sx, sy] = spawnPoints()[0];
 const at = (x: number, y: number, act: number = Act.Idle): CatMsg => [x, y, groundAt(x, y), 0, act, 0, 0, 0, 2];
 
 describe('the referee', () => {
-  it('confirms a catch it saw, votes for it, and credits the points', () => {
-    const { ref, votes, confirmed } = setup();
+  it('confirms a catch it saw, and votes for it', () => {
+    const { ref, votes, refused } = setup();
     ref.join('cat');
     expect(ref.claim('cat', Prey.Fish, 1, 0)).toBe(true);
     expect(votes).toEqual([['c', 'cat', Prey.Fish, 1, true]]);
     ref.update(1);
-    expect(confirmed).toEqual([['cat', 3]]);
+    expect(refused).toEqual([]);
   });
 
-  it('votes against a catch it didn’t see, and doesn’t show it', () => {
-    const { ref, votes, confirmed } = setup(false);
+  it('votes against a catch it didn’t see, doesn’t show it, and turns it down', () => {
+    const { ref, votes, refused } = setup(false);
     ref.join('cat');
     expect(ref.claim('cat', Prey.Fish, 1, 0)).toBe(false);
     expect(votes[0][4]).toBe(false);
     ref.update(VOTE_MS);
-    expect(confirmed).toEqual([]);
+    expect(refused).toEqual([['cat', Prey.Fish, 1]]);
   });
 
   it('goes with the majority even against its own judgement', () => {
-    const { ref, confirmed } = setup(false);
+    const { ref, refused } = setup(false);
     for (const p of ['cat', 'w1', 'w2']) ref.join(p);
     ref.claim('cat', Prey.Fish, 1, 0);
     ref.receiveVote('w1', ['c', 'cat', Prey.Fish, 1, true], 1);
     ref.receiveVote('w2', ['c', 'cat', Prey.Fish, 1, true], 2);
     ref.update(3);
-    expect(confirmed).toEqual([['cat', 3]]);
+    expect(refused).toEqual([]);
   });
 
   it('doesn’t believe catches in quick succession', () => {
@@ -91,7 +91,7 @@ describe('the referee', () => {
 
   it('abstains when it wasn’t watching', () => {
     const votes: VoteMsg[] = [];
-    const ref = new Referee('me', { vote: (m) => votes.push(m), judgeCatch: () => null, confirmed: () => {}, ignore: () => {} });
+    const ref = new Referee('me', { vote: (m) => votes.push(m), judgeCatch: () => null, refused: () => {}, ignore: () => {} });
     ref.join('cat');
     expect(ref.claim('cat', Prey.Fish, 1, 0)).toBe(true);
     expect(votes).toEqual([]);

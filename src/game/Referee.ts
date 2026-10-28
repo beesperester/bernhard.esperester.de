@@ -6,8 +6,8 @@ import type { VoteMsg } from '../net/protocol.ts';
 
 // Our part in keeping the garden fair: we watch the other cats (witness.ts),
 // judge their catches, vote, and go along with what the majority decides
-// (consensus.ts). Confirmed catches go on the scoreboard; a cat the garden
-// decides to ignore disappears for us.
+// (consensus.ts). A catch the garden turns down doesn't count on the
+// scoreboard; a cat the garden decides to ignore disappears for us.
 
 /** A cat can't catch things quicker than this (a catch and the shortest snack take longer). */
 const CATCH_EVERY_MS = 1000;
@@ -17,8 +17,8 @@ export interface RefereeDeps {
   vote(msg: VoteMsg): void;
   /** Did we see that prey within that cat's reach just now? Its points if so; null if we can't tell. */
   judgeCatch(peer: string, kind: Prey, id: number): { ok: boolean; points: number } | null;
-  /** The garden confirmed a catch. */
-  confirmed(peer: string, points: number): void;
+  /** The garden turned down a catch. */
+  refused(peer: string, kind: Prey, id: number): void;
   /** The garden decided to ignore this cat. */
   ignore(peer: string): void;
 }
@@ -100,8 +100,10 @@ export class Referee {
   update(now: number): void {
     for (const s of this.consensus.settle(now)) {
       if (this.ignored(s.catcher)) continue;
-      if (s.ok) this.deps.confirmed(s.catcher, s.points);
-      else if (s.ok === false) this.strike(s.catcher, now);
+      if (s.ok === false) {
+        this.deps.refused(s.catcher, s.kind as Prey, s.id);
+        this.strike(s.catcher, now);
+      }
     }
     for (const suspect of this.accusing)
       if (!this.strikes.accused(suspect, now)) {
