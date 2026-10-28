@@ -55,6 +55,8 @@ export class CatView {
   speed = 0;
   /** Where it is drawn among things standing in the garden (its feet, or in front of the tree it is up). */
   depth = 0;
+  /** Riding the train: drawn at its car's depth (between its back and front halves), not by its own feet. */
+  ride: number | null = null;
   private last = { x: 0, y: 0, t: -1 };
   /** Our own cat: shown through trees and hills. Others hide behind them like anything else. */
   readonly local: boolean;
@@ -143,7 +145,7 @@ export class CatView {
     const folly = tree < 0 ? upOnFolly(this.x, this.y, z) : null;
     // (sorted by where it really is, not the rounded pixel it's drawn at: pressed up against a
     // cliff from behind, it stands a hair short of the cliff's row and must stay behind it)
-    const d = tree >= 0 ? TREES[tree].y + 0.6 : folly !== null ? folly + 0.6 : this.y;
+    const d = this.ride ?? (tree >= 0 ? TREES[tree].y + 0.6 : folly !== null ? folly + 0.6 : this.y);
     this.depth = d;
     // the shadow lies on whatever surface is below the cat
     const below = Math.round(surfaceAt(this.x, this.y, z));
@@ -228,6 +230,8 @@ export class RemoteCat extends CatView {
   ty: number;
   tz: number;
   lastSeen = 0;
+  /** Where in the train it rides, as we see it (the car's index, along it, across it), or null. */
+  seat: { i: number; u: number; v: number } | null = null;
 
   constructor(scene: Phaser.Scene, msg: CatMsg, now: number) {
     super(scene, msg[0], msg[1], msg[6]);

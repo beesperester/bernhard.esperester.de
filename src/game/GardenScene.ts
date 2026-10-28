@@ -32,7 +32,11 @@ import { SEASON, rainfall } from '../world/season.ts';
 import { Weather } from './Weather.ts';
 import { Ambient } from './Ambient.ts';
 import { DoubleTap, Emotes, Paw, dirOf } from './controls.ts';
-import { DASH_MS, DASH_SPEED, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
+import { Railway } from './Railway.ts';
+import { TrainView } from './TrainView.ts';
+import { CAR_W } from '../art/train.ts';
+import { FLOOR_H, aboard, inCab, local, poses, startState, trainUnder, world, type CarPose } from './train.ts';
+import { DASH_MS, DASH_SPEED, STEP_UP, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { PEER, theNet, type Net, type NetEvents } from '../net/net.ts';
@@ -49,7 +53,7 @@ import { worldSeed } from '../world/seed.ts';
 import { askName, renderBoard } from '../ui/board.ts';
 import { setupCollar } from '../ui/collar.ts';
 import { cullerFor } from './Culler.ts';
-import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canPounce, canShake, nextAt, stageOf } from './growth.ts';
+import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canDrive, canPounce, canShake, nextAt, stageOf } from './growth.ts';
 import { Fader } from '../ui/fader.ts';
 import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
@@ -176,7 +180,13 @@ export class GardenScene extends Phaser.Scene {
   private dropFrom = Infinity;
   /** Our velocity, kept up only on ice (anywhere else the cat goes where the keys say). */
   private vel = { x: 0, y: 0 };
-  private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number } | null = null;
+  /** A hop somewhere (out of the pond, off the track, into a waggon: then it lands where that is by then). */
+  private hop: { fx: number; fy: number; tx: number; ty: number; tz: number; t0: number; car?: { i: number; u: number; v: number } } | null = null;
+  private train!: TrainView;
+  /** Where in the train our cat rides (car, along it, across it), or null. */
+  private riding: { i: number; u: number; v: number } | null = null;
+  /** The D-pad as it was last frame (the driver works the throttle with it). */
+  private lastDir = '';
   private catching: { swiped: boolean; got: Prey | null } | null = null;
   /** A swipe made in mid-jump (one per jump), and what it got, to eat on landing. */
   private airCatch: { got: Prey | null } | null = null;
@@ -198,6 +208,7 @@ export class GardenScene extends Phaser.Scene {
     this.trees = new Trees(this, props, canvases.props);
     const furniture = (this.furniture = new Furniture(this, toCanvas));
     this.landmarks = new Landmarks(this, toCanvas);
+    new Railway(this, toCanvas);
     const standing = [...furniture.pieces, ...this.landmarks.pieces];
     // birds sing from a tree somewhere near you, preferably one with a bird in it
     sound.setSource('birds', () => {
@@ -341,6 +352,14 @@ export class GardenScene extends Phaser.Scene {
         if (cat && Math.abs(gt - this.net.now()) < 5000 && trunkNear(cat.x, cat.y, cat.z, 24) === tree) this.ambient.shakeTree(tree, gt);
       },
       onVote: (id, msg) => this.referee.receiveVote(id, msg, performance.now()),
+      // the train's driver says where it is (believed of a grown cat sitting in the lok's cab, as far as we can see)
+      onTrain: (id, msg) => {
+        const cat = this.remotes.get(id);
+        if (!cat || this.referee.ignored(id)) return;
+        // (in the cab of the train where it says the train is: ours may be standing still in a background tab)
+        const seat = aboard(poses(msg[0]), cat.tx, cat.ty, cat.tz, 2 + Math.abs(msg[1]) * 0.3);
+        this.train.receive(id, msg, this.net.now(), performance.now(), canDrive(cat.stage) && seat?.i === 0);
+      },
       onLeave: (id) => {
         this.referee.leave(id);
         this.remotes.get(id)?.destroy();
@@ -352,11 +371,13 @@ export class GardenScene extends Phaser.Scene {
         this.referee.join(id);
         this.board.greet(id, performance.now());
         const { caught, shakes } = this.ambient.memory(this.net.now());
-        this.net.world({ caught, shakes }, id);
+        this.net.world({ caught, shakes, train: this.train.account(this.net.now()) }, id);
       },
       // what a cat already here knows: prey that's gone, fruit lying about
       onWorld: (id, msg) => {
-        if (!this.referee.ignored(id)) this.ambient.recall(msg.caught, msg.shakes);
+        if (this.referee.ignored(id)) return;
+        this.ambient.recall(msg.caught, msg.shakes);
+        if (msg.train) this.train.recall(msg.train, this.net.now(), performance.now());
       },
       // (only what checks out: signed by whom it says, the sender's own entry for this very connection)
       onBoard: (id, msg) => {
@@ -372,6 +393,8 @@ export class GardenScene extends Phaser.Scene {
       },
     };
     this.me.id = this.net.id;
+    // the train stands on the line nearest the middle of the park, till someone drives it off
+    this.train = new TrainView(this, toCanvas, this.net.id, startState(WORLD_W / 2, WORLD_H / 2, this.net.now()), (msg) => this.net.train(msg));
     this.referee = new Referee(this.net.id, {
       vote: (msg) => this.net.vote(msg),
       judgeCatch: (peer, kind, id) => {
@@ -396,7 +419,11 @@ export class GardenScene extends Phaser.Scene {
     // (what the others said while the garden was being laid out comes in now)
     this.net.attach(() => this.state(), events, TREES.length);
     // timers keep running while the tab is in the background, so others still see us
-    window.setInterval(() => this.sendState(), TICK_MS);
+    window.setInterval(() => {
+      this.sendState();
+      // (but a driver gone to another tab stops the train where it is, cat in the cab, till it's back)
+      if (document.hidden) this.train.release(this.net.now(), true);
+    }, TICK_MS);
   }
 
   /** Who casts what shadow: trees, lanterns and furniture by their outlines, and soft blobs under everything for the night. */
@@ -478,14 +505,20 @@ export class GardenScene extends Phaser.Scene {
       if (time >= this.revealAt) this.reveal();
       else loading(0.65 + 0.35 * (time - this.arrived) / (this.revealAt - this.arrived), 120);
     }
+    // the garden clock is shared by all visitors, so wind and fauna line up
+    const gt = this.net.now();
+    // the train rolls on, and takes along whoever rides it
+    const before = this.train.cars;
+    this.train.update(gt, performance.now(), dt);
+    this.carry(before);
+    // (before the cat moves: one the train has rolled onto is pushed off, not lifted onto it)
+    this.trainRules(time, gt);
     this.updateLocal(time, dt);
     // (the referee goes by the page clock: messages keep coming while the tab is hidden and Phaser's clock stands still)
     this.referee.update(performance.now());
     this.board.update(performance.now());
 
     this.me.name = this.board.me.name;
-    // the garden clock is shared by all visitors, so wind and fauna line up
-    const gt = this.net.now();
     for (const [id, cat] of this.remotes) {
       cat.name = this.board.nameOf(id);
       if (time - cat.lastSeen > STALE_MS) {
@@ -497,9 +530,14 @@ export class GardenScene extends Phaser.Scene {
         continue;
       }
       cat.step(dt);
+      this.seat(cat, dt);
       cat.render(time);
     }
+    // (on top of it, in front of the whole car; in it, between its halves)
+    this.me.ride = this.riding ? this.train.cars[this.riding.i].y + (this.me.z > FLOOR_H + 1.5 ? 1 : 0) : null;
     this.me.render(time);
+    this.train.render(this.cameras.main.worldView);
+    this.wearCap();
 
     // follow the cat's feet on the terrain or up a tree (not mid-jump), so the view climbs the hills smoothly
     if (this.me.act !== Act.Jump) this.camFloor = this.me.z;
@@ -575,13 +613,27 @@ export class GardenScene extends Phaser.Scene {
     const down = (key: Phaser.Input.Keyboard.Key, b: Button) => held(key, touch.held.has(b) || touch.pressed.has(b));
     const right = held(k.right, touch.right), left = held(k.left, touch.left);
     const up = held(k.up, touch.up), below = held(k.down, touch.down);
-    const dir = dirOf(up, below, left, right);
+    let dir = dirOf(up, below, left, right);
     const jump = hit(k.jump, 'jump');
+    // in the driver's seat the arrows work the throttle: each one pressed a notch forwards (→ ↑) or back (← ↓);
+    // a jump is out of the cab
+    if (this.train.driving && live) {
+      const fresh = [...dir].filter((c) => !this.lastDir.includes(c));
+      const by = fresh.reduce((n, c) => n + (c === 'r' || c === 'u' ? 1 : -1), 0);
+      if (by) this.train.throttle(Math.sign(by), this.net.now());
+      this.lastDir = dir;
+      if (jump && !this.hop) {
+        this.leaveCab(now);
+        return;
+      }
+      dir = '';
+    } else this.lastDir = dir;
+    const driving = this.train.driving;
     // the emote button held, the D-pad picks an emote instead of walking
     const emote = this.emotes.update(down(k.emote, 'emote'), dir, now);
     const steer = !emote.steering;
-    let dx = steer ? (right ? 1 : 0) - (left ? 1 : 0) : 0;
-    let dy = steer ? (below ? 1 : 0) - (up ? 1 : 0) : 0;
+    let dx = steer && !driving ? (right ? 1 : 0) - (left ? 1 : 0) : 0;
+    let dy = steer && !driving ? (below ? 1 : 0) - (up ? 1 : 0) : 0;
     const hiss = emote.emote === 'hiss', roll = emote.emote === 'roll', mew = emote.emote === 'mew';
     // a direction tapped twice dashes, for as long as it stays held
     const doubled = this.doubleTap.update(steer ? dir : '', now) && me.act !== Act.Jump;
@@ -638,11 +690,17 @@ export class GardenScene extends Phaser.Scene {
       // scrambling back out of the pond: no control until back on dry land
       const h = this.hop;
       const u = Math.min(1, (now - h.t0) / HOP_MS);
+      if (h.car) {
+        const p = world(this.train.cars[h.car.i], h.car.u, h.car.v);
+        h.tx = p.x;
+        h.ty = p.y + 2;
+      }
       me.x = h.fx + (h.tx - h.fx) * u;
       me.y = h.fy + (h.ty - h.fy) * u;
       me.z = h.tz * u + HOP_HEIGHT * 4 * u * (1 - u);
       if (u >= 1) {
         me.z = h.tz;
+        if (h.car) this.riding = h.car;
         this.hop = null;
         me.setAct(Act.Idle, now);
       }
@@ -867,7 +925,7 @@ export class GardenScene extends Phaser.Scene {
       this.airCatch = null;
     }
 
-    if (me.act !== Act.Jump && !wetAt(me.x, me.y)) this.lastDry = { x: me.x, y: me.y, z: me.z };
+    if (me.act !== Act.Jump && !wetAt(me.x, me.y) && !this.riding) this.lastDry = { x: me.x, y: me.y, z: me.z };
 
     // on a branch, settle onto its line (where it was landed on anywhere in front of or behind the trunk)
     const on = me.act === Act.Jump ? null : standingOn(me.x, me.y, me.z);
@@ -884,6 +942,133 @@ export class GardenScene extends Phaser.Scene {
     // a rest in a bird house, the tree house or a cardboard box: ready to dash again
     const resting = me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep;
     if (resting && ((on && HOUSES.has(on.kind)) || inBox(me.x, me.y, me.z))) this.dash.rest(now);
+  }
+
+  /**
+   * Our cat on the train (in a car, up on it, or jumping about over the car it was in): it goes along,
+   * keeping its place in the car as the car rolls and turns.
+   */
+  private carry(before: CarPose[]): void {
+    const me = this.me;
+    if (this.hop) return;
+    const on = me.act === Act.Jump ? 0 : trainUnder(before, me.x, me.y);
+    const was = this.riding ? before[this.riding.i] : null;
+    let seat: { i: number; u: number; v: number } | null = null;
+    // (standing on its floor, or up on it: not on the ground beside it with a car pushing in)
+    for (const c of on > 0 && me.z >= FLOOR_H - 0.1 && me.z <= on + 0.6 ? before : me.act === Act.Jump && was ? [was] : []) {
+      const { u, v } = local(c, me.x, me.y - 2);
+      if (Math.abs(u) <= c.len / 2 + 2 && Math.abs(v) <= CAR_W / 2 + 2) {
+        seat = { i: c.i, u, v };
+        break;
+      }
+    }
+    this.riding = seat;
+    if (!seat) return;
+    const p = world(this.train.cars[seat.i], seat.u, seat.v);
+    me.x = p.x;
+    me.y = p.y + 2;
+  }
+
+  /**
+   * The lok's cab is the driver's seat: a grown cat settling in it drives (when nobody else does);
+   * anyone else is hopped back into the waggon behind. A cat standing in the train's way is nudged
+   * off the track.
+   */
+  private trainRules(now: number, gt: number): void {
+    const me = this.me, t = this.train;
+    if (this.hop || !this.revealed) return;
+    const settled = me.act !== Act.Jump;
+    if (settled && inCab(t.cars, me.x, me.y, me.z)) {
+      if (!t.driving && canDrive(me.stage) && t.free()) t.claim(gt);
+      if (!t.driving) this.hopInto(now, { i: 1, u: 0, v: 0 });
+      // (the driver looks ahead)
+      else if (Math.abs(t.heading.x) > 0.3) me.facing = t.heading.x < 0 ? Facing.Left : Facing.Right;
+      return;
+    }
+    if (t.driving) t.release(gt);
+    if (settled && !this.riding && trainUnder(t.cars, me.x, me.y) > me.z + STEP_UP) {
+      const c = t.cars.reduce((a, b) => (Math.hypot(b.x - me.x, b.y - me.y) < Math.hypot(a.x - me.x, a.y - me.y) ? b : a));
+      this.hopOff(now, c);
+    }
+  }
+
+  /** Out of the driver's seat: down beside the lok (or, over the water, back into the waggon). */
+  private leaveCab(now: number): void {
+    this.train.release(this.net.now());
+    if (!this.hopOff(now, this.train.cars[0])) this.hopInto(now, { i: 1, u: 0, v: 0 });
+  }
+
+  /** A hop off the track beside car `c`, to the nearer side (or the other, if that's water); false if both are. */
+  private hopOff(now: number, c: CarPose): boolean {
+    const me = this.me;
+    const { u, v } = local(c, me.x, me.y - 2);
+    const side = v < 0 ? -1 : 1;
+    for (const s of [side, -side]) {
+      const p = world(c, Math.max(-c.len / 2, Math.min(c.len / 2, u)), s * (CAR_W / 2 + 8));
+      const x = p.x, y = p.y + 2;
+      if (x < 8 || y < 8 || x > WORLD_W - 8 || y > WORLD_H - 8 || wetAt(x, y)) continue;
+      this.startHop(now, { fx: me.x, fy: me.y, tx: x, ty: y, tz: surfaceAt(x, y, 0), t0: now });
+      return true;
+    }
+    return false;
+  }
+
+  /** A hop into a car (landing wherever that car has got to by then). */
+  private hopInto(now: number, car: { i: number; u: number; v: number }): void {
+    const me = this.me;
+    const p = world(this.train.cars[car.i], car.u, car.v);
+    this.startHop(now, { fx: me.x, fy: me.y, tx: p.x, ty: p.y + 2, tz: FLOOR_H, t0: now, car });
+  }
+
+  private startHop(now: number, hop: NonNullable<GardenScene['hop']>): void {
+    const me = this.me;
+    if (Math.abs(hop.tx - me.x) > 0.5) me.facing = hop.tx < me.x ? Facing.Left : Facing.Right;
+    this.hop = hop;
+    this.riding = null;
+    this.vz = 0;
+    me.seq = (me.seq + 1) & 0xffff;
+    me.setAct(Act.Jump, now);
+  }
+
+  /**
+   * Another cat in the train, as we see it: kept in its car. What it says of where it is is a moment
+   * old (the car has rolled on since), so it is placed by where in the car it is, not where on the map.
+   */
+  private seat(cat: RemoteCat, dt: number): void {
+    const cars = this.train.cars;
+    const a = aboard(cars, cat.tx, cat.ty, cat.tz, 1 + Math.abs(this.train.speed) * 0.15);
+    if (!a) {
+      cat.seat = null;
+      cat.ride = null;
+      return;
+    }
+    const was = cat.seat?.i === a.i ? cat.seat : a;
+    const k = Math.min(1, dt * 12);
+    const s = { i: a.i, u: was.u + (a.u - was.u) * k, v: was.v + (a.v - was.v) * k };
+    cat.seat = s;
+    const c = cars[a.i], p = world(c, s.u, s.v), at = world(c, a.u, a.v);
+    cat.x = p.x;
+    cat.y = p.y + 2;
+    // (and where it said it is goes along with the car till it says otherwise)
+    cat.tx = at.x;
+    cat.ty = at.y + 2;
+    cat.ride = c.y;
+  }
+
+  /** The engine driver's cap, on whoever drives. */
+  private wearCap(): void {
+    const t = this.train, cap = t.cap;
+    const id = t.driving ? this.me.id : t.driver;
+    const cat = id === this.me.id ? this.me : id ? this.remotes.get(id) : undefined;
+    if (!cat) {
+      cap.setVisible(false);
+      return;
+    }
+    const k = cat.size;
+    const side = cat.facing === Facing.Left ? -1 : cat.facing === Facing.Right ? 1 : 0;
+    cap.setVisible(true).setFlipX(side < 0)
+      .setPosition(Math.round(cat.x + side * 3 * k), Math.round(cat.y - cat.z - 12 * k))
+      .setDepth(cat.depth + 0.01);
   }
 
   /** Put our cat somewhere (handy from the console while developing). */

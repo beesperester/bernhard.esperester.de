@@ -9,6 +9,7 @@ import { SEASON } from './season.ts';
 import { ELEV, LANDMARK_SPOTS, SPAWN } from './garden.ts';
 import { FURNITURE_SIZE, layOut, type FurnitureKind } from './layout.ts';
 import { worldSeed } from './seed.ts';
+import { trackside } from './track.ts';
 import { TILE, MAP_W, MAP_H, WORLD_W, WORLD_H } from './size.ts';
 import { LANDMARK_COVERS, LANDMARK_SIZE, LANDMARK_SOLIDS } from './landmarks.ts';
 import { LEGEND, WALL, groundOf, isOpenGround, isPond, isRunning, isStairs, isTree, isWaterway } from './legend.ts';
@@ -80,6 +81,12 @@ export const FEET = { x0: -5, x1: 5, y0: -5, y1: 0 };
  */
 export const FORK_Z = 13;
 
+/**
+ * Things that move about the park (the train, game/train.ts): how high whatever is under
+ * the middle of a cat's paws at (x, y) is (0: nothing). The scene keeps it up to date.
+ */
+export const moving = { under: (_x: number, _y: number): number => 0 };
+
 /** Tree trunks and lantern posts block movement only where they meet the ground, up to a height. */
 const TRUNKS: [number, number, number, number, number][] = [];
 
@@ -105,6 +112,8 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number, z = 
       const fx0 = tx * TILE + l, fy0 = ty * TILE + t, fx1 = (tx + 1) * TILE - r, fy1 = (ty + 1) * TILE - b;
       if (x1 > fx0 && x0 < fx1 && y1 > fy0 && y0 < fy1) h = base + standing;
     }
+  // (the train runs on level ground)
+  h = Math.max(h, moving.under((x0 + x1) / 2, y1));
   const { trunks, solids } = nearby(tx0, ty0, tx1, ty1);
   for (const [ax, ay, bx, by, top] of trunks) if (z < top && x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
   // (something with room under it only counts for a cat up at its height)
@@ -159,7 +168,8 @@ function anyTileUnder(x0: number, y0: number, x1: number, y1: number, test: (tx:
 
 /** True if any part of the box is over open water (a frozen pond is solid ground). */
 export const waterUnder = (x0: number, y0: number, x1: number, y1: number): boolean =>
-  anyTileUnder(x0, y0, x1, y1, (tx, ty) => isPond(tileAt(tx, ty)) && !frozenAt(tx, ty));
+  // (a cat in a train crossing the water is over the train)
+  anyTileUnder(x0, y0, x1, y1, (tx, ty) => isPond(tileAt(tx, ty)) && !frozenAt(tx, ty)) && !moving.under((x0 + x1) / 2, y1);
 
 /** True if a cat standing at (x, y) is out on the ice. */
 export const iceAt = (x: number, y: number): boolean => SEASON.frozen && anyTileUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1, frozenAt);
@@ -402,7 +412,7 @@ function placeLanterns(): [number, number][] {
   const spots: { tx: number; ty: number; dx: number; dy: number; k: number }[] = [];
   for (let ty = 1; ty < MAP_H - 1; ty++)
     for (let tx = 1; tx < MAP_W - 1; tx++) {
-      if (groundOf(tileAt(tx, ty)) !== 'lawn' || crowded(tx, ty) || [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => furnished(tx + dx, ty + dy))) continue;
+      if (groundOf(tileAt(tx, ty)) !== 'lawn' || trackside(tx, ty) || crowded(tx, ty) || [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => furnished(tx + dx, ty + dy))) continue;
       const side = ([[0, 1], [0, -1], [1, 0], [-1, 0]] as const).find(([dx, dy]) => groundOf(tileAt(tx + dx, ty + dy)) === 'path' && levelAt(tx + dx, ty + dy) === levelAt(tx, ty));
       if (side) spots.push({ tx, ty, dx: side[0], dy: side[1], k: hash2(tx, ty, 61) });
     }

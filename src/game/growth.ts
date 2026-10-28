@@ -50,3 +50,5 @@ export function canCatch(stage: Stage, kind: Prey, air = false): boolean {
 export const canPounce = (stage: Stage): boolean => stage === Stage.Grown;
 export const canLure = (stage: Stage): boolean => stage === Stage.Grown;
 export const canShake = (stage: Stage): boolean => stage === Stage.Grown;
+/** Only a grown cat drives the train. */
+export const canDrive = (stage: Stage): boolean => stage === Stage.Grown;

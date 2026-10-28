@@ -8,11 +8,13 @@
 // the garden is gone, and the next one is a new one.
 //
 // Trees grow thickest where the real city has its parks and woods, and
-// outside the Ring (ZONES), so Berlin still looks like Berlin.
+// outside the Ring (ZONES), so Berlin still looks like Berlin. Nothing grows
+// or stands right beside the Ring's railway (track.ts): the trains run there.
 
 import { hash2 } from '../art/raster.ts';
 import { BASE, ELEV, LANDMARK_SPOTS, ZONES } from './garden.ts';
 import { LANDMARK_SIZE } from './landmarks.ts';
+import { trackside } from './track.ts';
 
 type Pt = [number, number];
 
@@ -91,6 +93,8 @@ export function layOut(seed: number): Layout {
     const [w, h] = LANDMARK_SIZE[l.kind];
     for (let y = l.ty; y < l.ty + h; y++) for (let x = l.tx; x < l.tx + w; x++) if (T[y][x] === '.') T[y][x] = 'L';
   }
+  // and the lawn beside the railway is kept clear for the trains (plain lawn again at the end; cats walk there)
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (T[y][x] === '.' && trackside(x, y)) T[y][x] = 'K';
 
   // the maze, somewhere in the parks: a hedge labyrinth with the fountain in the middle
   {
@@ -206,7 +210,7 @@ export function layOut(seed: number): Layout {
   }
 
   connect(T, E);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (T[y][x] === 'L') T[y][x] = '.';
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (T[y][x] === 'L' || T[y][x] === 'K') T[y][x] = '.';
   return { rows: T.map((r) => r.join('')), furniture };
 }
 

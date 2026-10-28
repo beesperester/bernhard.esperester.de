@@ -603,6 +603,25 @@ const ELEV = E.map((r) => r.join(''));
 const ZONES = T.map((r, y) => r.map((_, x) => (outside[y][x] ? 'o' : green[y][x] ? 'g' : '.')).join(''));
 png(ROWS, ELEV, `${here}cache/garden.png`);
 
+// the Ring's track: its ways joined into the one closed line round the city, simplified a little
+const ringLine = rings(ringWays.map(line)).sort((a, b) => b.length - a.length)[0];
+/** Douglas-Peucker: drop points within `eps` tiles of the line between their neighbours. */
+function simplify(pts: Pt[], eps: number): Pt[] {
+  if (pts.length < 3) return pts;
+  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
+  const len = Math.hypot(bx - ax, by - ay) || 1;
+  let far = 0, at = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = Math.abs((bx - ax) * (ay - pts[i][1]) - (ax - pts[i][0]) * (by - ay)) / len;
+    if (d > far) { far = d; at = i; }
+  }
+  return far <= eps ? [pts[0], pts[pts.length - 1]] : [...simplify(pts.slice(0, at + 1), eps).slice(0, -1), ...simplify(pts.slice(at), eps)];
+}
+// (split in two, as a closed line has no ends to simplify between)
+const half = Math.floor(ringLine.length / 2);
+const TRACK = [...simplify(ringLine.slice(0, half + 1), 0.2).slice(0, -1), ...simplify(ringLine.slice(half), 0.2).slice(0, -1)];
+console.log(`the Ring's track: ${TRACK.length} points`);
+
 // where cats arrive: along the paths round the Brandenburger Tor
 const [sx, sy] = deg(52.5163, 13.3777);
 const SPAWN = { x0: sx - 8, y0: sy - 6, x1: sx + 8, y1: sy + 6 };
@@ -622,6 +641,7 @@ const out = `// The fixed part of the park: Berlin inside the S-Bahn Ring, as a 
 //  - ELEV gives every tile its terrain level (0 = lawn, each level is 16px up).
 //  - LANDMARK_SPOTS places the follies of famous places (world/landmarks.ts).
 //  - RIVERS are the lines the running water ('~') flows along.
+//  - TRACK is the Ring's railway, one closed line round the city.
 //  - SPAWN is where cats arrive: the paths in this box.
 // \`npm test\` checks the result for a good few seeds: everything walkable
 // reachable from the spawn, furniture on lawn, lanterns apart, and so on.
@@ -650,6 +670,11 @@ ${spots.map((f) => `  { kind: '${f.kind}', tx: ${f.tx}, ty: ${f.ty} },`).join('\
 /** The Spree and the canals, the way they flow: world px, x, y, x, y, ... */
 export const RIVERS: number[][] = [
 ${RIVERS.map((r) => `  [${riverPx(r).join(', ')}],`).join('\n')}
+];
+
+/** The Ring's railway, all the way round (closed: the last point joins the first): world px, x, y, x, y, ... */
+export const TRACK: number[] = [
+  ${TRACK.map(([x, y]) => `${Math.round(x * 16 * 10) / 10}, ${Math.round(y * 16 * 10) / 10}`).join(',\n  ')},
 ];
 
 /** Cats arrive on the paths in this box of tiles. */

@@ -167,10 +167,10 @@ describe('furniture', () => {
     expect(map.inBox(x, y, 0)).toBe(true);
     expect(map.inBox(x, y, 6)).toBe(false);
     expect(map.inBox(ox + 16, oy + 24, 0)).toBe(false);
-    // walking in from the front: the wall's in the way
-    const body = { x, y: oy + 24, z: 0, airborne: false };
-    step(body, 0, -12);
-    expect(body.y).toBeGreaterThan(oy + 15);
+    // walking out (or in) at the front: the wall's in the way
+    const body = { x, y, z: 0, airborne: false };
+    step(body, 0, 12);
+    expect(body.y).toBeLessThanOrEqual(oy + 13);
     expect(STEP_UP).toBeLessThan(map.BOX_H);
     expect(STAGE_JUMP[Stage.Kitten]).toBeGreaterThan(map.BOX_H);
   });

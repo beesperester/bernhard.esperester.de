@@ -3,7 +3,8 @@
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
 import type { Prey, CatMsg } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeSeed, sanitizeShake, sanitizeVote, sanitizeWorld, type VoteMsg, type WorldMsg } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeSeed, sanitizeShake, sanitizeTrain, sanitizeVote, sanitizeWorld, type TrainMsg, type VoteMsg, type WorldMsg } from './protocol.ts';
+import { NOTCHES, SPEEDS, TRACK_LENGTH } from '../game/train.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 import { newSeed, older, type WorldSeed } from '../world/seed.ts';
 
@@ -105,7 +106,11 @@ export interface NetEvents {
   onStatus: (garden: number, peers: number, settled: boolean) => void;
   /** Another cat's verdict on a catch or on a cat (see consensus.ts). */
   onVote: (peerId: string, msg: VoteMsg) => void;
+  /** The cat driving the train says where it is. */
+  onTrain: (peerId: string, msg: TrainMsg) => void;
 }
+
+const trainOf = (d: unknown) => sanitizeTrain(d, TRACK_LENGTH, NOTCHES, SPEEDS[NOTCHES]);
 
 /** This visit's connection id (what our signed scoreboard entry is bound to). */
 export const PEER = selfId;
@@ -124,6 +129,7 @@ export class Net {
   private sendVote: ((msg: VoteMsg) => void) | null = null;
   private sendWorld: ((msg: WorldMsg, target: string) => void) | null = null;
   private sendSeed: ((s: [number, number], target?: string) => void) | null = null;
+  private sendTrain: ((msg: TrainMsg) => void) | null = null;
   /** Peer clock minus our clock, in ms, measured once when a peer joins. */
   private offsets = new Map<string, number>();
   readonly id = selfId;
@@ -252,6 +258,11 @@ export class Net {
     this.sendVote?.(msg);
   }
 
+  /** Where the train is (we're driving it, or just let go of it). */
+  train(msg: TrainMsg): void {
+    this.sendTrain?.(msg);
+  }
+
   /**
    * Shared garden clock (ms). Everyone follows the clock of the peer with the
    * lowest id, so seeded fauna plays out identically for all visitors.
@@ -310,9 +321,15 @@ export class Net {
     world.onMessage = (data, { peerId }) => {
       if (this.room !== room) return;
       this.deliver((ev) => {
-        const msg = sanitizeWorld(data, this.trees);
+        const msg = sanitizeWorld(data, this.trees, trainOf);
         if (msg) ev.onWorld(peerId, msg);
       });
+    };
+    const train = room.makeAction<TrainMsg>('train');
+    this.sendTrain = (msg) => void train.send(msg).catch(() => {});
+    train.onMessage = (data, { peerId }) => {
+      const msg = this.room === room ? trainOf(data) : null;
+      if (msg) this.deliver((ev) => ev.onTrain(peerId, msg));
     };
     // which garden this is: the seed it grew from, told to every cat that arrives
     const seed = room.makeAction<[number, number]>('seed');

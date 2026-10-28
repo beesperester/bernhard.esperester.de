@@ -13,6 +13,7 @@
 //  - ELEV gives every tile its terrain level (0 = lawn, each level is 16px up).
 //  - LANDMARK_SPOTS places the follies of famous places (world/landmarks.ts).
 //  - RIVERS are the lines the running water ('~') flows along.
+//  - TRACK is the Ring's railway, one closed line round the city.
 //  - SPAWN is where cats arrive: the paths in this box.
 // `npm test` checks the result for a good few seeds: everything walkable
 // reachable from the spawn, furniture on lawn, lanterns apart, and so on.
@@ -337,6 +338,67 @@ export const RIVERS: number[][] = [
   [1213, 604, 1203, 590],
   [1231, 608, 1214, 605],
   [1272, 615, 1237, 609],
+];
+
+/** The Ring's railway, all the way round (closed: the last point joins the first): world px, x, y, x, y, ... */
+export const TRACK: number[] = [
+  1061.7, 82.7,
+  1232.7, 74.1,
+  1295.8, 81.2,
+  1345.6, 107.4,
+  1395.9, 150.8,
+  1466.8, 187.4,
+  1583.4, 264,
+  1597.3, 277.9,
+  1695.8, 434.8,
+  1745.3, 466,
+  1786.5, 482.9,
+  1802.6, 498.8,
+  1849.7, 616.5,
+  1854.7, 672.1,
+  1796.8, 772.1,
+  1776.2, 858.5,
+  1727, 921.9,
+  1701.9, 979.1,
+  1699.5, 1041.3,
+  1676.7, 1224,
+  1663.5, 1253.4,
+  1643.4, 1271.7,
+  1340.9, 1348.2,
+  1229.3, 1364.8,
+  1198.3, 1365.1,
+  1143.8, 1346.2,
+  1069.3, 1297.5,
+  1007.2, 1271.4,
+  964.6, 1260.4,
+  889.8, 1258.8,
+  870.1, 1253.6,
+  848.2, 1232.6,
+  823.9, 1175,
+  786.9, 1148.2,
+  757.7, 1138.2,
+  721.5, 1140.9,
+  655.7, 1164.9,
+  459, 1171.7,
+  388.6, 1167.7,
+  363.8, 1157.4,
+  340.2, 1138,
+  193.3, 961.1,
+  167.1, 923.3,
+  87.5, 833.5,
+  69.2, 798.2,
+  64, 771.4,
+  67.2, 738.9,
+  94.6, 668,
+  99.8, 632.3,
+  75.4, 509.8,
+  67.8, 429.3,
+  82, 403.8,
+  110.9, 387.4,
+  174.7, 380.3,
+  734.4, 261.4,
+  947.3, 111.1,
+  979.8, 97.7,
 ];
 
 /** Cats arrive on the paths in this box of tiles. */

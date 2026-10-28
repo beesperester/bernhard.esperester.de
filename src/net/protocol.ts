@@ -26,16 +26,33 @@ export function sanitizeShake(d: unknown, trees: number): [number, number] | nul
   return Number.isInteger(tree) && tree >= 0 && tree < trees && Number.isInteger(gt) && gt > 0 ? [tree, gt] : null;
 }
 
-/** What the cats already in the garden tell a newcomer: prey caught lately, and fruit shaken down ([tree, gt]). */
-export type WorldMsg = { caught: [Prey, number][]; shakes: [number, number][] };
+/**
+ * The train: how far round the track the lok's front is (px), its speed (px/s, backwards below 0),
+ * the throttle's notch, whether the sender is driving it (1) or has just let go (0), and the garden
+ * time (ms) all that is for.
+ */
+export type TrainMsg = [number, number, number, number, number];
+
+/** Accept only a train somewhere on the track, going no faster than it can. */
+export function sanitizeTrain(d: unknown, length: number, notches: number, top: number): TrainMsg | null {
+  if (!Array.isArray(d) || d.length !== 5 || !d.every((x) => typeof x === 'number' && Number.isFinite(x))) return null;
+  const [s, v, notch, driving, t] = d as number[];
+  if (s < 0 || s >= length || Math.abs(v) > top || !Number.isInteger(notch) || Math.abs(notch) > notches || (driving !== 0 && driving !== 1) || t <= 0) return null;
+  return [s, v, notch, driving, t];
+}
+
+/** What the cats already in the garden tell a newcomer: prey caught lately, fruit shaken down ([tree, gt]), and where the train is. */
+export type WorldMsg = { caught: [Prey, number][]; shakes: [number, number][]; train?: TrainMsg };
 
 /** Accept only a well-formed account of the garden, and not an endless one. */
-export function sanitizeWorld(d: unknown, trees: number): WorldMsg | null {
+export function sanitizeWorld(d: unknown, trees: number, train: (x: unknown) => TrainMsg | null = () => null): WorldMsg | null {
   if (!d || typeof d !== 'object') return null;
-  const { caught, shakes } = d as Record<string, unknown>;
+  const { caught, shakes, train: tr } = d as Record<string, unknown>;
   if (!Array.isArray(caught) || caught.length > 512 || !Array.isArray(shakes) || shakes.length > 64) return null;
   const c = caught.map(sanitizeCatch), s = shakes.map((x) => sanitizeShake(x, trees));
-  return c.every((x) => x) && s.every((x) => x) ? { caught: c as [Prey, number][], shakes: s as [number, number][] } : null;
+  if (!c.every((x) => x) || !s.every((x) => x)) return null;
+  const t = tr === undefined ? null : train(tr);
+  return { caught: c as [Prey, number][], shakes: s as [number, number][], ...(t ? { train: t } : {}) };
 }
 
 /** Accept only a [seed, born] garden seed: a 32-bit seed, and a time it could have been planted (ms since epoch). */
