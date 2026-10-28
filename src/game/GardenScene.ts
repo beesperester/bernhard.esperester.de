@@ -35,13 +35,13 @@ import { DoubleTap, Emotes, Paw, dirOf } from './controls.ts';
 import { Railway } from './Railway.ts';
 import { TrainView } from './TrainView.ts';
 import { CAR_W } from '../art/train.ts';
-import { FLOOR_H, aboard, inCab, local, poses, startState, trainUnder, world, type CarPose } from './train.ts';
+import { FLOOR_H, NOTCHES, SPEEDS, aboard, inCab, local, poses, startState, trainUnder, world, type CarPose } from './train.ts';
 import { DASH_MS, DASH_SPEED, STEP_UP, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { PEER, theNet, type Net, type NetEvents } from '../net/net.ts';
 import { Referee } from './Referee.ts';
-import { sound } from '../audio/sound.ts';
+import { sound, type Playing } from '../audio/sound.ts';
 import { CatSounds } from './CatSounds.ts';
 import { touch, setupUI, type Button } from '../ui/ui.ts';
 import { setCatCount } from '../ui/favicon.ts';
@@ -187,6 +187,10 @@ export class GardenScene extends Phaser.Scene {
   private riding: { i: number; u: number; v: number } | null = null;
   /** Got on properly (F beside a car), not jumped in over the side. */
   private boarded = false;
+  /** The train's chuffing while it runs within earshot: the loop, where it's heard from, and when to try starting it next. */
+  private chuffing: Playing | null = null;
+  private readonly chuffAt = { x: 0, y: 0 };
+  private chuffTry = 0;
   /** When the lok's chimney puffs next (s). */
   private chuffIn = 0;
   /** The D-pad as it was last frame (the driver works the throttle with it). */
@@ -547,6 +551,7 @@ export class GardenScene extends Phaser.Scene {
     this.me.render(time);
     this.train.render(this.cameras.main.worldView);
     this.chuff(dt);
+    this.chuffSound(time);
     this.wearCap();
 
     // follow the cat's feet on the terrain or up a tree (not mid-jump), so the view climbs the hills smoothly
@@ -1127,6 +1132,32 @@ export class GardenScene extends Phaser.Scene {
     // (the smoke trails back off the way it's going)
     const back = -Math.sign(this.train.speed) * lok.dx * 10;
     this.ambient.fx.smoke(p.x, p.y - 19, lok.y + 1, back);
+  }
+
+  /** The train's chuffing, heard from the lok: louder and quicker the faster it goes, fading out when it stops. */
+  private chuffSound(now: number): void {
+    const v = Math.abs(this.train.speed), lok = this.train.cars[0];
+    this.chuffAt.x = lok.x;
+    this.chuffAt.y = lok.y;
+    const k = Math.min(1, v / SPEEDS[NOTCHES]);
+    const running = v > 2 && Math.hypot(lok.x - this.me.x, lok.y - this.me.y) < 360;
+    if (!running) {
+      this.chuffing?.stop(0.8);
+      this.chuffing = null;
+      return;
+    }
+    const volume = 0.3 + 0.5 * k, rate = 0.7 + 0.5 * k;
+    if (this.chuffing) {
+      this.chuffing.setVolume(volume);
+      this.chuffing.setRate(rate);
+    } else if (now >= this.chuffTry) {
+      // (it may not start: the sound off, the tab hidden, not loaded yet; try again in a moment)
+      this.chuffTry = now + 1000;
+      void sound.play('chuff', { at: this.chuffAt, loop: true, volume, rate, fade: 0.5 }).then((p) => {
+        if (p && this.chuffing) p.stop(0);
+        else this.chuffing = p;
+      });
+    }
   }
 
   /** The engine driver's cap, on whoever drives. */

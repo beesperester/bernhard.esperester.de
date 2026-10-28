@@ -30,6 +30,8 @@ export interface PlayOptions {
 export interface Playing {
   stop(fade?: number): void;
   setVolume(v: number): void;
+  /** Playback rate (higher and faster above 1), eased to over a moment. */
+  setRate(r: number): void;
 }
 
 /** An ambient layer: a group that plays by itself at random intervals. */
@@ -195,6 +197,7 @@ export class Sound {
         if (place) place.volume = v;
         vol.gain.setTargetAtTime(v * (at ? this.spatial(at).gain : 1), ctx.currentTime, 0.1);
       },
+      setRate: (r) => src.playbackRate.setTargetAtTime(r, ctx.currentTime, 0.2),
     };
   }
 
