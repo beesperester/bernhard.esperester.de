@@ -13,9 +13,9 @@ const PLAQUE_PX = 12, PLAQUE_FADE_MS = 300;
 const PLAQUE_MS = 4000;
 
 /**
- * The follies of Berlin's landmarks, each standing on its tiles like the
- * shed: sorted by its front, so a cat behind it is hidden (a cat up on one
- * is drawn in front of it). Paw at one (C) and a plaque with its name
+ * The follies of Berlin's landmarks, each standing on its tiles: sorted by
+ * its front, so a cat behind it is hidden (a cat up on one is drawn in front
+ * of it). Paw at one and a plaque with its name
  * appears over it for a while.
  */
 export class Landmarks {

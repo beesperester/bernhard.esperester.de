@@ -13,7 +13,7 @@ const TERMINATOR = 0.5 / MOON_R;
 /**
  * Stars, and the moon in its current phase, mirrored in the ponds at night.
  * Drawn above the night tint so they twinkle; clipped to open water, less
- * whatever stands in front of it (a tree leaning over, a bank, a shed).
+ * whatever stands in front of it (a tree leaning over, a bank, a folly).
  */
 export class NightWater {
   private readonly pools: { box: Box; tex: Phaser.Textures.CanvasTexture; img: Phaser.GameObjects.Image; mask: HTMLCanvasElement; stars: [number, number, number, number][] }[] = [];

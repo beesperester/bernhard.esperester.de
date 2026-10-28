@@ -178,7 +178,7 @@ export function terrainCover(x: number, y: number, z: number, w = 16, h = 16): {
       const r = { x0: Math.max(left, tx * TILE), y0: Math.max(head, top), x1: Math.min(right, (tx + 1) * TILE), y1: Math.min(feet, bottom) };
       c = c ? { x0: Math.min(c.x0, r.x0), y0: Math.min(c.y0, r.y0), x1: Math.max(c.x1, r.x1), y1: Math.max(c.y1, r.y1) } : r;
     }
-  // the shed hides cats behind it the same way
+  // the follies hide cats behind them the same way
   for (const k of COVERS) {
     if (y >= k.front || (k.low && z > 2) || k.x0 >= right || k.x1 <= left || k.y0 >= feet || k.y1 <= head) continue;
     const r = { x0: Math.max(left, k.x0), y0: Math.max(head, k.y0), x1: Math.min(right, k.x1), y1: Math.min(feet, k.y1) };
@@ -221,10 +221,9 @@ for (const [tx, ty] of treeTiles()) {
 }
 
 // ---- garden furniture ----
-// Things people left in the park: a shed, benches, a picnic table, a bistro
-// set, a picnic blanket and a bird bath. Each stands on a patch of plain lawn
-// (`tx`, `ty` is its top-left tile; layout.ts places them); low ones can be
-// jumped onto, the shed can't.
+// Things people left in the park: benches, a picnic table, a bistro set, a
+// picnic blanket and a bird bath. Each stands on a patch of plain lawn (`tx`,
+// `ty` is its top-left tile; layout.ts places them); all can be jumped onto.
 
 export { FURNITURE, FURNITURE_SIZE, type FurnitureKind };
 
@@ -241,7 +240,6 @@ export const BATH_H = 13;
 
 /** Solid parts of the furniture in world px, relative to the spot's top-left corner, with their height. */
 const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, number][]> = {
-  shed: [[2, 4, 47, 31, WALL]],
   bench: [[2, 8, 30, 14, 7]],
   // back bench, table, front bench
   picnic: [[15, 16, 49, 20, 5], [12, 20, 52, 33, 10], [15, 33, 49, 40, 5]],
@@ -262,9 +260,6 @@ const SOLIDS: [number, number, number, number, number, number][] = [
 
 /** Screen boxes of furniture and follies tall enough to hide a cat, and the ground y of their front. */
 export const COVERS: { x0: number; y0: number; x1: number; y1: number; front: number; low?: boolean }[] = [
-  ...FURNITURE
-    .filter((f) => f.kind === 'shed')
-    .map((f) => ({ x0: f.tx * TILE - 1, y0: f.ty * TILE - 25, x1: f.tx * TILE + 49, y1: f.ty * TILE + 31, front: f.ty * TILE + 30 })),
   // (not the gate: a cat walking through it is seen through the arches)
   // part by part (a cat up on one is drawn in front of it, so only hides behind it from the ground)
   ...LANDMARK_SPOTS.filter((l) => l.kind !== 'gate').flatMap((l) => LANDMARK_COVERS[l.kind].map(([x0, y0, x1, y1, front]) => {
@@ -287,13 +282,11 @@ export function upOnFolly(x: number, y: number, z: number): number | null {
   return null;
 }
 
-/** Height of the shed's roof ridge, for its shadow. */
-const SHED_TALL = 30;
-
 /**
  * How tall whatever stands on the ground at world pixel (x, y) is, above the
- * terrain, for shadows: hedges, bushes, rocks, the fountain, fences and the
- * shed (trees, lanterns, the low furniture and cats cast theirs from their sprites).
+
+ * terrain, for shadows: hedges, bushes, rocks, the fountain and fences (trees,
+ * lanterns, the furniture and cats cast theirs from their sprites).
  */
 export function casterHeight(x: number, y: number): number {
   const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
@@ -306,11 +299,6 @@ export function casterHeight(x: number, y: number): number {
     const lx = x - tx * TILE, ly = y - ty * TILE;
     if (lx >= l && lx < TILE - r && ly >= t && ly < TILE - b) h = th;
   }
-  for (const f of FURNITURE)
-    if (f.kind === 'shed') {
-      const [x0, y0, x1, y1] = FURNITURE_SOLIDS.shed[0];
-      if (x >= f.tx * TILE + x0 && x < f.tx * TILE + x1 && y >= f.ty * TILE + y0 && y < f.ty * TILE + y1) h = SHED_TALL;
-    }
   return h;
 }
 

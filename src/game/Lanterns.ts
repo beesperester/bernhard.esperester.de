@@ -11,7 +11,7 @@ export interface Occluder { canvas: CanvasImageSource; x: number; y: number; w: 
  * Lanterns along the paths. They light up at dusk: the glass glows and a warm
  * pool of light spreads on the ground, shining through the night tint. The
  * light is drawn on top of everything, so each lantern gets its own copy with
- * whatever stands in front of it (a shed, a tree, a cliff) cut out.
+ * whatever stands in front of it (a folly, a tree, a cliff) cut out.
  */
 export class Lanterns {
   private readonly lamps: { post: Phaser.GameObjects.Image; glass: Phaser.GameObjects.Image; pool: Phaser.GameObjects.Image; seed: number }[];

@@ -8,7 +8,7 @@ import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 
 // Shadows that follow the sun. By day they are cast for real:
-//  - terrain, hedges, bushes, rocks, fences and the shed form a height map of the
+//  - terrain, hedges, bushes, rocks, and fences form a height map of the
 //    garden, and every ground pixel looks towards the sun to see whether
 //    anything rises above the ray (one sweep across the map, sun side first);
 //  - trees, lanterns, furniture and cats are flat sprites, so their outlines

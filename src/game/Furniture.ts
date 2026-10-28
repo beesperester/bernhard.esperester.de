@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { Raster } from '../art/raster.ts';
-import { buildBasket, buildBench, buildBirdBath, buildBistroTable, buildBlanket, buildChair, buildPicnicTable, buildShed, dressForSeason } from '../art/furniture.ts';
+import { buildBasket, buildBench, buildBirdBath, buildBistroTable, buildBlanket, buildChair, buildPicnicTable, dressForSeason } from '../art/furniture.ts';
 import { FURNITURE, TILE } from '../world/map.ts';
 import { cullerFor } from './Culler.ts';
 
@@ -10,7 +10,7 @@ const FLAT = -99994;
 /**
  * The garden furniture. Each piece is sorted by the back edge of what it
  * stands on, so a cat that jumps up onto a bench or table is drawn on top of
- * it; the shed is sorted by its front wall like a tree by its trunk.
+ * it.
  */
 export class Furniture {
   /** Every upright piece, for sunlit rims and shadows. */
@@ -32,7 +32,6 @@ export class Furniture {
     for (const f of FURNITURE) {
       const ox = f.tx * TILE, oy = f.ty * TILE;
       switch (f.kind) {
-        case 'shed': sprite('shed', buildShed, ox - 1, oy - 25, oy + 30); break;
         case 'bench': sprite('bench', buildBench, ox + 1, oy - 3, oy + 8); break;
         case 'picnic': sprite('picnic', buildPicnicTable, ox + 11, oy + 9, oy + 16); break;
         case 'bistro':

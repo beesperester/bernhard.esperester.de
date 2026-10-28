@@ -1,21 +1,17 @@
-// Garden furniture, drawn pixel by pixel like the rest: a shed, park benches,
+// Garden furniture, drawn pixel by pixel like the rest: park benches,
 // a picnic table, a bistro set and a picnic blanket with its basket. Every
 // sprite gets a dark outline at the end, like the trees and critters.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { SNOW, bayer } from './tiles.ts';
+import { SNOW } from './tiles.ts';
 import { SEASON, type Season } from '../world/season.ts';
 
 const WOOD = { o: hex('#3b2412'), d: hex('#7a4522'), b: hex('#a8642e'), l: hex('#c07a3e'), s: hex('#e2a868') };
 const IRON = { o: hex('#18141a'), d: hex('#2e2a30'), l: hex('#5a5460') };
-const ROOF = { o: hex('#3a1410'), d: hex('#7a2a24'), b: hex('#b84838'), l: hex('#d8604a'), s: hex('#f08868') };
-const WALL = { d: hex('#5a6e78'), b: hex('#7a94a0'), l: hex('#9cb4bc'), seam: hex('#3e4e58') };
 const CREAM = hex('#f0e8d0'), CREAM_D = hex('#c8bca0');
 const GLASS = { b: hex('#6aa8e0'), l: hex('#bce0f8') };
 const SAGE = { o: hex('#1e3428'), d: hex('#3e6a52'), b: hex('#5e927a'), l: hex('#8cbca0') };
 const WICKER = { o: hex('#4a2c12'), d: hex('#8a5a2a'), b: hex('#c08848'), l: hex('#e0b070') };
 const CLOTH = { r: hex('#d84848'), rd: hex('#a83434'), c: hex('#f8ecd8'), cd: hex('#e0ccb0') };
-const GOLD = hex('#f8d038');
-const FLOWERS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f890c8')];
 
 /** A dark outline around everything drawn so far. */
 function outline(r: Raster, c: RGB): void {
@@ -162,69 +158,6 @@ export function buildBlanket(): Raster {
   return r;
 }
 
-/**
- * A wooden garden shed: a red shingled roof over blue-grey plank walls, with
- * a door, a window and a flower box. 50×56, the front wall stands on the bottom row.
- */
-export function buildShed(): Raster {
-  const W = 50, H = 56;
-  const r = new Raster(W, H);
-  // roof: rows of staggered shingles, lighter towards the eave where the sun catches them
-  for (let y = 2; y < 28; y++)
-    for (let x = 1; x < W - 1; x++) {
-      const row = Math.floor((y - 2) / 4), v = (y - 2) % 4;
-      const u = (x + (row % 2) * 3) % 6;
-      let c = v === 3 ? ROOF.d : u === 0 ? ROOF.d : v === 0 ? ROOF.l : ROOF.b;
-      if (c === ROOF.b && hash2(Math.floor((x + (row % 2) * 3) / 6), row, 73) < 0.25) c = ROOF.l;
-      if (c === ROOF.l && v === 0 && u === 1) c = ROOF.s;
-      r.set(x, y, c);
-    }
-  // ridge cap along the top
-  r.rect(1, 1, W - 2, 1, ROOF.s);
-  r.rect(1, 2, W - 2, 1, ROOF.l);
-  // eave: a dark lip with the wall in its shade below
-  r.rect(0, 28, W, 2, ROOF.o);
-  // walls: vertical boards
-  for (let y = 30; y < H; y++)
-    for (let x = 3; x < W - 3; x++) {
-      const u = (x - 3) % 5;
-      let c = u === 0 ? WALL.seam : u === 1 ? WALL.l : WALL.b;
-      if (u > 1 && hash2(x, Math.floor(y / 2), 74) < 0.08) c = WALL.d;
-      // shade under the eave, dithered
-      if (y < 34 && bayer(x, y) < (34 - y) / 5) c = u === 0 ? WALL.seam : WALL.d;
-      if (y === H - 1) c = WALL.seam;
-      r.set(x, y, c);
-    }
-  // door: darker boards in a frame, a Z brace and a brass handle
-  r.rect(18, 36, 14, H - 36, CREAM);
-  for (let y = 37; y < H; y++)
-    for (let x = 19; x < 31; x++) r.set(x, y, (x - 19) % 4 === 0 ? WOOD.d : WOOD.b);
-  for (let i = 0; i < 12; i++) r.set(19 + i, H - 3 - Math.round(i * 1.4), WOOD.l);
-  r.rect(19, 41, 12, 1, WOOD.l);
-  r.rect(19, H - 4, 12, 1, WOOD.l);
-  r.set(28, 46, GOLD);
-  r.set(28, 47, WOOD.o);
-  // window with a cross and a shine
-  r.rect(35, 34, 10, 9, CREAM);
-  r.rect(36, 35, 8, 7, GLASS.b);
-  r.rect(36, 35, 3, 2, GLASS.l);
-  r.rect(39, 35, 2, 7, CREAM);
-  r.rect(36, 38, 8, 1, CREAM);
-  // flower box
-  r.rect(34, 43, 12, 3, WOOD.b);
-  r.rect(34, 45, 12, 1, WOOD.d);
-  for (let x = 35; x < 45; x += 2) {
-    r.set(x, 42, hex('#4c9a34'));
-    r.set(x + 1, 41, FLOWERS[(x >> 1) % FLOWERS.length]);
-  }
-  // a little lamp over the door
-  r.rect(24, 32, 2, 2, GOLD);
-  r.set(24, 31, IRON.d);
-  r.set(25, 31, IRON.d);
-  outline(r, ROOF.o);
-  return r;
-}
-
 /** A stone bird bath: a shallow basin of water on a pedestal. 16×20, the foot on the bottom row. */
 export function buildBirdBath(): Raster {
   const r = new Raster(16, 20);
@@ -262,7 +195,7 @@ export function snowCap(r: Raster, amount: number, seed = 0): void {
     }
 }
 
-/** Furniture in winter: snow on top, a snowed-over shed roof, a frozen bird bath. */
+/** Furniture in winter: snow on top, a frozen bird bath. */
 export function dressForSeason(r: Raster, kind: string, s: Season = SEASON): void {
   const swap = (from: RGB[], to: (c: RGB) => RGB, p = 1) => {
     const keys = new Set(from.map((c) => c.join()));
@@ -275,6 +208,5 @@ export function dressForSeason(r: Raster, kind: string, s: Season = SEASON): voi
   };
   if (s.frozen && kind === 'birdbath') swap([GLASS.l, hex('#4a8ce0')], (c) => (c[0] > 150 ? hex('#f2fbff') : hex('#a6d4ec')));
   if (s.snow <= 0) return;
-  if (kind === 'shed') swap([ROOF.d, ROOF.b, ROOF.l, ROOF.s], (c) => SNOW[c[0] < 150 ? 1 : c[0] < 200 ? 2 : 3], s.snow);
   snowCap(r, s.snow, kind.length);
 }

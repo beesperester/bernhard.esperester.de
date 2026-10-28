@@ -409,7 +409,7 @@ export class GardenScene extends Phaser.Scene {
     }
     for (const { p, canvas } of furniture.pieces) {
       const w = canvas.width, h = canvas.height;
-      // the shed is in the height map; the low things cast their outlines (their tops are deep, not tall)
+      // the furniture casts their outlines (their tops are deep, not tall)
       if (h < 40) casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.y + h - 1, lift: 0, cap: 14, depth: 3 });
       blobs.push({ x: p.x + w / 2, y: p.y + h - 2, w: w + 8, h: h < 40 ? 10 : 18, depth: p.depthY - 0.01 });
     }
