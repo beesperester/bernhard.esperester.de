@@ -63,7 +63,7 @@ export class MoveWitness {
   }
 
   private judge(x: number, y: number, z: number, act: number, t: number): Strike | null {
-    // nothing stands inside a fence, a trunk (below its fork) or the shed (feet box shrunk a pixel for rounding)
+    // nothing stands inside a fence, a trunk (below its fork) (feet box shrunk a pixel for rounding)
     if (heightUnder(x + FEET.x0 + 1, y + FEET.y0 + 1, x + FEET.x1 - 1, y + FEET.y1 - 0.5, z + HEIGHT_SLACK) >= WALL) return 'in-wall';
     // what it could be standing on: the ground, or a branch up a tree
     const ground = surfaceAt(x, y, z + HEIGHT_SLACK);

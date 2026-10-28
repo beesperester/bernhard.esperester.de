@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GRAVITY, JUMP_V } from '../game/state.ts';
+import { STEP_UP, step } from '../game/movement.ts';
+import { STAGE_JUMP, Stage } from '../game/growth.ts';
 import { TILE_ART } from '../art/tiles.ts';
 import { LEGEND } from './legend.ts';
 import * as map from './map.ts';
 import {
-  LANTERNS, LEVEL, MAP_H, MAP_W, TILE, WALL,
+  FEET, LANTERNS, LEVEL, MAP_H, MAP_W, TILE, WALL,
   groundAt, heightUnder, levelAt, spawnPoints, tileAt, treeTiles,
 } from './map.ts';
 
@@ -151,6 +153,42 @@ describe('every garden', { timeout: 20000 }, () => {
 
 describe('furniture', () => {
   it('stands on plain lawn, inside the fence, without overlapping', () => furnitureOnLawn(map));
+
+  it('has one of every kind', () => {
+    for (const kind of Object.keys(map.FURNITURE_SIZE)) expect(map.FURNITURE.some((f) => f.kind === kind)).toBe(true);
+  });
+
+  it('has cardboard boxes a cat (a kitten too) hops into, and sits in hidden', () => {
+    const box = map.FURNITURE.find((f) => f.kind === 'box')!;
+    const ox = box.tx * TILE, oy = box.ty * TILE;
+    // the middle of the inside: just the lawn under the paws, walls all round
+    const [x, y] = [ox + 16, oy + 12];
+    expect(heightUnder(x + FEET.x0, y + FEET.y0, x + FEET.x1, y + FEET.y1)).toBe(0);
+    expect(map.inBox(x, y, 0)).toBe(true);
+    expect(map.inBox(x, y, 6)).toBe(false);
+    expect(map.inBox(ox + 16, oy + 24, 0)).toBe(false);
+    // walking in from the front: the wall's in the way
+    const body = { x, y: oy + 24, z: 0, airborne: false };
+    step(body, 0, -12);
+    expect(body.y).toBeGreaterThan(oy + 15);
+    expect(STEP_UP).toBeLessThan(map.BOX_H);
+    expect(STAGE_JUMP[Stage.Kitten]).toBeGreaterThan(map.BOX_H);
+  });
+
+  it('has spots for critters round the vegetable beds', () => {
+    const around = map.aroundFurniture('bed');
+    expect(around.length).toBeGreaterThan(0);
+    for (const [x, y] of around) {
+      expect(map.furnished(Math.floor(x / TILE), Math.floor(y / TILE))).toBe(false);
+      expect(map.FURNITURE.some((f) => f.kind === 'bed' && x > (f.tx - 1) * TILE && x < (f.tx + 4) * TILE && y > (f.ty - 1) * TILE && y < (f.ty + 3) * TILE)).toBe(true);
+    }
+  });
+
+  it('finds the nearest piece of a kind', () => {
+    const pump = map.FURNITURE.find((f) => f.kind === 'pump')!;
+    expect(map.furnitureNear('pump', pump.tx * TILE + 8, pump.ty * TILE + 20, 6)).toBe(pump);
+    expect(map.furnitureNear('pump', pump.tx * TILE + 8, pump.ty * TILE + 40, 6)).toBeNull();
+  });
 });
 
 function furnitureOnLawn({ FURNITURE, FURNITURE_SIZE, tileAt }: Map): void {

@@ -3,7 +3,7 @@
 // new entry: give it a character, say how tall it stands and what sort of
 // ground it is, and draw it in art/tiles.ts (GROUND_ART).
 
-/** Height that nothing gets over (fences, the gate, tree trunks, the shed). */
+/** Height that nothing gets over (fences, the gate, tree trunks). */
 export const WALL = 99;
 
 /** What sort of ground a tile is, for animals, flora and footsteps. */

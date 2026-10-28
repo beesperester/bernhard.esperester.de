@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { catFrames } from './textures.ts';
 import type { Raster } from '../art/raster.ts';
 import type { Prop } from '../art/trees.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
@@ -35,7 +36,7 @@ export class RimLight {
 
   constructor(
     scene: Phaser.Scene,
-    parts: { trees: { p: Pick<Prop, 'x' | 'y' | 'depthY'>; canvas: HTMLCanvasElement }[]; upright: Raster; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catFrames: number; catSize: number },
+    parts: { trees: { p: Pick<Prop, 'x' | 'y' | 'depthY'>; canvas: HTMLCanvasElement }[]; upright: Raster; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catSize: number },
   ) {
     const add = (key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']) => {
       const tex = scene.textures.createCanvas(key, w, h)!;
@@ -106,7 +107,7 @@ export class RimLight {
     this.catAlpha = new Uint8Array(cw * ch);
     for (let k = 0; k < this.catAlpha.length; k++) this.catAlpha[k] = ca[k * 4 + 3] > 0 ? 1 : 0;
     this.catTex = scene.textures.createCanvas('cat-rim', cw, ch)!;
-    for (let f = 0; f < parts.catFrames; f++) this.catTex.add(f, 0, f * parts.catSize, 0, parts.catSize, parts.catSize);
+    catFrames(this.catTex, parts.catSheet);
     this.catSize = parts.catSize;
   }
 
@@ -157,8 +158,8 @@ export class RimLight {
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++) {
         if (!A[y * w + x]) continue;
-        const f0 = Math.floor(x / S) * S;
-        const solid = (px: number, py: number) => px >= f0 && px < f0 + S && py >= 0 && py < h && A[py * w + px] === 1;
+        const f0 = Math.floor(x / S) * S, g0 = Math.floor(y / S) * S;
+        const solid = (px: number, py: number) => px >= f0 && px < f0 + S && py >= g0 && py < g0 + S && A[py * w + px] === 1;
         const v = !solid(x + a, y + b) ? OUTER : !solid(x + c, y + d) ? INNER : 0;
         if (!v) continue;
         const k = (y * w + x) * 4;

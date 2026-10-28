@@ -1,7 +1,7 @@
 import { Act, Prey } from '../state.ts';
 import { Wary, type Senses } from './Wary.ts';
 import type { CatView } from '../CatView.ts';
-import { MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileAt } from '../../world/map.ts';
+import { MAP_H, MAP_W, TILE, aroundFurniture, elevAt, furnished, levelAt, tileAt } from '../../world/map.ts';
 import { lightAt } from '../../world/sky.ts';
 import { sound } from '../../audio/sound.ts';
 import { Pool, seedRng, hash2, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
@@ -15,9 +15,14 @@ import { groundOf, isOpenGround } from '../../world/legend.ts';
 // is follows from the garden clock like the rest of the fauna; the bolting is
 // worked out on each screen by itself.
 
-/** A mouse may settle in the grass every NEST_SLOT ms, and one go out foraging every RUN_SLOT ms. */
-const NEST_SLOT = 6000, NEST_P = 0.6, NEST_MAX = 90000;
-const RUN_SLOT = 7000, RUN_P = 0.5, RUN_MAX = 60000;
+/**
+ * A mouse may settle in the grass every NEST_SLOT ms, and one go out foraging every RUN_SLOT ms
+ * (anywhere in the garden: it's big, so that's often enough for a few on screen at a time).
+ */
+const NEST_SLOT = 1500, NEST_P = 0.9, NEST_MAX = 90000;
+const RUN_SLOT = 1000, RUN_P = 0.85, RUN_MAX = 50000;
+/** Share of mice out on the open ground that come out round a vegetable bed. */
+const BED_P = 0.25;
 /** How dark it has to be. */
 const DARK = 0.4;
 /** Close enough to a hidden mouse to flush it out, walking (or anything louder a bit further). */
@@ -41,6 +46,8 @@ export class Mice implements Fauna {
   private readonly wary: Wary;
   private readonly grass: Pt[] = [];
   private readonly ground: Pt[] = [];
+  /** Round the vegetable beds. */
+  private readonly beds: Pt[] = aroundFurniture('bed');
   private readonly nests = new Map<number, Nest | null>();
   private readonly runs = new Map<number, Run | null>();
   /** Where each nest mouse is hiding now (after bolting), and a run in progress. */
@@ -90,7 +97,7 @@ export class Mice implements Fauna {
         m = { id: k, at: this.grass[Math.floor(r() * this.grass.length)], t0: t0 + r() * NEST_SLOT, life: 40000 + r() * 50000 };
       }
       this.nests.set(k, m);
-      if (this.nests.size > 24) {
+      if (this.nests.size > NEST_MAX / NEST_SLOT + 8) {
         const old = this.nests.keys().next().value!;
         this.nests.delete(old);
         this.moved.delete(old);
@@ -179,10 +186,11 @@ export class Mice implements Fauna {
       const t0 = k * RUN_SLOT;
       if (this.ground.length && hash2(k, 63, 995) < RUN_P && lightAt(t0).night >= DARK) {
         const r = seedRng(k, 63);
-        m = { id: 1e6 + k, at: this.ground[Math.floor(r() * this.ground.length)], dir: r() * Math.PI * 2, t0: t0 + r() * RUN_SLOT, life: 20000 + r() * 30000 };
+        const spots = this.beds.length && r() < BED_P ? this.beds : this.ground;
+        m = { id: 1e6 + k, at: spots[Math.floor(r() * spots.length)], dir: r() * Math.PI * 2, t0: t0 + r() * RUN_SLOT, life: 20000 + r() * 30000 };
       }
       this.runs.set(k, m);
-      if (this.runs.size > 16) {
+      if (this.runs.size > RUN_MAX / RUN_SLOT + 8) {
         const old = this.runs.keys().next().value!;
         this.runs.delete(old);
         this.fled.delete(1e6 + old);

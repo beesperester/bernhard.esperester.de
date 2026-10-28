@@ -1,6 +1,7 @@
 import { BIRD_COLOURS } from '../../art/critters.ts';
 import { Act, Prey, SWIPE_AT_MS } from '../state.ts';
 import type { CatView } from '../CatView.ts';
+import { PUDDLE } from '../Furniture.ts';
 import { BATH_H, FORK_Z, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../../world/map.ts';
 import { RISE } from '../../world/trees.ts';
 import { SEASON } from '../../world/season.ts';
@@ -15,14 +16,16 @@ import { groundOf, isLawnOrTall, isOpenGround } from '../../world/legend.ts';
 // deterministic function of the garden clock; only scares and catches depend
 // on the cats.
 
-/** A new visit may start every SLOT ms with probability P. */
-const SLOT = 4000, P = 0.6;
+/** A new visit may start every SLOT ms with probability P (at night, P_ASLEEP: they stay much longer). */
+const SLOT = 4000, P = 0.6, P_ASLEEP = 0.16;
+/** A night's sleep in a tree: long enough for a cat to spot one and climb up to it. */
+const SLEEP_MS = 240000, SLEEP_MORE_MS = 180000;
 /** Share of daytime visits that go to a bird bath rather than a tree: birds love them. */
 const BATH_P = 0.4;
 /** How often a bird at the bath may have a splash about, and for how long. */
 const BATHE_EVERY = 1800, BATHE_P = 0.35;
 /** Longest possible visit, so we know how far back to look for birds still around. */
-const MAX_VISIT = 120000;
+const MAX_VISIT = SLEEP_MS + SLEEP_MORE_MS + 10000;
 const ARRIVE_MS = 2200, FLIT_MS = 900, LEAVE_MS = 2600, FLEE_MS = 2400;
 /** On the ground a bird hops to a new spot this often. */
 const HOP_EVERY = 2200, HOP_MS = 180;
@@ -38,6 +41,8 @@ const FREEZE_MS = 300;
 const DASH_SPEED = 110;
 /** Up in a tree, a cat this close along the branches (and this near its height) that isn't creeping is noticed. */
 const TREE_NOTICE = 26, TREE_NOTICE_Z = 12;
+/** A sleeping bird only wakes for a cat blundering right up to it (or a hiss, or a dash below). */
+const SLEEP_NOTICE = 10;
 
 type Pt3 = [number, number, number];
 /** A place a bird sits: x, ground line y and height h above it (crowns are high, the lawn is not). */
@@ -84,8 +89,15 @@ export class Birds implements Fauna {
     });
     // lawns: open grass or path a few steps from the trunk, at the tree's level
     this.lawns = trees.map(({ p }) => this.lawnAround(Math.floor((p.x + 32) / TILE), Math.floor(p.depthY / TILE)));
-    // bird baths: on the rim at the front of the basin, and the lawn around
-    this.baths = FURNITURE.filter((f) => f.kind === 'birdbath').map((f) => {
+    // bird baths: on the rim at the front of the basin, and the lawn around; the puddles under the pumps: round their edge
+    this.baths = FURNITURE.filter((f) => f.kind === 'birdbath' || f.kind === 'pump').map((f) => {
+      if (f.kind === 'pump') {
+        const cx = f.tx * TILE + PUDDLE.x, cy = f.ty * TILE + PUDDLE.y;
+        return {
+          rim: [[-7, -2], [-3, -3], [4, -3], [8, 0], [3, 3]].map(([dx, dy]) => ({ x: cx + dx, y: cy + dy, h: elevAt(cx, cy), depth: cy + dy, perch: false, bath: true })),
+          lawn: this.lawnAround(f.tx + 1, f.ty),
+        };
+      }
       const cx = f.tx * TILE + 8, y = f.ty * TILE + 10;
       return {
         rim: [-4, -1, 2, 5].map((dx) => ({ x: cx + dx, y, h: BATH_H, depth: y, perch: false, bath: true })),
@@ -110,10 +122,10 @@ export class Birds implements Fauna {
   private visitAt(k: number): Visit | null {
     if (!this.visits.has(k)) {
       let v: Visit | null = null;
-      if (hash2(k, 11, 920) < P && this.perches.length) {
+      const asleep = lightAt(k * SLOT).night >= 0.5;
+      if (hash2(k, 11, 920) < (asleep ? P_ASLEEP : P) && this.perches.length) {
         const r = seedRng(k, 11);
         const tree = Math.floor(r() * this.perches.length);
-        const asleep = lightAt(k * SLOT).night >= 0.5;
         // by day many go to a bird bath instead
         const bath = !asleep && this.baths.length && r() < BATH_P ? this.baths[Math.floor(r() * this.baths.length)] : null;
         const perches = bath ? bath.rim : this.perches[tree], lawns = bath ? bath.lawn : this.lawns[tree];
@@ -123,7 +135,7 @@ export class Birds implements Fauna {
         // (at the bath: drink and splash on the rim, maybe hop down onto the grass first)
         const u = r();
         const plan: [Spot | null, number][] = bath ? (u < 0.6 ? [[perch(), 15000 + r() * 25000]] : [[lawn(), 8000 + r() * 12000], [perch(), 12000 + r() * 20000]])
-          : asleep ? [[perch(), 60000 + r() * 50000]]
+          : asleep ? [[perch(), SLEEP_MS + r() * SLEEP_MORE_MS]]
           : u < 0.35 ? [[perch(), 15000 + r() * 30000]]
           : u < 0.65 ? [[lawn(), 15000 + r() * 25000]]
           : [[perch(), 6000 + r() * 14000], [lawn(), 12000 + r() * 20000], [perch(), 5000 + r() * 12000]];
@@ -146,7 +158,7 @@ export class Birds implements Fauna {
         }
       }
       this.visits.set(k, v);
-      if (this.visits.size > 48) {
+      if (this.visits.size > MAX_VISIT / SLOT + 16) {
         const old = this.visits.keys().next().value!;
         this.visits.delete(old);
         this.fled.delete(old);
@@ -195,9 +207,16 @@ export class Birds implements Fauna {
     // sleeping birds are simply there in the dark, fading in and out instead of flying
     if (v.asleep) {
       const s = first, alpha = clamp01(Math.min((gt - v.start) / 3000, (v.end - gt) / 3000));
-      for (const c of cats)
-        if (c.act === Act.Hiss && Math.hypot(c.x - s.x, c.y - s.y) < 40) return this.scare(v, [s.x, s.y, s.h], c, gt);
+      for (const c of cats) {
+        const d = Math.hypot(c.x - s.x, c.y - s.y);
+        const creeping = c.act === Act.Crouch || c.act === Act.Sneak || c.act === Act.Catch;
+        if ((c.act === Act.Hiss && d < 40) || (c.speed > DASH_SPEED && d < 40)
+          || (Math.abs(c.z - s.h) < TREE_NOTICE_Z && Math.abs(c.x - s.x) < SLEEP_NOTICE && !creeping && c.speed > 5))
+          return this.scare(v, [s.x, s.y, s.h], c, gt);
+      }
       this.draw(v, [s.x, s.y, s.h], 4, hash2(v.id, 926) < 0.5, alpha, s.depth);
+      // (fast asleep: a cat that gets up there quietly can have it)
+      if (alpha > 0.5) prey.push({ kind: Prey.Bird, id: v.id, x: s.x, y: s.y, h: s.h, colour: v.colour });
       return;
     }
     // flying in, fading in on the way

@@ -13,9 +13,9 @@ const PLAQUE_PX = 12, PLAQUE_FADE_MS = 300;
 const PLAQUE_MS = 4000;
 
 /**
- * The follies of Berlin's landmarks, each standing on its tiles like the
- * shed: sorted by its front, so a cat behind it is hidden (a cat up on one
- * is drawn in front of it). Paw at one (C) and a plaque with its name
+ * The follies of Berlin's landmarks, each standing on its tiles: sorted by
+ * its front, so a cat behind it is hidden (a cat up on one is drawn in front
+ * of it). Paw at one and a plaque with its name
  * appears over it for a while.
  */
 export class Landmarks {
@@ -47,6 +47,11 @@ export class Landmarks {
       const [tw, th] = LANDMARK_SIZE[l.kind];
       this.plaques.push({ text, x0: l.tx * TILE, y0: l.ty * TILE, x1: (l.tx + tw) * TILE, y1: (l.ty + th) * TILE, alpha: 0, until: -1 });
     }
+  }
+
+  /** Is the cat at (x, y) next to a folly (close enough to paw at it)? */
+  near(x: number, y: number): boolean {
+    return this.plaques.some((p) => x > p.x0 - READ_AT && x < p.x1 + READ_AT && y > p.y0 - READ_AT && y < p.y1 + READ_AT);
   }
 
   /** A paw at whatever folly the cat at (x, y) is next to: its plaque comes up. True if there was one. */

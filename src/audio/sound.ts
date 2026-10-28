@@ -75,17 +75,33 @@ export class Sound {
     });
   }
 
-  /** Call from a user gesture: creates the audio context and starts the ambient layers. */
+  /**
+   * Call from a user gesture: creates the audio context (and starts the
+   * ambient layers), or wakes it up again. Safari is stricter than Chrome:
+   * the context only runs if it is resumed and actually plays something
+   * within the gesture, and it can also be 'interrupted' (not just
+   * 'suspended'), e.g. by another app or a phone call.
+   */
   unlock(): void {
-    if (this.ctx) {
-      if (this.ctx.state === 'suspended' && !this.muted && !document.hidden) void this.ctx.resume();
-      return;
+    if (!this.ctx) {
+      // (iPhone and iPad: play through the ringer switch, like the music does)
+      const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+      if (session) session.type = 'playback';
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      this.ctx = new Ctx();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : MASTER;
+      this.master.connect(this.ctx.destination);
+      for (const name of Object.keys(LAYERS)) if (SOUNDS[name]) this.schedule(name, true);
     }
-    this.ctx = new AudioContext();
-    this.master = this.ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : MASTER;
-    this.master.connect(this.ctx.destination);
-    for (const name of Object.keys(LAYERS)) if (SOUNDS[name]) this.schedule(name, true);
+    if (this.ctx.state !== 'running' && !this.muted && !document.hidden) {
+      void this.ctx.resume().catch(() => {});
+      // a moment of silence, played in the gesture, is what unlocks it in Safari
+      const blip = this.ctx.createBufferSource();
+      blip.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+      blip.connect(this.ctx.destination);
+      blip.start();
+    }
   }
 
   toggle(): void {
@@ -203,9 +219,11 @@ export class Sound {
   private load(url: string): Promise<AudioBuffer | null> {
     let p = this.buffers.get(url);
     if (!p) {
+      const ctx = this.ctx!;
       p = fetch(url)
         .then((r) => r.arrayBuffer())
-        .then((b) => this.ctx!.decodeAudioData(b))
+        // (older Safari only knows the callback form)
+        .then((b) => new Promise<AudioBuffer>((resolve, reject) => void ctx.decodeAudioData(b, resolve, reject)?.catch?.(reject)))
         .catch(() => null);
       this.buffers.set(url, p);
     }

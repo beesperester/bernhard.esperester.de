@@ -97,7 +97,8 @@ const SEASONS: Record<Critter, [number, number, number, number]> = {
   bee: [3, 25, 9, 30],
   dragonfly: [5, 15, 9, 15],
   firefly: [6, 1, 7, 31],
-  frog: [3, 25, 9, 30],
+  // (frogs and toads wander on mild wet nights well into autumn, and are back from hibernation in March)
+  frog: [3, 10, 10, 31],
   bat: [4, 10, 10, 15],
   beetle: [3, 25, 10, 31],
 };

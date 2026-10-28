@@ -1,4 +1,5 @@
 import { Raster, hex, type RGB } from './raster.ts';
+import { KITTEN_FRAMES, youngFrame } from './kitten.ts';
 
 // Cat sprites are 16x16 character maps.
 //   o outline   b fur   d fur shade/stripes   k patch (calico)
@@ -83,35 +84,61 @@ const upWalk2 = patch(upStand, [
   [3, 14, 'oooo'],
 ]);
 
-// ---- side (facing left; flipped for right) ----
+// ---- side (facing left; flipped for right): the head turned to us, on a short body, the tail up ----
 const sideStand = [
   '................',
   '................',
-  '..o..o..........',
-  '.opoobo.........',
-  '.obbbbbo.....oo.',
-  'obbdbdbo....obbo',
-  'obebbbbo....obo.',
-  'obebbbbo....obo.',
-  'pbbbbbbbo...obo.',
-  'owwbbbbbooooobo.',
-  '.owwwbbdbdbdbbo.',
-  '..oowbbbbbbbbbo.',
-  '...owwwbbbbbbbo.',
-  '...obwobbbbobwo.',
-  '...obwo.oooobwo.',
-  '...ooo......ooo.',
+  '..............o.',
+  '.o.......o...obo',
+  'opo.....opo..obo',
+  'obbooooobbo.obo.',
+  'obdbbdbbdbo.obo.',
+  'obbbbbbbbbo.obo.',
+  'obbebbbebbooobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '..obwoobwoobwo..',
+  '..ooo.ooo.ooo...',
 ];
-const sideWalk1 = patch(sideStand, [
-  [0, 13, '..obwwobbbbobbwo'],
-  [0, 14, '..oooo..ooo.ooo.'],
-  [0, 15, '................'],
-]);
-const sideWalk2 = patch(sideStand, [
-  [0, 13, '...owbobbbobwo..'],
-  [0, 14, '...obwoooooooo..'],
-  [0, 15, '...ooo..........'],
-]);
+const sideWalk1 = [
+  '................',
+  '................',
+  '..............o.',
+  '.o.......o...obo',
+  'opo.....opo..obo',
+  'obbooooobbo.obo.',
+  'obdbbdbbdbo.obo.',
+  'obbbbbbbbbo.obo.',
+  'obbebbbebbooobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '.obwo.obwo..obwo',
+  '.ooo..ooo...ooo.',
+];
+const sideWalk2 = [
+  '................',
+  '................',
+  '..............o.',
+  '.o.......o...obo',
+  'opo.....opo..obo',
+  'obbooooobbo.obo.',
+  'obdbbdbbdbo.obo.',
+  'obbbbbbbbbo.obo.',
+  'obbebbbebbooobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '...obwobwoobwo..',
+  '...oooooooooo...',
+];
 
 // ---- sitting ----
 const sitDown = patch(downStand, [
@@ -123,20 +150,20 @@ const sitDown = patch(downStand, [
 const sitSide = [
   '................',
   '................',
-  '...o..o.........',
-  '..opoobo........',
-  '..obbbbbo.......',
-  '.obbdbdbo.......',
-  '.obebbbbo.......',
-  '.obebbbbo.......',
-  '.pbbbbbbbo......',
-  '.owwbbbbbbo.....',
-  '..owwwbbdbbo....',
-  '...owwbbbdbbo...',
-  '...owwbbbbdbo...',
-  '...owwbbbbbbo...',
-  '..owwobbbbbbboo.',
-  '..oooooooooddddo',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebbo.....',
+  'obbebbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owwwrwwwobdbbo.',
+  '..owwwwwobbbdbo.',
+  '..owwwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
 ];
 
 // ---- licking paw (sitting) ----
@@ -152,43 +179,80 @@ const lickDown2 = patch(lickDown1, [
   [3, 10, 'ww'],
   [5, 10, 'rp'],
 ]);
-const lickSide1 = patch(sitSide, [
-  [0, 6, '.obobbbbo.......'],
-  [0, 7, '.obbbbbbo.......'],
-  [0, 9, 'oowwbbbbbbo.....'],
-  [0, 10, 'owwowbbdbbo.....'],
-  [0, 11, '.oowwbbbbdbbo...'],
-]);
-const lickSide2 = patch(lickSide1, [
-  [0, 8, 'rpbbbbbbbo......'],
-  [0, 9, 'owwwbbbbbbo.....'],
-]);
-
-// ---- hissing (side, arched back, puffed tail) ----
-const hiss1 = [
-  '...........o.o.o',
-  '.....ooooo..obdo',
-  '....obdbdbo.obbo',
-  '.o.obbbbbbboobdo',
-  'opoobbbbbbbbbbo.',
-  'obbbbdbbbbbbbbo.',
-  'oebbbbbbbbbbbo..',
-  'oebbbbdbbdbbbo..',
-  'prbbbbbbbbbbbo..',
-  'owwwbooooobbbo..',
-  '.owwbo...obbo...',
-  '..obwo...obwo...',
-  '..obwo...obwo...',
-  '..obwo...obwo...',
-  '..obwo...obwo...',
-  '..ooo....ooo....',
+const lickSide1 = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbbbbbebbo.....',
+  'obbobbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owworwwwobdbbo.',
+  '.owwowwwobbbdbo.',
+  '..oowwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
 ];
-const hiss2 = patch(hiss1, [
-  [0, 0, '..........o.o.o.'],
-  [0, 7, 'orbbbbdbbdbbbo..'],
-  [0, 8, 'prrbbbbbbbbbbo..'],
-  [0, 9, 'orrwbooooobbbo..'],
-]);
+const lickSide2 = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbbbbbebbo.....',
+  'obbobbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owworwwwobdbbo.',
+  '.owwowwwobbbdbo.',
+  '..oowwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
+];
+
+// ---- hissing (side): mouth wide open, fur on end, the tail puffed up ----
+const hiss1 = [
+  '................',
+  '............oo.o',
+  '............obob',
+  '.o.......o..obbo',
+  'opo.....opo.obbo',
+  'obbooooobbo.obbo',
+  'obdbbdbbdbo.obbo',
+  'obbbbbbbbbooobbo',
+  'obbebbbebbbbobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.oowrrrwoobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '..obwoobwoobwo..',
+  '..ooo.ooo.ooo...',
+];
+const hiss2 = [
+  '................',
+  '............o.oo',
+  '............bobo',
+  '.o.......o..obbo',
+  'opo.....opo.obbo',
+  'obbooooobbo.obbo',
+  'obdbbdbbdbo.obbo',
+  'obbbbbbbbbooobbo',
+  'obbebbbebbbbobo.',
+  'obbebbbebbbdbdbo',
+  'owwwbpbwwwbbbbbo',
+  '.oowrrrwoobbbbbo',
+  '..owwwwwobbbbbo.',
+  '..obwoobwoobwo..',
+  '..obwoobwoobwo..',
+  '..ooo.ooo.ooo...',
+];
 
 // ---- hissing, facing us: ears flat, fur on end, mouth wide open ----
 const hissDown1 = sym([
@@ -292,17 +356,42 @@ const sleep2 = patch(sleep1, [
 ]);
 
 // ---- catching: paw raised, then swiped down-forward ----
-const catch1 = patch(sitSide, [
-  [0, 9, 'owwobbbbbbo.....'],
-  [0, 10, 'owwowwbbdbbo....'],
-  [0, 11, '.oo.owbbbdbbo...'],
-]);
-const catch2 = patch(sitSide, [
-  [0, 11, '..owwwbbbdbbo...'],
-  [0, 12, '.owwobbbbbdbo...'],
-  [0, 13, 'owwo.owbbbbbo...'],
-  [0, 14, 'oooo.obbbbbbboo.'],
-]);
+const catch1 = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebbo.....',
+  'obbebbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owwwrwwwobdbbo.',
+  'owwowwwwobbbdbo.',
+  'ooowwwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
+];
+const catch2 = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebbo.....',
+  'obbebbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owwwrwwwobdbbo.',
+  '..owwwwwobbbdbo.',
+  '..owwwwwobbbbbo.',
+  'owwowowwobbbbbo.',
+  'owwowowwobbbbboo',
+  'oooooooooooodddo',
+];
 // facing us: a paw raised beside the face, then slammed down in front
 const catchDown1 = patch(sitDown, [
   [0, 5, '.oo.'],
@@ -332,42 +421,84 @@ const catchUp2 = patch(upStand, [
   [3, 3, 'obo'],
 ]);
 // ---- eating: chewing with the mouth open ----
-const chew = patch(sitSide, [
-  [0, 8, '.prbbbbbbo......'],
-  [0, 9, '.orwbbbbbbo.....'],
-]);
+const chew = [
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebbo.....',
+  'obbebbbebbooo...',
+  'owwwbpbwwwbbbo..',
+  '.owwwrwwwobdbbo.',
+  '..owwrwwobbbdbo.',
+  '..owwwwwobbbbbo.',
+  '..owwowwobbbbbo.',
+  '..owwowwobbbbboo',
+  '..oooooooooodddo',
+];
 const chewDown = patch(sitDown, [
   [0, 10, '.owwbbprrpbbwwo.'],
   [0, 11, '..owwwwrrwwwwo..'],
 ]);
 
-// ---- crouching low and sneaking: belly to the ground, head forward, tail flat ----
+// ---- crouching low and sneaking: belly to the ground, tail out flat behind ----
 const sideCrouch = [
   '................',
   '................',
   '................',
   '................',
-  '................',
-  '..o..o..........',
-  '.opoobo.........',
-  '.obbbbboooooooo.',
-  'obbdbdbbbdbdbbbo',
-  'obebbbbbbbbbbbbo',
-  'obebbbbbbbbbbbo.',
-  'pbbbbbbbbbbbboo.',
-  'owwwbbbbbbbbbddo',
-  '.owwobbbbbbbboo.',
-  '.obwoowwoobwwo..',
-  '.oooo.oo..ooo...',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebboooo..',
+  'obbebbbebbbdbdo.',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbddo',
+  '..owwwwwobbbbbo.',
+  '.obwwoowwoobbwo.',
+  '.oooo.oooo.ooo..',
 ];
-const sideSneak1 = patch(sideCrouch, [
-  [0, 14, '.obwooowwobbwo..'],
-  [0, 15, 'ooooo..ooo.ooo..'],
-]);
-const sideSneak2 = patch(sideCrouch, [
-  [0, 14, '..obwoowwwoobwo.'],
-  [0, 15, '..oooo.....oooo.'],
-]);
+const sideSneak1 = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebboooo..',
+  'obbebbbebbbdbdo.',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbddo',
+  '..owwwwwobbbbbo.',
+  'obwwo.owwoobbwo.',
+  'ooooo.oooo.ooo..',
+];
+const sideSneak2 = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '.o.......o......',
+  'opo.....opo.....',
+  'obbooooobbo.....',
+  'obdbbdbbdbo.....',
+  'obbbbbbbbbo.....',
+  'obbebbbebboooo..',
+  'obbebbbebbbdbdo.',
+  'owwwbpbwwwbbbbbo',
+  '.owwwrwwwobbbddo',
+  '..owwwwwobbbbbo.',
+  '..obwwowwoobbbwo',
+  '..ooooooooooooo.',
+];
 const downCrouch = [
   '................',
   '................',
@@ -420,6 +551,23 @@ export const FRAMES = {
 
 export type FrameName = keyof typeof FRAMES;
 export const FRAME_NAMES = Object.keys(FRAMES) as FrameName[];
+/** Frames in one row of the sheet: every frame, then all of them mirrored. */
+export const ROW_FRAMES = FRAME_NAMES.length * 2;
+/**
+ * The sheet has a row for each size of cat (growth.ts): grown cats first (so
+ * frameFor's numbers are theirs), then young ones, then kittens.
+ */
+export const stageRow = (stage: number): number => (2 - stage) * ROW_FRAMES;
+/** Where frame f is on the sheet (px). */
+export const framePos = (f: number): [number, number] => [(f % ROW_FRAMES) * CAT, Math.floor(f / ROW_FRAMES) * CAT];
+
+/** A frame for each size: grown, young (a few rows and columns of body taken out), kitten (drawn on its own). */
+const SIZED: ((name: FrameName) => readonly string[])[] = [
+  (name) => FRAMES[name],
+  (name) => youngFrame(name, FRAMES[name]),
+  (name) => KITTEN_FRAMES[name],
+];
+
 /** Frame index in the sheet; right-facing frames are mirrored copies appended after. */
 export const frameIndex = (name: FrameName, flip = false): number =>
   FRAME_NAMES.indexOf(name) + (flip ? FRAME_NAMES.length : 0);
@@ -455,14 +603,16 @@ export function buildCatSheet(coatIndex: number): Raster {
   const coat = COATS[((coatIndex % COATS.length) + COATS.length) % COATS.length];
   const pal = coatPalette(coat);
   const n = FRAME_NAMES.length;
-  const sheet = new Raster(CAT * n * 2, CAT);
-  FRAME_NAMES.forEach((name, i) => {
-    let rows: readonly string[] = FRAMES[name];
-    if (coat.name === 'calico') rows = calicoize(rows);
-    if (coat.name === 'siamese') rows = siamesize(rows);
-    sheet.paint(rows, i * CAT, 0, pal);
-    sheet.paint(rows, (i + n) * CAT, 0, pal, true);
-  });
+  const sheet = new Raster(CAT * n * 2, CAT * SIZED.length);
+  SIZED.forEach((sized, row) =>
+    FRAME_NAMES.forEach((name, i) => {
+      let rows = sized(name);
+      if (coat.name === 'calico') rows = calicoize(rows);
+      if (coat.name === 'siamese') rows = siamesize(rows);
+      sheet.paint(rows, i * CAT, row * CAT, pal);
+      sheet.paint(rows, (i + n) * CAT, row * CAT, pal, true);
+    }),
+  );
   return sheet;
 }
 
@@ -475,7 +625,9 @@ function calicoize(rows: readonly string[]): string[] {
 
 /** Siamese: dark points on ears, face centre, paws and tail tip. */
 function siamesize(rows: readonly string[]): string[] {
-  return rows.map((r, y) => [...r].map((ch) => (ch === 'b' && (y < 6 || y > 12) ? 'd' : ch)).join(''));
+  // (the head is the top four rows of whatever size of cat this is)
+  const top = rows.findIndex((r) => /[^.]/.test(r));
+  return rows.map((r, y) => [...r].map((ch) => (ch === 'b' && (y - top < 4 || y > 12) ? 'd' : ch)).join(''));
 }
 
 /** Just the eyes of every frame (in the coat's eye colour, brightened), to make them glow at night. */
@@ -484,10 +636,12 @@ export function buildEyeSheet(coatIndex: number): Raster {
   const [r, g, b] = hex(coat.e);
   const glow: RGB = [Math.min(255, r * 0.6 + 110), Math.min(255, g * 0.6 + 110), Math.min(255, b * 0.6 + 90)];
   const n = FRAME_NAMES.length;
-  const sheet = new Raster(CAT * n * 2, CAT);
-  FRAME_NAMES.forEach((name, i) => {
-    sheet.paint(FRAMES[name], i * CAT, 0, { e: glow });
-    sheet.paint(FRAMES[name], (i + n) * CAT, 0, { e: glow }, true);
-  });
+  const sheet = new Raster(CAT * n * 2, CAT * SIZED.length);
+  SIZED.forEach((sized, row) =>
+    FRAME_NAMES.forEach((name, i) => {
+      sheet.paint(sized(name), i * CAT, row * CAT, { e: glow });
+      sheet.paint(sized(name), (i + n) * CAT, row * CAT, { e: glow }, true);
+    }),
+  );
   return sheet;
 }

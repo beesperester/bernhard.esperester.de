@@ -2,12 +2,14 @@ import type Phaser from 'phaser';
 import { Act, SWIPE_AT_MS } from '../state.ts';
 import type { CatView } from '../CatView.ts';
 import { Pool } from './kit.ts';
+import { inBox } from '../../world/map.ts';
 
 // How prey keeps an eye on the cats. Walking, jumping, hissing or dashing up
 // to it scares it off from a distance. A crouching cat can creep closer, but
 // it gets noticed in the end: the prey looks up ("!") and is gone after a
 // moment, so the last stretch takes a pounce (a dash). Creeping on once
-// spotted, or a swipe that misses, scares it off at once.
+// spotted, or a swipe that misses, scares it off at once. A cat keeping still
+// in a cardboard box isn't seen at all.
 
 const DASH_SPEED = 110;
 
@@ -51,6 +53,8 @@ export class Wary {
     let alert = this.alerts.get(id);
     for (const c of cats) {
       if (Math.abs(c.z - h) > 24) continue; // a cat up on a ledge is out of the way
+      // nor is one keeping still in a cardboard box (until it pounces out)
+      if (c.act !== Act.Catch && c.act !== Act.Jump && c.speed <= 5 && inBox(c.x, c.y, c.z)) continue;
       const d = Math.hypot(c.x - x, c.y - y);
       if (c.act === Act.Catch && now - c.actStart > SWIPE_AT_MS + 80 && d < s.swipe) return { calm: false, alert: false, cat: c };
       if (c.act === Act.Crouch || c.act === Act.Sneak) {

@@ -87,12 +87,32 @@ describe('the dash', () => {
 });
 
 describe('diagonal steps', () => {
+  it('fall into step without the rounded position ever going back', () => {
+    const [x, y] = spawnPoints()[0];
+    for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]])
+      for (const [ox, oy] of [[0.1, 0.8], [0.45, 0.2], [0.9, 0.5], [0.3, 0.55]]) {
+        const b = onFoot(Math.floor(x) + ox, Math.floor(y) + oy);
+        let inStep = 0;
+        // creeping: a fifth of a pixel a frame
+        for (let i = 0; i < 40; i++) {
+          const rx = Math.round(b.x), ry = Math.round(b.y), fromY = b.y;
+          b.x += dx * 0.2;
+          b.y += dy * 0.2;
+          alignDiagonal(b, dx, dy, fromY);
+          expect((Math.round(b.y) - ry) * dy).toBeGreaterThanOrEqual(0);
+          if (i >= 10 && (Math.round(b.x) !== rx) === (Math.round(b.y) !== ry)) inStep++;
+        }
+        expect(inStep).toBe(30);
+      }
+  });
+
   it('get x and y onto whole pixels at the same moment, whichever way', () => {
     const [x, y] = spawnPoints()[0];
     for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]])
       for (const [ox, oy] of [[0.1, 0.8], [0.45, 0.2], [0.9, 0.5]]) {
         const b = onFoot(Math.floor(x) + ox, Math.floor(y) + oy);
-        alignDiagonal(b, dx, dy);
+        // (having just stepped a whole pixel, so it may go back as far as it needs)
+        alignDiagonal(b, dx, dy, b.y - dy);
         expect(Math.abs(b.y - (Math.floor(y) + oy))).toBeLessThanOrEqual(0.5);
         // walk on: the rounded position must change on both axes in the same steps
         for (let i = 0; i < 40; i++) {

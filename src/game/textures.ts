@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Raster } from '../art/raster.ts';
-import { buildCatSheet, buildEyeSheet, COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
+import { buildCatSheet, buildEyeSheet, COATS, CAT, framePos } from '../art/cat.ts';
 import { buildGrounds, buildWaterMask } from '../art/tiles.ts';
 import { buildProps } from '../art/trees.ts';
 import { buildTerrain } from '../art/terrain.ts';
@@ -26,12 +26,19 @@ export function toCanvas(r: Raster): HTMLCanvasElement {
   return c;
 }
 
+/** A cat sheet's frames: a row for each size of cat (art/cat.ts). */
+export function catFrames(t: Phaser.Textures.Texture, canvas: { width: number; height: number }): void {
+  for (let f = 0; f < (canvas.width / CAT) * (canvas.height / CAT); f++) {
+    const [x, y] = framePos(f);
+    t.add(f, 0, x, y, CAT, CAT);
+  }
+}
+
 export function makeTextures(scene: Phaser.Scene) {
 const tex = scene.textures;
   const cats = COATS.map((_, c) => {
     const canvas = toCanvas(buildCatSheet(c));
-    const t = tex.addCanvas(`cat-${c}`, canvas)!;
-    for (let f = 0; f < FRAME_NAMES.length * 2; f++) t.add(f, 0, f * CAT, 0, CAT, CAT);
+    catFrames(tex.addCanvas(`cat-${c}`, canvas)!, canvas);
     return canvas;
   });
   const grounds = buildGrounds();
@@ -50,7 +57,10 @@ const tex = scene.textures;
   BUTTERFLY_COLOURS.forEach((_, i) => sheet(`butterfly-${i}`, buildButterfly(i), 7, 5));
   sheet('bee', buildBee(), 4, 3);
   tex.addCanvas('alert', toCanvas(buildAlert()));
-  COATS.forEach((_, c) => sheet(`cat-eyes-${c}`, buildEyeSheet(c), CAT, CAT));
+  COATS.forEach((_, c) => {
+    const canvas = toCanvas(buildEyeSheet(c));
+    catFrames(tex.addCanvas(`cat-eyes-${c}`, canvas)!, canvas);
+  });
   tex.addCanvas('firefly', toCanvas(buildFirefly()));
   tex.addCanvas('glow-firefly', toCanvas(buildGlow(9, 9, [200, 255, 120])));
   tex.addCanvas('glow-puff', toCanvas(buildGlow(15, 15, [220, 255, 150])));

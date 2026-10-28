@@ -1,10 +1,14 @@
 import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { Act, ACT_MAX, EAT_MS, MEW_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
-import { CAT, COATS } from '../art/cat.ts';
+import { CAT, COATS, stageRow } from '../art/cat.ts';
 import { WORLD_W, WORLD_H, terrainCover, upOnFolly } from '../world/map.ts';
 import { TREES, surfaceAt, treeHolding } from '../world/trees.ts';
 import { DEPTH } from './Daylight.ts';
+import { STAGE_SIZE, Stage } from './growth.ts';
+
+/** Growing up: it flickers between its old size and its new one, quicker and quicker, for this long (ms). */
+const GROW_MS = 1600;
 
 /** Colour of a cat hidden behind a hill. */
 const SILHOUETTE = 0x5ee86a;
@@ -28,6 +32,9 @@ export const catLight = {
   /** True if something stands in front of world point (x, y) for a cat whose feet are at feetY. */
   occluded: (_x: number, _y: number, _feetY: number): boolean => false,
 };
+
+/** Walking into shade, a cat takes this long to darken fully. */
+const SHADE_IN_MS = 700;
 
 /** Draws one cat (local or remote): shadow, sprite and emote bubble. */
 export class CatView {
@@ -55,11 +62,19 @@ export class CatView {
   heldKey = 'held-fish';
   /** Shown under the cat. */
   name = '';
+  /** How grown up it is (growth.ts); the size it is drawn at lags behind for a moment while it grows. */
+  stage: Stage = Stage.Grown;
+  /** How big it is drawn, for things placed on it (what's in its mouth, its emotes): 1 for a grown cat. */
+  size = 1;
+  private shown: Stage | null = null;
+  private growing: { from: Stage; t: number } | null = null;
   /** How many times it has mewed, and when the last one began (it can mew walking, running or mid-jump). */
   mews = 0;
   mewAt = -Infinity;
 
   readonly shadow: Phaser.GameObjects.Image;
+  /** How shaded the cat looks now (0..1), catching up with the ground under it. */
+  private shaded = 0;
   private readonly sprite: Phaser.GameObjects.Sprite;
   private readonly bubble: Phaser.GameObjects.Image;
   private readonly held: Phaser.GameObjects.Image;
@@ -104,6 +119,17 @@ export class CatView {
 
   render(now: number): void {
     const ms = now - this.actStart;
+    // growing up: flickering between the sizes, quicker and quicker (a cat seen for the first time just is its size)
+    if (this.shown !== null && this.shown !== this.stage && !this.growing) this.growing = { from: this.shown, t: now };
+    this.shown = this.stage;
+    let stage = this.stage;
+    if (this.growing) {
+      const u = (now - this.growing.t) / GROW_MS;
+      if (u >= 1 || this.growing.from === this.stage) this.growing = null;
+      else if (Math.floor(u * u * 14) % 2 === 0) stage = this.growing.from;
+    }
+    const k = STAGE_SIZE[stage];
+    this.size = k;
     const z = this.z;
     const x = Math.round(this.x), y = Math.round(this.y);
     const dtm = now - this.last.t;
@@ -121,11 +147,14 @@ export class CatView {
     this.depth = d;
     // the shadow lies on whatever surface is below the cat
     const below = Math.round(surfaceAt(this.x, this.y, z));
-    this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft);
-    // standing in the shade of something
-    const shade = catLight.shade(this.x, this.y);
+    this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft).setScale(Math.min(1, k + 0.15));
+    // standing in the shade of something: it darkens step by step (a sliver of shadow crossed
+    // on the way barely shows, so the cat doesn't flicker) and brightens at once in the sun
+    const dark = catLight.shade(this.x, this.y);
+    this.shaded = dark < this.shaded ? dark : Math.min(dark, this.shaded + (dtm > 0 ? dtm / SHADE_IN_MS : 0));
+    const shade = this.shaded;
     this.sprite.setPosition(x, y - Math.round(z)).setDepth(d);
-    this.frame = frameFor(this.act, this.facing, ms, now, this.speed > 110);
+    this.frame = stageRow(stage) + frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
     if (shade > 0) this.sprite.setTint(Phaser.Display.Color.GetColor(255 - 90 * shade, 255 - 80 * shade, 255 - 50 * shade));
     else this.sprite.clearTint();
@@ -134,7 +163,7 @@ export class CatView {
     this.rim.setVisible(rim > 0);
     if (rim > 0) this.rim.setPosition(x, top).setDepth(d + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour);
     // eyes shine in the dark, unless something stands in front of this cat
-    const glow = catLight.night > 0.05 && (this.local || !catLight.occluded(x, top - 9, y));
+    const glow = catLight.night > 0.05 && (this.local || !catLight.occluded(x, top - 9 * k, y));
     this.eyes.setVisible(glow);
     if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * (this.act === Act.Sleep ? 0 : 0.9));
     // our own cat, where a hill hides it: the covered part shows as a silhouette
@@ -155,8 +184,8 @@ export class CatView {
       this.held.setTexture(this.act === Act.Feast ? this.heldKey : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2).setDepth(d + 0.5);
       // side on, the art faces left with the head at x=0: the head goes in the mouth, tail sticking out;
       // facing us, it is held crosswise in the mouth
-      if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5), y - 6 - Math.round(z));
-      else this.held.setFlipX(false).setOrigin(0.3, 0.5).setPosition(x, y - 5 - Math.round(z));
+      if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5) * k, y - 6 * k - Math.round(z));
+      else this.held.setFlipX(false).setOrigin(0.3, 0.5).setPosition(x, y - 5 * k - Math.round(z));
     }
 
     // the name, just under the cat's feet (and under its shadow on a ledge)
@@ -176,8 +205,8 @@ export class CatView {
     this.bubble.setVisible(!!emote);
     if (emote) {
       const bob = Math.floor((mewing ? now - this.mewAt : ms) / 250) % 2;
-      const top = (this.act === Act.Roll ? y - 12 : y - 17) - Math.round(z);
-      this.bubble.setTexture(emote).setPosition(x + 4, top - bob).setDepth(100000);
+      const top = Math.round(y - (this.act === Act.Roll ? 12 : 17) * k) - Math.round(z);
+      this.bubble.setTexture(emote).setPosition(x + Math.round(4 * k), top - bob).setDepth(100000);
     }
   }
 
@@ -211,14 +240,15 @@ export class RemoteCat extends CatView {
   }
 
   apply(msg: CatMsg, now: number): void {
-    const [x, y, z, facing, act, seq, , mews] = msg;
+    const [x, y, z, facing, act, seq, , mews, stage] = msg;
+    this.stage = stage as Stage;
     if (mews !== this.mews) {
       this.mews = mews;
       this.mewAt = now;
     }
     this.tx = Phaser.Math.Clamp(x, 0, WORLD_W);
     this.ty = Phaser.Math.Clamp(y, 0, WORLD_H);
-    this.tz = Phaser.Math.Clamp(z, 0, 40);
+    this.tz = Phaser.Math.Clamp(z, 0, 200);
     this.facing = Phaser.Math.Clamp(facing, 0, 3) as Facing;
     const a = Phaser.Math.Clamp(act, 0, ACT_MAX) as Act;
     if (a !== this.act || seq !== this.seq) this.setAct(a, now);

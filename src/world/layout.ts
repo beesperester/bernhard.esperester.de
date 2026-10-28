@@ -16,15 +16,20 @@ import { LANDMARK_SIZE } from './landmarks.ts';
 
 type Pt = [number, number];
 
-export type FurnitureKind = 'shed' | 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath';
+export type FurnitureKind = 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath' | 'box' | 'pump' | 'catnip' | 'bed' | 'barrow' | 'hotel';
 
 /** Tiles each kind of furniture takes up. */
 export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
-  shed: [3, 2], bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3], birdbath: [1, 1],
+  bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3], birdbath: [1, 1],
+  // (the pump's puddle takes the tile to its right)
+  box: [2, 1], pump: [2, 1], catnip: [2, 1], bed: [3, 2], barrow: [2, 1], hotel: [1, 1],
 };
 
 /** How many of each piece a garden gets, in the order they are placed. */
-const WANT: [FurnitureKind, number][] = [['shed', 1], ['picnic', 3], ['blanket', 3], ['bistro', 3], ['birdbath', 5], ['bench', 14]];
+const WANT: [FurnitureKind, number][] = [
+  ['picnic', 3], ['blanket', 3], ['bistro', 3], ['birdbath', 5], ['bench', 14],
+  ['bed', 3], ['pump', 3], ['hotel', 3], ['catnip', 4], ['barrow', 3], ['box', 4],
+];
 
 const MAZE_W = 17, MAZE_H = 13;
 
@@ -200,23 +205,19 @@ export function layOut(seed: number): Layout {
     }
   }
 
-  connect(T, E, furniture);
+  connect(T, E);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (T[y][x] === 'L') T[y][x] = '.';
   return { rows: T.map((r) => r.join('')), furniture };
 }
 
 /**
  * Everything that grew must leave every bit of ground reachable: where trees,
- * bushes or hedges wall a patch in, clear them away (and failing that, take
- * away the furniture beside it).
+ * bushes or hedges wall a patch in, clear them away.
  */
-function connect(T: string[][], E: number[][], furniture: Layout['furniture']): void {
+function connect(T: string[][], E: number[][]): void {
   const H = T.length, W = T[0].length;
   for (let pass = 0; pass < 60; pass++) {
-    const shed = new Set<number>();
-    for (const f of furniture)
-      if (f.kind === 'shed') for (let j = 0; j < FURNITURE_SIZE.shed[1]; j++) for (let i = 0; i < FURNITURE_SIZE.shed[0]; i++) shed.add((f.ty + j) * W + f.tx + i);
-    const walk = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && !'~wlFmTPHbr#Lo'.includes(T[y][x]) && !shed.has(y * W + x);
+    const walk = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && !'~wlFmTPHbr#Lo'.includes(T[y][x]);
     // (level ground, or on and off stairs: cliffs only go down, and that's not much of a connection)
     const step = (ax: number, ay: number, bx: number, by: number) =>
       E[ay][ax] === E[by][bx] || (T[ay][ax] === 'S' && E[by][bx] === E[ay][ax] + 1) || (T[by][bx] === 'S' && E[ay][ax] === E[by][bx] + 1);
@@ -254,11 +255,6 @@ function connect(T: string[][], E: number[][], furniture: Layout['furniture']): 
               T[y + dy][x + dx] = '.';
               cleared = true;
             }
-    if (cleared) continue;
-    // walled in by the shed: move it out of the way (there is only the one)
-    const beside = [...shed].some((k) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => comp[Math.floor(k / W) + dy]?.[(k % W) + dx] === small));
-    const i = furniture.findIndex((f) => f.kind === 'shed');
-    if (i < 0 || !beside) return;
-    furniture.splice(i, 1);
+    if (!cleared) return;
   }
 }

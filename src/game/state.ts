@@ -40,7 +40,8 @@ export type Prey = (typeof Prey)[keyof typeof Prey];
  * Everything other visitors need to draw a cat: [x, y, z, facing, act, seq, coat, mews].
  * `mews` counts the cat's mews: it can mew whatever it's doing, so a mew isn't an act.
  */
-export type CatMsg = [number, number, number, number, number, number, number, number];
+/** [x, y, z, facing, act, seq, coat, mews, stage (growth.ts)] */
+export type CatMsg = [number, number, number, number, number, number, number, number, number];
 
 const cycle = <T>(frames: T[], fps: number, ms: number): T => frames[Math.floor((ms / 1000) * fps) % frames.length];
 

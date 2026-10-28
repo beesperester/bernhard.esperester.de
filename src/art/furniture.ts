@@ -1,21 +1,19 @@
-// Garden furniture, drawn pixel by pixel like the rest: a shed, park benches,
-// a picnic table, a bistro set and a picnic blanket with its basket. Every
+// Garden furniture, drawn pixel by pixel like the rest: park benches,
+// a picnic table, a bistro set, a picnic blanket with its basket, a bird
+// bath, a cardboard box, a Berlin street pump, pots of catnip, a raised
+// vegetable bed, a wheelbarrow and an insect hotel. Every
 // sprite gets a dark outline at the end, like the trees and critters.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { SNOW, bayer } from './tiles.ts';
+import { SNOW } from './tiles.ts';
 import { SEASON, type Season } from '../world/season.ts';
 
 const WOOD = { o: hex('#3b2412'), d: hex('#7a4522'), b: hex('#a8642e'), l: hex('#c07a3e'), s: hex('#e2a868') };
 const IRON = { o: hex('#18141a'), d: hex('#2e2a30'), l: hex('#5a5460') };
-const ROOF = { o: hex('#3a1410'), d: hex('#7a2a24'), b: hex('#b84838'), l: hex('#d8604a'), s: hex('#f08868') };
-const WALL = { d: hex('#5a6e78'), b: hex('#7a94a0'), l: hex('#9cb4bc'), seam: hex('#3e4e58') };
 const CREAM = hex('#f0e8d0'), CREAM_D = hex('#c8bca0');
 const GLASS = { b: hex('#6aa8e0'), l: hex('#bce0f8') };
 const SAGE = { o: hex('#1e3428'), d: hex('#3e6a52'), b: hex('#5e927a'), l: hex('#8cbca0') };
 const WICKER = { o: hex('#4a2c12'), d: hex('#8a5a2a'), b: hex('#c08848'), l: hex('#e0b070') };
 const CLOTH = { r: hex('#d84848'), rd: hex('#a83434'), c: hex('#f8ecd8'), cd: hex('#e0ccb0') };
-const GOLD = hex('#f8d038');
-const FLOWERS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f890c8')];
 
 /** A dark outline around everything drawn so far. */
 function outline(r: Raster, c: RGB): void {
@@ -162,69 +160,6 @@ export function buildBlanket(): Raster {
   return r;
 }
 
-/**
- * A wooden garden shed: a red shingled roof over blue-grey plank walls, with
- * a door, a window and a flower box. 50×56, the front wall stands on the bottom row.
- */
-export function buildShed(): Raster {
-  const W = 50, H = 56;
-  const r = new Raster(W, H);
-  // roof: rows of staggered shingles, lighter towards the eave where the sun catches them
-  for (let y = 2; y < 28; y++)
-    for (let x = 1; x < W - 1; x++) {
-      const row = Math.floor((y - 2) / 4), v = (y - 2) % 4;
-      const u = (x + (row % 2) * 3) % 6;
-      let c = v === 3 ? ROOF.d : u === 0 ? ROOF.d : v === 0 ? ROOF.l : ROOF.b;
-      if (c === ROOF.b && hash2(Math.floor((x + (row % 2) * 3) / 6), row, 73) < 0.25) c = ROOF.l;
-      if (c === ROOF.l && v === 0 && u === 1) c = ROOF.s;
-      r.set(x, y, c);
-    }
-  // ridge cap along the top
-  r.rect(1, 1, W - 2, 1, ROOF.s);
-  r.rect(1, 2, W - 2, 1, ROOF.l);
-  // eave: a dark lip with the wall in its shade below
-  r.rect(0, 28, W, 2, ROOF.o);
-  // walls: vertical boards
-  for (let y = 30; y < H; y++)
-    for (let x = 3; x < W - 3; x++) {
-      const u = (x - 3) % 5;
-      let c = u === 0 ? WALL.seam : u === 1 ? WALL.l : WALL.b;
-      if (u > 1 && hash2(x, Math.floor(y / 2), 74) < 0.08) c = WALL.d;
-      // shade under the eave, dithered
-      if (y < 34 && bayer(x, y) < (34 - y) / 5) c = u === 0 ? WALL.seam : WALL.d;
-      if (y === H - 1) c = WALL.seam;
-      r.set(x, y, c);
-    }
-  // door: darker boards in a frame, a Z brace and a brass handle
-  r.rect(18, 36, 14, H - 36, CREAM);
-  for (let y = 37; y < H; y++)
-    for (let x = 19; x < 31; x++) r.set(x, y, (x - 19) % 4 === 0 ? WOOD.d : WOOD.b);
-  for (let i = 0; i < 12; i++) r.set(19 + i, H - 3 - Math.round(i * 1.4), WOOD.l);
-  r.rect(19, 41, 12, 1, WOOD.l);
-  r.rect(19, H - 4, 12, 1, WOOD.l);
-  r.set(28, 46, GOLD);
-  r.set(28, 47, WOOD.o);
-  // window with a cross and a shine
-  r.rect(35, 34, 10, 9, CREAM);
-  r.rect(36, 35, 8, 7, GLASS.b);
-  r.rect(36, 35, 3, 2, GLASS.l);
-  r.rect(39, 35, 2, 7, CREAM);
-  r.rect(36, 38, 8, 1, CREAM);
-  // flower box
-  r.rect(34, 43, 12, 3, WOOD.b);
-  r.rect(34, 45, 12, 1, WOOD.d);
-  for (let x = 35; x < 45; x += 2) {
-    r.set(x, 42, hex('#4c9a34'));
-    r.set(x + 1, 41, FLOWERS[(x >> 1) % FLOWERS.length]);
-  }
-  // a little lamp over the door
-  r.rect(24, 32, 2, 2, GOLD);
-  r.set(24, 31, IRON.d);
-  r.set(25, 31, IRON.d);
-  outline(r, ROOF.o);
-  return r;
-}
-
 /** A stone bird bath: a shallow basin of water on a pedestal. 16×20, the foot on the bottom row. */
 export function buildBirdBath(): Raster {
   const r = new Raster(16, 20);
@@ -249,6 +184,272 @@ export function buildBirdBath(): Raster {
   return r;
 }
 
+const CARD = { o: hex('#4a3018'), in: hex('#3e2a16'), d: hex('#8a5e30'), b: hex('#b8844a'), l: hex('#d8a868'), s: hex('#ecc890'), tape: hex('#c89a5a') };
+const GREEN_IRON = { o: hex('#10241a'), d: hex('#1e4630'), b: hex('#2e6a44'), l: hex('#4e9466'), s: hex('#7cbc8c') };
+const TERRA = { o: hex('#4a2010'), d: hex('#9a4424'), b: hex('#c4643a'), l: hex('#e08a5a') };
+const SOIL = { d: hex('#3a2416'), b: hex('#5a3a24'), l: hex('#7a5436') };
+const LEAF = { d: hex('#2e6a2a'), b: hex('#4e9a3a'), l: hex('#86c85a'), s: hex('#b8e888') };
+const PUDDLE = hex('#4a8ce0');
+const NEPETA = { d: hex('#4a6a52'), b: hex('#6e9478'), l: hex('#98bca0'), f: hex('#a890d8'), fl: hex('#d0c4f0'), dry: hex('#8a7448') };
+
+/** What's growing at this time of year: nothing (bare soil), seedlings, or the full crop. */
+export function growth(s: Season = SEASON): 0 | 1 | 2 {
+  if (s.snow > 0.1) return 0;
+  if (s.leaves > 0.6 || (s.bloom > 0.6 && s.turn < 0.9)) return 2;
+  return s.bloom > 0.1 ? 1 : 0;
+}
+
+/** Catnip is up (and worth a roll in) from spring to autumn. */
+export const catnipUp = (s: Season = SEASON): boolean => growth(s) > 0;
+
+/**
+ * A cardboard box, open at the top, flaps up. Drawn in two parts: the inside
+ * and the back (behind a cat sitting in it) and the front (over it, so just
+ * the ears and the head show). 28×27, the front's foot on the bottom row.
+ */
+export function buildBox(part: 'back' | 'front'): Raster {
+  const r = new Raster(28, 27);
+  if (part === 'back') {
+    // the flaps: the back one standing up, the right one folded out
+    for (let y = 1; y < 6; y++) r.rect(4 + (5 - y), y, 18 - 2 * (5 - y) + 2, 1, y < 3 ? CARD.s : CARD.l);
+    for (let y = 6; y < 14; y++) r.rect(25, y, 2, 1, y < 8 ? CARD.l : CARD.b);
+    // the rim all round, the inside of the back wall, the dark bottom
+    r.rect(1, 5, 25, 13, CARD.l);
+    r.rect(2, 6, 23, 4, CARD.d);
+    r.rect(2, 10, 23, 7, CARD.in);
+    for (let x = 2; x < 25; x++) if (hash2(x, 6, 81) < 0.2) r.set(x, 7, CARD.b);
+  } else {
+    // the front face, a strip of tape down the middle, a printed arrow
+    r.rect(1, 17, 25, 1, CARD.s);
+    r.rect(1, 18, 25, 8, CARD.b);
+    r.rect(1, 25, 25, 1, CARD.d);
+    r.rect(12, 17, 3, 8, CARD.tape);
+    r.set(13, 17, CARD.s);
+    for (const [x, y] of [[5, 20], [4, 21], [5, 21], [6, 21], [5, 22], [5, 23]]) r.set(x, y, CARD.d);
+    for (let x = 1; x < 26; x++) if (hash2(x, 19, 82) < 0.12) r.set(x, 19 + (x % 5), CARD.l);
+  }
+  outline(r, CARD.o);
+  return r;
+}
+
+/**
+ * A Berlin street pump: the green cast-iron column with its fluted shaft,
+ * a cap with a knob on top, the lever on the left and the spout on the right.
+ * 18×34, the foot on the bottom row; the spout's mouth is at (15, 20).
+ */
+export function buildPump(): Raster {
+  const r = new Raster(18, 34);
+  const I = GREEN_IRON;
+  // the lever, from its pivot under the cap down to the handle
+  for (let i = 0; i < 12; i++) r.set(4 - Math.floor(i / 4), 11 + i, I.d);
+  r.rect(1, 22, 2, 3, I.b);
+  // shaft: lit on the left, fluted, in the shade on the right
+  for (let y = 10; y < 30; y++) {
+    r.rect(5, y, 6, 1, I.b);
+    r.set(5, y, I.l);
+    r.set(6, y, I.s);
+    r.set(8, y, I.d);
+    r.set(10, y, I.d);
+  }
+  // collars, the cap and its knob
+  for (const y of [13, 25]) { r.rect(4, y, 8, 1, I.l); r.rect(4, y + 1, 8, 1, I.d); }
+  r.rect(4, 8, 8, 2, I.b);
+  r.rect(5, 6, 6, 2, I.l);
+  r.rect(4, 8, 8, 1, I.l);
+  r.rect(7, 3, 2, 3, I.b);
+  r.rect(6, 2, 4, 1, I.l);
+  r.set(7, 1, I.s);
+  // the spout, a little lion-less pipe bending down
+  r.rect(11, 17, 4, 2, I.b);
+  r.rect(11, 17, 4, 1, I.l);
+  r.rect(14, 19, 2, 1, I.d);
+  // the foot on its plinth
+  r.rect(3, 29, 10, 2, I.b);
+  r.rect(3, 29, 10, 1, I.l);
+  r.rect(2, 31, 12, 2, I.d);
+  outline(r, I.o);
+  return r;
+}
+
+/** The puddle under the pump's spout, muddy at the edge. 18×7, flat on the ground. */
+export function buildPumpPuddle(): Raster {
+  const r = new Raster(18, 7);
+  for (let y = 0; y < 7; y++)
+    for (let x = 0; x < 18; x++) {
+      const dx = (x + 0.5 - 9) / 9, dy = (y + 0.5 - 3.5) / 3.5;
+      const d = dx * dx + dy * dy + (hash2(x, y, 83) - 0.5) * 0.25;
+      if (d > 1) continue;
+      r.set(x, y, d > 0.72 ? SOIL.b : d < 0.25 && dx < 0 && dy < 0 ? GLASS.l : PUDDLE);
+    }
+  return r;
+}
+/**
+ * Three terracotta pots of catnip (grey-green, with lilac spikes in summer; cut
+ * back to stalks out of season), grouped rather than lined up: a small one in
+ * front on the left, the big one set back behind it, a medium one on the
+ * right. Each pot has its own outline, so the front ones stand off the one
+ * behind. 32×24.
+ */
+export function buildCatnip(s: Season = SEASON): Raster {
+  const r = new Raster(32, 24);
+  const up = growth(s);
+  // [left, width, pot height, bottom row, plant height], back to front
+  const pots: [number, number, number, number, number][] = [[9, 12, 9, 19, 10], [19, 9, 7, 21, 7], [3, 7, 5, 22, 5]];
+  pots.forEach(([x0, w, ph, base, hgt], i) => {
+    const p = new Raster(32, 24);
+    const top = base - ph + 1, cx = x0 + w / 2;
+    // the plant: a mound of small leaves, spikes of flowers poking up out of it
+    if (up) {
+      const ht = up === 2 ? hgt : Math.ceil(hgt / 3);
+      for (let y = top - ht; y < top; y++)
+        for (let x = x0 - 1; x < x0 + w + 1; x++) {
+          const dx = (x + 0.5 - cx) / (w / 2 + 1), dy = (y + 0.5 - top) / ht;
+          if (dx * dx + dy * dy > 1 || hash2(x, y, 84 + i) < 0.12) continue;
+          const k = hash2(x, y, 85 + i);
+          p.set(x, y, k < 0.3 ? NEPETA.d : k < 0.75 ? NEPETA.b : NEPETA.l);
+        }
+      if (up === 2 && s.bloom > 0.3)
+        for (let x = x0 + 1; x < x0 + w - 1; x += 2) {
+          const h = 2 + Math.floor(hash2(x, i, 86) * 3), y0 = top - ht + 1 - h + Math.round(Math.abs(x + 0.5 - cx));
+          for (let y = y0; y < y0 + h; y++) p.set(x, y, y === y0 ? NEPETA.fl : NEPETA.f);
+        }
+    } else for (let x = x0 + 1; x < x0 + w - 1; x += 2) p.rect(x, top - 2 - (x % 3), 1, 2 + (x % 3), NEPETA.dry);
+    // the pot: a rim, then tapering down
+    p.rect(x0, top, w, 1, TERRA.l);
+    p.rect(x0, top + 1, w, 1, TERRA.b);
+    for (let y = top + 2; y <= base; y++) {
+      const inset = Math.floor(((y - top - 2) * 3) / Math.max(3, ph * 2));
+      p.rect(x0 + 1 + inset, y, w - 2 - 2 * inset, 1, y === base ? TERRA.d : TERRA.b);
+      p.set(x0 + 1 + inset, y, TERRA.l);
+      p.set(x0 + w - 2 - inset, y, TERRA.d);
+    }
+    outline(p, TERRA.o);
+    r.blit(p, 0, 0);
+  });
+  return r;
+}
+
+/**
+ * A raised vegetable bed from a community garden: a box of planks full of
+ * soil, rows of lettuce and carrots in summer, seedlings in spring, bare in
+ * winter. 48×34, the front's foot on the bottom row.
+ */
+export function buildRaisedBed(s: Season = SEASON): Raster {
+  const r = new Raster(48, 34);
+  // soil, with the rim boards around it
+  for (let y = 3; y < 25; y++)
+    for (let x = 3; x < 45; x++) {
+      const k = hash2(x, y, 87);
+      r.set(x, y, k < 0.15 ? SOIL.l : k < 0.55 ? SOIL.b : SOIL.d);
+    }
+  r.rect(1, 1, 46, 2, WOOD.l);
+  r.rect(1, 3, 2, 22, WOOD.l);
+  r.rect(45, 3, 2, 22, WOOD.b);
+  r.rect(1, 25, 46, 1, WOOD.s);
+  // the front: two planks and the corner posts
+  for (const y of [26, 30]) {
+    r.rect(1, y, 46, 3, WOOD.b);
+    r.rect(1, y, 46, 1, WOOD.l);
+    r.rect(1, y + 3, 46, 1, WOOD.d);
+  }
+  for (const x of [1, 45]) r.rect(x, 26, 2, 8, WOOD.d);
+  for (let x = 4; x < 44; x++) if (hash2(x, 27, 88) < 0.1) r.set(x, 27 + (x % 2) * 4, WOOD.d);
+  // the crops: three rows of lettuce at the back, two of carrots at the front
+  const up = growth(s);
+  if (up) {
+    for (const [row, y] of [[0, 7], [1, 13]] as const)
+      for (let x = 7 + row * 3; x < 42; x += 7) {
+        if (up === 1) { r.rect(x, y, 2, 1, LEAF.l); r.set(x, y - 1, LEAF.b); continue; }
+        for (let j = -3; j <= 2; j++)
+          for (let i = -3; i <= 3; i++) {
+            const d = (i * i) / 10 + (j * j) / 7;
+            if (d > 1) continue;
+            r.set(x + i, y + j, d < 0.25 ? LEAF.s : d < 0.6 ? LEAF.l : j > 0 ? LEAF.d : LEAF.b);
+          }
+      }
+    for (const y of [19, 23])
+      for (let x = 5; x < 44; x += 3) {
+        if (up === 1) { r.set(x, y - 1, LEAF.b); continue; }
+        // feathery tops, an orange shoulder showing at the soil
+        r.set(x, y - 4, LEAF.b); r.set(x - 1, y - 3, LEAF.d); r.set(x + 1, y - 3, LEAF.b); r.set(x, y - 2, LEAF.d); r.set(x, y - 1, LEAF.d);
+        r.set(x, y, hex('#e8782a'));
+      }
+  }
+  outline(r, WOOD.o);
+  return r;
+}
+
+/**
+ * A wheelbarrow seen from the side, wheel to the left: a red steel tub on a
+ * frame, handles and legs to the right. Soil heaped in it in spring (in
+ * autumn the leaves are a pile of their own: Weather.ts). 34×20.
+ */
+export function buildBarrow(s: Season = SEASON): Raster {
+  const r = new Raster(34, 20);
+  const RED = { o: hex('#3a1410'), d: hex('#8a2a1e'), b: hex('#c0422e'), l: hex('#e06a4a') };
+  // the frame running from the axle back to the handles, the leg
+  for (let x = 5; x < 32; x++) r.set(x, 13 - Math.floor(Math.max(0, x - 26) / 2), IRON.d);
+  r.rect(31, 9, 2, 2, WOOD.b);
+  r.rect(24, 13, 2, 6, IRON.d);
+  r.rect(23, 18, 4, 1, IRON.d);
+  // the tub: its opening seen from a little above, the side tapering towards the bottom
+  r.rect(8, 4, 20, 1, RED.l);
+  r.rect(8, 5, 20, 3, IRON.o);
+  r.rect(9, 5, 18, 3, hex('#2a1a14'));
+  for (let y = 8; y < 13; y++) {
+    const x0 = 8 + Math.floor((y - 8) * 0.8), x1 = 28 - Math.floor((y - 8) * 0.4);
+    r.rect(x0, y, x1 - x0, 1, y === 8 ? RED.l : y > 11 ? RED.d : RED.b);
+  }
+  // soil heaped up in it in spring
+  const d = s.day;
+  if (d > 59 && d < 166 && s.snow < 0.1)
+    for (let y = 2; y < 8; y++)
+      for (let x = 9; x < 27; x++) {
+        const dx = (x + 0.5 - 18) / 9, dy = (y + 0.5 - 8) / 5.5;
+        if (dx * dx + dy * dy <= 1) r.set(x, y, hash2(x, y, 89) < 0.3 ? SOIL.l : hash2(x, y, 90) < 0.5 ? SOIL.b : SOIL.d);
+      }
+  // the wheel
+  for (let y = 10; y < 20; y++)
+    for (let x = 0; x < 11; x++) {
+      const q = (x + 0.5 - 5.5) ** 2 + (y + 0.5 - 14.5) ** 2;
+      if (q <= 20.25) r.set(x, y, q < 2.5 ? IRON.l : q < 9 ? hex('#7a7a80') : hex('#1e1e22'));
+    }
+  outline(r, RED.o);
+  return r;
+}
+
+/**
+ * An insect hotel on its post: a little wooden house under a roof, full of
+ * bamboo tubes, a drilled log, pine cones and straw. 16×30, the post's foot on
+ * the bottom row.
+ */
+export function buildInsectHotel(): Raster {
+  const r = new Raster(16, 30);
+  const BAMBOO = { b: hex('#d8b868'), h: hex('#2a1a10') };
+  // the post
+  r.rect(7, 17, 2, 12, WOOD.d);
+  r.set(7, 17, WOOD.b);
+  r.rect(6, 28, 4, 1, WOOD.d);
+  // the roof
+  for (let y = 0; y < 5; y++) r.rect(7 - y * 2 + (y > 0 ? 1 : 0), y + 1, y === 0 ? 2 : y * 4, 1, y % 2 ? WOOD.d : WOOD.b);
+  r.rect(0, 5, 16, 1, WOOD.d);
+  // the box and its compartments
+  r.rect(1, 6, 14, 11, WOOD.l);
+  r.rect(2, 7, 12, 9, SOIL.d);
+  r.rect(8, 7, 1, 9, WOOD.l);
+  r.rect(2, 11, 12, 1, WOOD.l);
+  // bamboo tubes, top left
+  for (const [x, y] of [[3, 8], [5, 8], [4, 9], [6, 9], [3, 10], [5, 10]]) { r.set(x, y, BAMBOO.b); r.set(x + 1, y, BAMBOO.h); }
+  // pine cones, top right
+  for (const [x, y] of [[10, 8], [12, 9], [10, 10]]) { r.rect(x, y, 2, 1, hex('#8a5a2a')); r.set(x, y + 1, hex('#5a3a1a')); }
+  // a log drilled full of holes, bottom left; straw, bottom right
+  r.rect(2, 12, 6, 4, hex('#b08860'));
+  for (const [x, y] of [[3, 13], [5, 12], [6, 14], [3, 15]]) r.set(x, y, BAMBOO.h);
+  for (let x = 9; x < 14; x++) for (let y = 12; y < 16; y++) r.set(x, y, hash2(x, y, 91) < 0.5 ? hex('#e8d080') : hex('#c8a858'));
+  outline(r, WOOD.o);
+  return r;
+}
+
 // ---------------------------------------------------------------- seasons
 
 /** Snow lying on every upward-facing edge of a piece of art (in patches until the snow is deep). */
@@ -262,7 +463,7 @@ export function snowCap(r: Raster, amount: number, seed = 0): void {
     }
 }
 
-/** Furniture in winter: snow on top, a snowed-over shed roof, a frozen bird bath. */
+/** Furniture in winter: snow on top, a frozen bird bath. */
 export function dressForSeason(r: Raster, kind: string, s: Season = SEASON): void {
   const swap = (from: RGB[], to: (c: RGB) => RGB, p = 1) => {
     const keys = new Set(from.map((c) => c.join()));
@@ -273,8 +474,8 @@ export function dressForSeason(r: Raster, kind: string, s: Season = SEASON): voi
         if (r.data[i + 3] && keys.has(k) && hash2(x, y, 1503) < p) r.set(x, y, to([r.data[i], r.data[i + 1], r.data[i + 2]]));
       }
   };
+  if (s.frozen && kind === 'puddle') swap([GLASS.l, PUDDLE], (c) => (c[0] > 150 ? hex('#f2fbff') : hex('#a6d4ec')));
   if (s.frozen && kind === 'birdbath') swap([GLASS.l, hex('#4a8ce0')], (c) => (c[0] > 150 ? hex('#f2fbff') : hex('#a6d4ec')));
   if (s.snow <= 0) return;
-  if (kind === 'shed') swap([ROOF.d, ROOF.b, ROOF.l, ROOF.s], (c) => SNOW[c[0] < 150 ? 1 : c[0] < 200 ? 2 : 3], s.snow);
   snowCap(r, s.snow, kind.length);
 }

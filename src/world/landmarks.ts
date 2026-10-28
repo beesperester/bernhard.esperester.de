@@ -230,6 +230,23 @@ export const LANDMARK_SOLIDS = Object.fromEntries(
   })]),
 ) as Record<LandmarkKind, [number, number, number, number, number, number][]>;
 
+/**
+ * Where each part is on screen, from the top-left of its tiles (px): x0, y0,
+ * x1, y1, and the ground y of its front (a cat behind that is hidden by it).
+ * Statues and the like count too, solid or not.
+ */
+export const LANDMARK_COVERS = Object.fromEntries(
+  (Object.keys(LANDMARK_SHAPES) as LandmarkKind[]).map((k) => [k, LANDMARK_SHAPES[k].map((s) => {
+    const [z0, z1] = s.z;
+    const [x0, y0, x1, y1] = 'box' in s ? s.box : (() => {
+      const [cx, cy, r] = 'cyl' in s ? s.cyl : 'ball' in s ? s.ball : s.dome;
+      const d = Math.round(r * ROUND);
+      return [cx - r, cy - d, cx + r + 1, cy + d + 1];
+    })();
+    return [x0, y0 - z1, x1, y1 - z0, y1];
+  })]),
+) as Record<LandmarkKind, [number, number, number, number, number][]>;
+
 /** How deep each one is, front to back, for its sun shadow (px either side), or round. */
 export const LANDMARK_DEPTH: Record<LandmarkKind, number | 'round'> = {
   tvtower: 'round', gate: 3, reichstag: 11, victory: 'round', dom: 'round', rathaus: 9, church: 9, wall: 3, checkpoint: 5, oberbaum: 4, schloss: 9,

@@ -159,15 +159,10 @@ html, body {
   text-shadow: 0 3px 0 #401020;
 }
 #buttons .a.down, #buttons .b.down { background-image: var(--px-round-down); padding: 6px 0 0; }
-#buttons button.cooling { opacity: 0.5; font-size: 16px; }
 /* Game Boy layout: B lower-left, A raised to its right */
 #buttons .b { grid-column: 1; grid-row: 1; }
 #buttons .a { grid-column: 2; grid-row: 1; transform: translateY(-18px); }
-#buttons [data-btn='hiss'] { grid-column: 1; grid-row: 2; justify-self: center; }
-#buttons [data-btn='roll'] { grid-column: 2; grid-row: 2; justify-self: center; }
-#buttons [data-btn='sneak'] { grid-column: 1; grid-row: 3; justify-self: center; }
-#buttons [data-btn='catch'] { grid-column: 2; grid-row: 3; justify-self: center; }
-#buttons [data-btn='mew'] { grid-column: 1 / span 2; grid-row: 4; justify-self: center; }
+#buttons [data-btn='emote'] { grid-column: 1 / span 2; grid-row: 2; justify-self: center; }
 
 /* scoreboard, under the music and sound buttons: a little sign of nailed-on planks */
 #board {
@@ -222,9 +217,9 @@ html, body {
 #board li .face { width: 32px; height: 22px; margin: -4px -6px 0 -8px; image-rendering: pixelated; filter: drop-shadow(1px 1px 0 rgba(30, 16, 6, 0.6)); }
 #board li .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 #board li .n { font-weight: bold; }
+#board li .seal { width: 16px; height: 16px; margin: 0 -2px; image-rendering: pixelated; filter: drop-shadow(1px 1px 0 rgba(30, 16, 6, 0.6)); }
 #board li.me { font-weight: bold; color: #4a2c10; text-shadow: 1px 1px 0 #fbe0a0; }
 #board li.me .rank { color: #8a3a10; }
-#board li.away { opacity: 0.55; }
 
 /* naming your cat */
 #name-dialog {
@@ -330,6 +325,43 @@ html, body {
 #help-dialog .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
 #help-dialog .item { display: inline-flex; align-items: center; gap: 4px; }
 #help-dialog .what { margin-left: 4px; }
+#help-dialog .grow { margin: 14px 0 0; font-size: 13px; color: #f0dcb0; }
+/* the collar tag (src/ui/collar.ts) */
+#help-dialog .collar { margin: 14px 0 0; font-size: 13px; color: #f0dcb0; }
+#help-dialog .collar p { margin: 0 0 8px; }
+#help-dialog .collar .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#help-dialog .collar .wear { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-top: 8px; }
+#help-dialog .collar .wear[hidden] { display: none; }
+#help-dialog .collar textarea {
+  flex: 1 1 200px;
+  min-width: 0;
+  font: 12px/1.2 ui-monospace, monospace;
+  color: var(--ink);
+  background: none;
+  border: 8px solid transparent;
+  border-image: var(--px-field) 4 fill / 8px stretch;
+  image-rendering: pixelated;
+  outline: none;
+  resize: vertical;
+  word-break: break-all;
+}
+#help-dialog .collar textarea:focus { border-image-source: var(--px-frame); }
+#help-dialog .collar button {
+  display: grid;
+  place-items: center;
+  height: 22px;
+  padding: 0 4px 4px;
+  font: 13px 'Pixelify Sans', ui-monospace, monospace;
+  line-height: 0;
+  color: var(--ink);
+  background: none;
+  border: 10px solid transparent;
+  border-image: var(--px-pill-cream) 5 fill / 10px stretch;
+  image-rendering: pixelated;
+  cursor: pointer;
+}
+#help-dialog .collar button:active { border-image-source: var(--px-pill-cream-down); padding: 4px 4px 0; }
+#help-dialog .collar .note { min-height: 1.2em; margin: 6px 0 0; }
 /* key caps: 12×14 art at 2x, the letter on the cap above its skirt */
 #help-dialog kbd {
   display: inline-grid;
@@ -453,3 +485,4 @@ html, body {
   pointer-events: none;
 }
 #fader[hidden] { display: none; }
+#buttons [data-btn='emote'] { width: 90px; }

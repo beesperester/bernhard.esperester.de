@@ -1,4 +1,5 @@
 import { Act, Prey, SWIPE_AT_MS, pawAt } from '../state.ts';
+import { canLure } from '../growth.ts';
 import type { CatView } from '../CatView.ts';
 import type { Raster } from '../../art/raster.ts';
 import { lightAt } from '../../world/sky.ts';
@@ -197,7 +198,8 @@ export class Fish implements Fauna {
       const calm = clamp01((now - s.lastSplash - 1000) / LURE_CALM_MS);
       s.lastSplash = now;
       if (mine || this.lures.some((l) => l.cat === c)) s.nextLure = now + LURE_EVERY_MS;
-      else if (now >= s.nextLure) {
+      // (only a grown cat knows the trick)
+      else if (now >= s.nextLure && canLure(c.stage)) {
         s.nextLure = now + LURE_EVERY_MS;
         this.lure(strHash(`${c.id}:${c.seq}`), gt, paw, c, calm);
       }

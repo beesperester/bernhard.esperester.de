@@ -84,22 +84,29 @@ export function step(body: Body, mx: number, my: number): void {
  * Moving diagonally, both axes go at the same speed, but the cat (and the
  * camera on it) is drawn at whole pixels. Unless x and y reach a whole pixel
  * at the same moment, it steps right, then down, then right: a staircase.
- * Call while moving diagonally: nudges y (by less than half a pixel) into
- * step with x, given the direction of travel (dx, dy). Once they are in step
- * it changes nothing.
+ * Call while moving diagonally, after the frame's step: nudges y into step with
+ * x, given the direction of travel (dx, dy). Ahead it goes by up to half a
+ * pixel; back, never past `fromY` (where y was before this frame's step), so it
+ * holds still for a frame or two rather than stepping back a pixel (a jolt of
+ * the whole view, plain to see when creeping). Once they are in step it changes nothing.
  */
-export function alignDiagonal(body: Body, dx: number, dy: number): void {
+export function alignDiagonal(body: Body, dx: number, dy: number, fromY = body.y): void {
   const fx = body.x - Math.floor(body.x), fy = body.y - Math.floor(body.y);
   // how far x is past its last whole pixel, going its way; y should be just as far along going its way
   const past = dx > 0 ? fx : 1 - fx;
   let d = (dy > 0 ? past : 1 - past) - fy;
   d -= Math.round(d);
+  // (going back: only as far as this frame's step took it)
+  if (d * dy < 0) d = dy > 0 ? Math.max(d, fromY - body.y) : Math.min(d, fromY - body.y);
   if (d && !blocked(body, body.x, body.y + d)) body.y += d;
 }
 
 /** The dash: runs while held for up to DASH_MS, then needs a rest that grows with how long it ran. */
 export class Dash {
   active = false;
+  /** Longest a dash runs (a kitten's is short), and whether the last one ran that long. */
+  limit = DASH_MS;
+  ranOut = false;
   private start = 0;
   private readyAt = 0;
 
@@ -107,9 +114,13 @@ export class Dash {
   update(pressed: boolean, held: boolean, now: number): void {
     if (pressed && !this.active && now >= this.readyAt) {
       this.active = true;
+      this.ranOut = false;
       this.start = now;
     }
-    if (this.active && (!held || now - this.start >= DASH_MS)) this.stop(now);
+    if (this.active && (!held || now - this.start >= this.limit)) {
+      this.ranOut = held;
+      this.stop(now);
+    }
   }
 
   /** End the dash now (it ran out, was let go, or ended in a pounce). */

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CAT } from '../art/cat.ts';
+import { CAT, framePos } from '../art/cat.ts';
 import { FLORA } from '../art/flora.ts';
 import type { Prop } from '../art/trees.ts';
 import type { CatView } from './CatView.ts';
@@ -101,7 +101,8 @@ export class PondReflection {
     const raw = this.begin();
     for (const c of near) {
       const cx = Math.round(c.x), cy = Math.round(c.y);
-      this.flipped(this.catSheets[c.coat], c.frame * CAT, 0, CAT, CAT, cx - CAT / 2, cy - CAT - Math.round(c.z), cy);
+      const [sx, sy] = framePos(c.frame);
+      this.flipped(this.catSheets[c.coat], sx, sy, CAT, CAT, cx - CAT / 2, cy - CAT - Math.round(c.z), cy);
     }
     raw.setTransform(1, 0, 0, 1, 0, 0);
     this.finish(this.catTex.getContext(), time);

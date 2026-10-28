@@ -3,7 +3,7 @@ import { Prey } from '../state.ts';
 import { Wary, type Senses } from './Wary.ts';
 import type { CatView } from '../CatView.ts';
 import { BEETLE_COLOURS } from '../../art/critters.ts';
-import { MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileAt } from '../../world/map.ts';
+import { MAP_H, MAP_W, TILE, aroundFurniture, elevAt, furnished, levelAt, tileAt } from '../../world/map.ts';
 import { lightAt } from '../../world/sky.ts';
 import { inSeason } from '../../world/season.ts';
 import { Pool, seedRng, hash2, lerp, smooth, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
@@ -16,6 +16,8 @@ import { isOpenGround, isOpenWater, isPond } from '../../world/legend.ts';
 
 /** A beetle may come out every BEETLE_SLOT ms. */
 const BEETLE_SLOT = 6000, BEETLE_P = 0.6, BEETLE_MAX = 70000;
+/** Share of beetles that turn up round a vegetable bed or an insect hotel. */
+const HAUNT_P = 0.3;
 /** It crawls for a while, stops, turns a little, crawls on. */
 const LEG_MS = 2600, CRAWL_MS = 1700, CRAWL_SPEED = 7;
 /** Scared, it runs for it and is gone into the grass. */
@@ -42,6 +44,8 @@ export class Bugs implements Fauna {
   private readonly shadows: Pool;
   private readonly wary: Wary;
   private readonly ground: Pt[] = [];
+  /** Round the vegetable beds and insect hotels. */
+  private readonly haunts: Pt[] = aroundFurniture('bed', 'hotel');
   /** Hover spots over the water near its edge, and for each the ones within a dart. */
   private readonly hovers: Pt[] = [];
   private readonly near: number[][];
@@ -90,7 +94,8 @@ export class Bugs implements Fauna {
         const t0 = k * BEETLE_SLOT;
         // ladybirds and rose chafers by day, the black ground beetles at night
         const colour = lightAt(t0).night > 0.5 ? 1 : Math.floor(r() * BEETLE_COLOURS.length);
-        b = { id: k, at: this.ground[Math.floor(r() * this.ground.length)], colour, dir: r() * Math.PI * 2, t0: t0 + r() * BEETLE_SLOT, life: 30000 + r() * 40000 };
+        const spots = this.haunts.length && r() < HAUNT_P ? this.haunts : this.ground;
+        b = { id: k, at: spots[Math.floor(r() * spots.length)], colour, dir: r() * Math.PI * 2, t0: t0 + r() * BEETLE_SLOT, life: 30000 + r() * 40000 };
       }
       this.beetleVisits.set(k, b);
       if (this.beetleVisits.size > 24) {

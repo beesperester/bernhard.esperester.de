@@ -4,7 +4,7 @@ import { SNOW } from '../art/tiles.ts';
 import type { Prop } from '../art/trees.ts';
 import { Act } from './state.ts';
 import type { CatView } from './CatView.ts';
-import { LANTERNS, TILE, elevAt, furnished, iceAt, levelAt, tileAt } from '../world/map.ts';
+import { BARROW_H, FURNITURE, LANTERNS, TILE, elevAt, furnished, iceAt, levelAt, tileAt } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
 import { SEASON, rainfall, snowfall } from '../world/season.ts';
 import { sound, type Playing } from '../audio/sound.ts';
@@ -13,7 +13,7 @@ import { isBridge, isLawnOrTall } from '../world/legend.ts';
 // What the weather and the season bring down from the sky and out of the
 // trees: showers of rain any time of year (splashing on the ground, ringing
 // the water, dimming the garden), snow falling on and off through the winter, leaves coming down in autumn (and
-// lying in piles under the trees that cats can scatter), cherry petals in
+// lying in piles under the trees and in the wheelbarrows, that cats can scatter), cherry petals in
 // spring, and paw prints in the snow behind every cat. The snowfall follows
 // the shared clock; the rest is decoration, worked out on each screen.
 
@@ -99,7 +99,8 @@ function pilePixel(p: Raster, x: number, y: number, c: RGB, rim: boolean): void 
 interface Flake { img: Img; x: number; y: number; h: number; vx: number; vy: number; phase: number }
 interface Hit { img: Img; t: number; ring: boolean }
 interface Leaf { img: Img; x: number; y: number; h: number; vx: number; vh: number; t: number; lie: number; phase: number; petal: boolean }
-interface Pile { x: number; y: number; img: Img; scattered: number }
+/** A pile of leaves at (x, y), `z` up (in a wheelbarrow). */
+interface Pile { x: number; y: number; z: number; img: Img; scattered: number }
 interface Print { img: Img; t: number }
 
 export class Weather {
@@ -147,9 +148,17 @@ export class Weather {
           const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
           if (!isLawnOrTall(tileAt(tx, ty)) || furnished(tx, ty) || levelAt(tx, ty) !== levelAt(Math.floor(bx / TILE), Math.floor(by / TILE))) continue;
           const img = scene.add.image(x, y - elevAt(x, y), 'leafpile').setOrigin(0.5, 1).setDepth(y - 2);
-          this.piles.push({ x, y, img, scattered: -Infinity });
+          this.piles.push({ x, y, z: elevAt(x, y), img, scattered: -Infinity });
         }
       });
+    // and the wheelbarrows, filled with them
+    if (SEASON.litter > 0.35 && SEASON.snow < 0.3)
+      for (const f of FURNITURE)
+        if (f.kind === 'barrow') {
+          const x = f.tx * TILE + 17, y = f.ty * TILE + 9, z = elevAt(x, y) + BARROW_H;
+          const img = scene.add.image(x, y - z + 2, 'leafpile').setOrigin(0.5, 1).setDepth(f.ty * TILE + 5.1);
+          this.piles.push({ x, y, z, img, scattered: -Infinity });
+        }
   }
 
   update(gt: number, now: number, dt: number, cats: CatView[], view: Phaser.Geom.Rectangle, light: Light): void {
@@ -313,11 +322,11 @@ export class Weather {
     }
   }
 
-  /** A puff of leaves from a pile. */
-  private burst(x: number, y: number): void {
+  /** A puff of leaves from a pile (`z` up). */
+  private burst(x: number, y: number, z: number): void {
     for (let i = 0; i < 14; i++) {
       const img = this.scene.add.image(0, 0, `leaf-${Math.floor(Math.random() * LEAF_COLOURS.length)}`, 0).setOrigin(0.5, 1);
-      this.leaves.push({ img, x: x + Math.random() * 12 - 6, y: y + Math.random() * 4 - 2, h: elevAt(x, y) + 1, vx: Math.random() * 50 - 25, vh: -(30 + Math.random() * 30), t: 0, lie: 0, phase: Math.random() * 6.3, petal: false });
+      this.leaves.push({ img, x: x + Math.random() * 12 - 6, y: y + Math.random() * 4 - 2, h: z + 1, vx: Math.random() * 50 - 25, vh: -(30 + Math.random() * 30), t: 0, lie: 0, phase: Math.random() * 6.3, petal: false });
     }
   }
 
@@ -355,9 +364,9 @@ export class Weather {
       for (const c of cats) {
         const dx = (c.x - p.x) / 10, dy = (c.y - p.y) / 6;
         // running, pouncing or landing in it
-        if (dx * dx + dy * dy < 1 && Math.abs(c.z - elevAt(p.x, p.y)) < 3 && (c.speed > 30 || c.act === Act.Catch)) {
+        if (dx * dx + dy * dy < 1 && Math.abs(c.z - p.z) < 3 && (c.speed > 30 || c.act === Act.Catch || (c.act === Act.Jump && p.z > elevAt(p.x, p.y)))) {
           p.scattered = now;
-          this.burst(p.x, p.y);
+          this.burst(p.x, p.y, p.z);
           void sound.play('rustle', { at: { x: p.x, y: p.y }, volume: 0.5, rate: 0.9 + Math.random() * 0.2 });
           break;
         }

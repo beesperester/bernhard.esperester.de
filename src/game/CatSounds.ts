@@ -73,7 +73,7 @@ export class CatSounds {
       // whoosh when a cat bursts into a dash
       if (!s.dashing && c.speed > DASH_ON) {
         s.dashing = true;
-        void sound.play('dash', { at, volume: 0.4, rate: vary(0.95, 1.1) });
+        void sound.play('dash', { at, volume: 1, rate: vary(0.95, 1.1) });
       } else if (s.dashing && c.speed < DASH_OFF) s.dashing = false;
 
       const tile = tileAt(Math.floor(c.x / TILE), Math.floor((c.y - 2) / TILE));

@@ -4,7 +4,11 @@ import { sound } from './audio/sound.ts';
 import { applyPixelUI } from './ui/pixel.ts';
 import { setupFullscreen } from './ui/fullscreen.ts';
 import { loading } from './ui/loading.ts';
-import { Identity, useIdentity } from './net/identity.ts';
+import { Identity, useIdentity, verify } from './net/identity.ts';
+import { Chain } from './net/ledger.ts';
+import { idbChainStore, useChain } from './net/chainStore.ts';
+import { latestBeacon } from './net/beacon.ts';
+import { startStamping } from './net/stamping.ts';
 import { Net, useNet } from './net/net.ts';
 import { plant } from './world/seed.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
@@ -18,8 +22,13 @@ loading(0.15, 600);
 const net = new Net();
 useNet(net);
 net.start();
-// who we are: this browser's key pair (made on the first visit)
-useIdentity(await Identity.load());
+// who we are: this browser's key pair (made on the first visit), and what our cat has eaten
+const me = await Identity.load();
+useIdentity(me);
+const chain = new Chain(me.id, (l) => me.sign(l), idbChainStore, latestBeacon);
+await chain.load(verify);
+useChain(chain);
+startStamping(chain);
 // text drawn into the game (names, scores) needs the font ready; don't wait forever for it
 await Promise.race([
   Promise.all([document.fonts.load('16px "Pixelify Sans"'), document.fonts.load('bold 16px "Pixelify Sans"')]),
@@ -68,9 +77,11 @@ const unlock = () => {
 };
 window.addEventListener('keydown', (e) => {
   // typing a name is not playing
-  if (!(e.target instanceof HTMLInputElement)) unlock();
+  if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) unlock();
 });
-window.addEventListener('pointerdown', unlock);
+// (Safari doesn't count a pointerdown as a gesture that may start sound: the
+// end of a click or tap it does; unlocking twice does no harm)
+for (const type of ['pointerdown', 'pointerup', 'touchend', 'click']) window.addEventListener(type, unlock);
 for (const [btn, target] of [[musicBtn, music], [soundBtn, sound]] as const) {
   btn.addEventListener('pointerdown', (e) => e.stopPropagation());
   btn.addEventListener('click', () => {

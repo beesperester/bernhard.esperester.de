@@ -89,6 +89,14 @@ describe('trees', () => {
     expect(surfaceAt(t.x, t.y, t.elev + FORK_Z)).toBe(t.elev + FORK_Z);
   });
 
+  it('catches a cat dropping onto a trunk at its fork, not up at wall height', () => {
+    // (a fall that ended "on" the wall bounced the cat up out of the tree, faster every time)
+    for (const t of TREES.slice(0, 20)) {
+      for (const z of [t.elev + FORK_Z - 1, t.elev + FORK_Z - 6, t.elev + 2]) expect(surfaceAt(t.x, t.y, z, t.elev + FORK_Z)).toBe(t.elev + FORK_Z);
+      expect(surfaceAt(t.x, t.y + 6, t.elev + FORK_Z, t.elev + FORK_Z)).toBeLessThan(t.elev + FORK_Z);
+    }
+  });
+
   it('lets a cat jump up through a branch and land on it from above', () => {
     const t = TREES.find((q) => q.shape === 'pine')!;
     // standing on the ground in front of the trunk, the first tier is out of the way

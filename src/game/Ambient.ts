@@ -7,7 +7,8 @@ import { TILE } from '../world/map.ts';
 import { FAUNA, Birds, Squirrels, type Fauna, type FaunaContext, type PreyRef } from './fauna/index.ts';
 import { Effects } from './fauna/Effects.ts';
 import { PREY } from './fauna/prey.ts';
-import { FINDS } from '../world/finds.ts';
+import { FIND_SLOTS } from '../world/finds.ts';
+import { canCatch } from './growth.ts';
 
 // The garden's wildlife as a whole: builds every fauna module (fauna/index.ts),
 // updates them each frame, collects what can be caught, and settles catches.
@@ -88,13 +89,8 @@ export class Ambient {
     const key = preyKey(kind, id);
     if (this.caught.has(key)) return;
     this.caught.set(key, [kind, id]);
-    // (what was found stays gone for as long as the garden lasts: the oldest catch of anything else makes room)
-    if (this.caught.size > REMEMBER_CATCHES + FINDS.length)
-      for (const [k, [what]] of this.caught)
-        if (what !== Prey.Find) {
-          this.caught.delete(k);
-          break;
-        }
+    // (the oldest makes room; room enough for every find there is at the moment besides)
+    if (this.caught.size > REMEMBER_CATCHES + FIND_SLOTS.length) this.caught.delete(this.caught.keys().next().value!);
   }
 
   /** A bird sitting in a tree near (x, y), for birdsong. */
@@ -102,11 +98,26 @@ export class Ambient {
     return this.birds.perchedNear(x, y, range);
   }
 
+  /** What a cat crouched here would pounce on, leaping the way (ux, uy): the nearest catchable thing on the
+   * ground within `reach` and within 60° of that way (not a fish: those are fished for). */
+  pounceTarget(cat: CatView, reach: number, ux: number, uy: number): PreyRef | null {
+    let best: PreyRef | null = null, bestDist = reach * reach;
+    for (const p of this.prey) {
+      if (p.air || PREY[p.kind].swipeOnly || !canCatch(cat.stage, p.kind)) continue;
+      if (p.h - cat.z < -REACH_BELOW || p.h - cat.z > REACH_ABOVE) continue;
+      const d = (p.x - cat.x) ** 2 + (p.y - cat.y) ** 2;
+      if ((p.x - cat.x) * ux + (p.y - cat.y) * uy < 0.5 * Math.sqrt(d)) continue;
+      if (d < bestDist) { bestDist = d; best = p; }
+    }
+    return best;
+  }
+
   /** The nearest catchable thing within a tile of this cat, if any (things on the wing only in mid-jump). */
   preyNear(cat: CatView): PreyRef | null {
     let best: PreyRef | null = null, bestDist = Infinity;
     for (const p of this.prey) {
-      if (p.air && cat.act !== Act.Jump) continue;
+      // (things on the wing only in mid-jump; and nothing too big for the cat)
+      if ((p.air && cat.act !== Act.Jump) || !canCatch(cat.stage, p.kind, p.air)) continue;
       // fish are reached for a little in front of the paws
       const dx = p.x - cat.x, dy = p.y - (cat.y - (p.kind === Prey.Fish ? 3 : 0));
       if (Math.abs(dx) > TILE + 6 || Math.abs(dy) > TILE + 4) continue;

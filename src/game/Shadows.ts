@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CAT } from '../art/cat.ts';
+import { CAT, framePos } from '../art/cat.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
 import type { Raster } from '../art/raster.ts';
 import type { CatView } from './CatView.ts';
@@ -8,7 +8,7 @@ import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 
 // Shadows that follow the sun. By day they are cast for real:
-//  - terrain, hedges, bushes, rocks, fences and the shed form a height map of the
+//  - terrain, hedges, bushes, rocks, and fences form a height map of the
 //    garden, and every ground pixel looks towards the sun to see whether
 //    anything rises above the ray (one sweep across the map, sun side first);
 //  - trees, lanterns, furniture and cats are flat sprites, so their outlines
@@ -326,10 +326,10 @@ export class Shadows {
     img = new ImageData(CELL, CELL);
     const [sx, sy] = this.s;
     const steps = Math.ceil(Math.hypot(sx, sy)) + 1;
-    const c = CELL / 2, x0 = frame * CAT, w = this.catSheetW;
+    const c = CELL / 2, [x0, y0] = framePos(frame), w = this.catSheetW;
     for (let y = 0; y < CAT; y++)
       for (let x = 0; x < CAT; x++) {
-        if (!this.catAlpha[y * w + x0 + x]) continue;
+        if (!this.catAlpha[(y0 + y) * w + x0 + x]) continue;
         for (let k = 0; k < steps; k++) {
           const h = CAT_TOP - y + k / steps;
           const px = Math.round(c + x - CAT / 2 + sx * h), py0 = Math.round(c + sy * h);
