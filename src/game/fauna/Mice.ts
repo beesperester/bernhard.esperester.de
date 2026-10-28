@@ -15,9 +15,12 @@ import { groundOf, isOpenGround } from '../../world/legend.ts';
 // is follows from the garden clock like the rest of the fauna; the bolting is
 // worked out on each screen by itself.
 
-/** A mouse may settle in the grass every NEST_SLOT ms, and one go out foraging every RUN_SLOT ms. */
-const NEST_SLOT = 6000, NEST_P = 0.6, NEST_MAX = 90000;
-const RUN_SLOT = 7000, RUN_P = 0.5, RUN_MAX = 60000;
+/**
+ * A mouse may settle in the grass every NEST_SLOT ms, and one go out foraging every RUN_SLOT ms
+ * (anywhere in the garden: it's big, so that's often enough for a few on screen at a time).
+ */
+const NEST_SLOT = 1500, NEST_P = 0.9, NEST_MAX = 90000;
+const RUN_SLOT = 1000, RUN_P = 0.85, RUN_MAX = 50000;
 /** How dark it has to be. */
 const DARK = 0.4;
 /** Close enough to a hidden mouse to flush it out, walking (or anything louder a bit further). */
@@ -90,7 +93,7 @@ export class Mice implements Fauna {
         m = { id: k, at: this.grass[Math.floor(r() * this.grass.length)], t0: t0 + r() * NEST_SLOT, life: 40000 + r() * 50000 };
       }
       this.nests.set(k, m);
-      if (this.nests.size > 24) {
+      if (this.nests.size > NEST_MAX / NEST_SLOT + 8) {
         const old = this.nests.keys().next().value!;
         this.nests.delete(old);
         this.moved.delete(old);
@@ -182,7 +185,7 @@ export class Mice implements Fauna {
         m = { id: 1e6 + k, at: this.ground[Math.floor(r() * this.ground.length)], dir: r() * Math.PI * 2, t0: t0 + r() * RUN_SLOT, life: 20000 + r() * 30000 };
       }
       this.runs.set(k, m);
-      if (this.runs.size > 16) {
+      if (this.runs.size > RUN_MAX / RUN_SLOT + 8) {
         const old = this.runs.keys().next().value!;
         this.runs.delete(old);
         this.fled.delete(1e6 + old);

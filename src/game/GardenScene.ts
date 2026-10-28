@@ -337,6 +337,9 @@ export class GardenScene extends Phaser.Scene {
         // in a background tab nothing moves: we haven't been watching
         if (document.hidden) return null;
         const cat = this.remotes.get(peer);
+        // nor where we aren't looking: prey off our screen isn't even there for us (the fauna only live in view)
+        const view = this.cameras.main.worldView;
+        if (cat && (cat.tx < view.x + 8 || cat.tx > view.right - 8 || cat.ty < view.y + 8 || cat.ty > view.bottom + 24)) return null;
         const seen = cat ? this.ambient.sawWithinReach(kind, id, cat.tx, cat.ty, cat.tz) : null;
         return { ok: !!seen, points: preyPoints(kind, seen?.colour ?? 0) };
       },

@@ -10,7 +10,7 @@ import { ELEV, LANDMARK_SPOTS, SPAWN } from './garden.ts';
 import { FURNITURE_SIZE, layOut, type FurnitureKind } from './layout.ts';
 import { worldSeed } from './seed.ts';
 import { TILE, MAP_W, MAP_H, WORLD_W, WORLD_H } from './size.ts';
-import { LANDMARK_SIZE, LANDMARK_SOLIDS, LANDMARK_SPRITE } from './landmarks.ts';
+import { LANDMARK_COVERS, LANDMARK_SIZE, LANDMARK_SOLIDS } from './landmarks.ts';
 import { LEGEND, WALL, groundOf, isPond, isRunning, isStairs, isTree, isWaterway } from './legend.ts';
 
 export { TILE, MAP_W, MAP_H, WORLD_W, WORLD_H };
@@ -266,11 +266,11 @@ export const COVERS: { x0: number; y0: number; x1: number; y1: number; front: nu
     .filter((f) => f.kind === 'shed')
     .map((f) => ({ x0: f.tx * TILE - 1, y0: f.ty * TILE - 25, x1: f.tx * TILE + 49, y1: f.ty * TILE + 31, front: f.ty * TILE + 30 })),
   // (not the gate: a cat walking through it is seen through the arches)
-  ...LANDMARK_SPOTS.filter((l) => l.kind !== 'gate').map((l) => {
-    const s = LANDMARK_SPRITE[l.kind], x = l.tx * TILE + s.ox, y = l.ty * TILE + s.oy;
-    // (a cat up on one is drawn in front of it, so only hides behind it from the ground)
-    return { x0: x, y0: y, x1: x + s.w, y1: y + s.h, front: (l.ty + LANDMARK_SIZE[l.kind][1]) * TILE - 2, low: true };
-  }),
+  // part by part (a cat up on one is drawn in front of it, so only hides behind it from the ground)
+  ...LANDMARK_SPOTS.filter((l) => l.kind !== 'gate').flatMap((l) => LANDMARK_COVERS[l.kind].map(([x0, y0, x1, y1, front]) => {
+    const ox = l.tx * TILE, oy = l.ty * TILE;
+    return { x0: ox + x0, y0: oy + y0, x1: ox + x1, y1: oy + y1, front: oy + front, low: true };
+  })),
 ];
 
 /**
