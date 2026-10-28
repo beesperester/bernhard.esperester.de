@@ -12,8 +12,10 @@
 // chain; enough of that makes a checkpoint, and later newcomers are sent only
 // what came after it.
 //
-// The board also remembers the cats we have met (in this browser), with the
-// score their chain last checked out at, so it shows them after they've gone.
+// The board shows the cats in the garden now. It also remembers the cats we
+// have met (in this browser), with how far their chain checked out, so when
+// one comes back only its new blocks need checking (and what it has eaten
+// counts for its co-signatures).
 
 import type { Signed } from '../net/identity.ts';
 import { PAGE, blank, extend, fromCheck, receipt, refuse, sanitizeBlock, sanitizeCheck, sanitizeList, type Block, type Chain, type Check, type SigCheck, type Tally } from '../net/ledger.ts';
@@ -38,8 +40,8 @@ export type Entry = {
   s: number;
 };
 
-/** A cat on the board: its entry, its score as far as it checks out, and whether it's in the garden now. */
-export type Row = { id: string; name: string; coat: number; score: number; here: boolean };
+/** A cat on the board: who it is, and its score as far as it checks out. */
+export type Row = { id: string; name: string; coat: number; score: number };
 
 export type BoardMsg = {
   /** The sender's own entry. */
@@ -116,6 +118,8 @@ export class Board {
   private entries = new Map<string, Signed<Entry>>();
   /** Which peer is which cat. */
   private readonly peers = new Map<string, string>();
+  /** Peers gone quiet (we haven't heard from their cat in a while): not on the board till they're back. */
+  private readonly quiet = new Set<string>();
   /** The cats we have met, by id (written down in this browser). */
   private readonly known: Map<string, Known>;
   private saving: ReturnType<typeof setTimeout> | 0 = 0;
@@ -156,15 +160,11 @@ export class Board {
     return this.checking.size > 0;
   }
 
-  /** Everyone on the board, best first: the cats here, and the ones we've met before. */
+  /** The cats in the garden now, best first. */
   ranking(): Row[] {
-    const rows: Row[] = [{ id: this.id, name: this.mine.name, coat: this.mine.coat, score: this.chain.score, here: true }];
-    const here = new Set<string>();
-    for (const { d } of this.entries.values()) {
-      here.add(d.id);
-      rows.push({ id: d.id, name: d.name, coat: d.coat, score: this.scoreOf(d.id), here: true });
-    }
-    for (const [id, k] of this.known) if (!here.has(id) && id !== this.id) rows.push({ id, name: k.name, coat: k.coat, score: k.tally.s, here: false });
+    const rows: Row[] = [{ id: this.id, name: this.mine.name, coat: this.mine.coat, score: this.chain.score }];
+    const silent = new Set([...this.quiet].map((p) => this.peers.get(p)));
+    for (const { d } of this.entries.values()) if (!silent.has(d.id)) rows.push({ id: d.id, name: d.name, coat: d.coat, score: this.scoreOf(d.id) });
     return rows.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   }
 
@@ -190,6 +190,7 @@ export class Board {
   reset(): void {
     this.entries.clear();
     this.peers.clear();
+    this.quiet.clear();
     this.asking.clear();
     this.met.clear();
     this.changed();
@@ -201,10 +202,19 @@ export class Board {
     void this.signed.then((me) => this.send({ me }, peerId));
   }
 
+  /** We haven't heard from a peer's cat in a while (`false`: it's back): off the board meanwhile. */
+  silent(peerId: string, quiet = true): void {
+    if (quiet === this.quiet.has(peerId)) return;
+    if (quiet) this.quiet.add(peerId);
+    else this.quiet.delete(peerId);
+    this.changed();
+  }
+
   /** A peer left. */
   leave(peerId: string): void {
     const id = this.peers.get(peerId);
     this.peers.delete(peerId);
+    this.quiet.delete(peerId);
     this.asking.delete(peerId);
     this.met.delete(peerId);
     if (id) this.entries.delete(id);

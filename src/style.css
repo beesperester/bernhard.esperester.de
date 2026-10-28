@@ -224,7 +224,6 @@ html, body {
 #board li .n { font-weight: bold; }
 #board li.me { font-weight: bold; color: #4a2c10; text-shadow: 1px 1px 0 #fbe0a0; }
 #board li.me .rank { color: #8a3a10; }
-#board li.away { opacity: 0.55; }
 
 /* naming your cat */
 #name-dialog {

@@ -297,6 +297,7 @@ export class GardenScene extends Phaser.Scene {
           const cat = new RemoteCat(this, msg, this.time.now);
           cat.id = id;
           this.remotes.set(id, cat);
+          this.board.silent(id, false);
         }
         this.updateStatus();
       },
@@ -460,6 +461,8 @@ export class GardenScene extends Phaser.Scene {
       if (time - cat.lastSeen > STALE_MS) {
         cat.destroy();
         this.remotes.delete(id);
+        // (its connection may come back to life; till then it's not on the board either)
+        this.board.silent(id);
         this.updateStatus();
         continue;
       }

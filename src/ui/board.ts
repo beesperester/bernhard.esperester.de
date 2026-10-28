@@ -39,14 +39,13 @@ function plankArt() {
 export function renderBoard(rows: Row[], myId: string): void {
   const list = document.querySelector<HTMLOListElement>('#board ol')!;
   const art = plankArt();
-  // (everyone here, and whoever has eaten something of those who left)
-  const top = rows.filter((r) => r.score > 0 || r.here).slice(0, SHOWN);
+  const top = rows.slice(0, SHOWN);
   const me = rows.find((r) => r.id === myId);
   if (me && !top.includes(me)) top.push(me);
   // names come from other visitors: only ever set as text
   list.replaceChildren(...top.map((r) => {
     const li = document.createElement('li');
-    li.className = r.id === myId ? 'me' : r.here ? '' : 'away';
+    li.className = r.id === myId ? 'me' : '';
     const rank = rows.indexOf(r);
     li.style.borderImageSource = r.id === myId ? art.pine : art.oak[rank % art.oak.length];
     const place = document.createElement('span');
@@ -63,7 +62,6 @@ export function renderBoard(rows: Row[], myId: string): void {
     n.className = 'n';
     n.textContent = String(r.score);
     li.append(place, pic, name, n);
-    if (!r.here) li.title = 'left the garden';
     return li;
   }));
 }

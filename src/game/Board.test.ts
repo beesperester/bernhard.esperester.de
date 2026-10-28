@@ -174,13 +174,24 @@ describe('the board', () => {
     expect(scoreOf(b, a)).toBe(0);
   });
 
-  it('remembers cats that left, with their score', async () => {
+  it('takes cats that left off the board, but remembers how far their chain checked out', async () => {
     const a = await newCat('peer-a'), b = await newCat('peer-b');
     await a.board.ate(Prey.Fish, 1, 3);
     await meet(a, b);
     b.board.leave('peer-a');
-    const row = b.board.ranking().find((r) => r.id === a.me.id);
-    expect(row).toMatchObject({ score: 3, here: false });
+    expect(scoreOf(b, a)).toBeUndefined();
+    // back on another connection: its score is there at once, nothing to check again
+    b.board.receive('peer-a2', { me: await a.me.sign({ ...a.board.me, p: 'peer-a2', t: 9 }) }, 0);
+    expect(scoreOf(b, a)).toBe(3);
+  });
+
+  it('leaves a cat gone quiet off the board till it is back', async () => {
+    const a = await newCat('peer-a'), b = await newCat('peer-b');
+    await meet(a, b);
+    b.board.silent('peer-a');
+    expect(scoreOf(b, a)).toBeUndefined();
+    b.board.silent('peer-a', false);
+    expect(scoreOf(b, a)).toBe(0);
   });
 
   it('gives up a random name that clashes with a custom one', async () => {
