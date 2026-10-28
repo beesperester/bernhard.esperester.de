@@ -5,9 +5,10 @@
 // wheels) in its own frame, u along it (front +), v across, z up, and
 // pictures of it are made by looking at the model from the garden's view
 // (straight down the screen, things higher up drawn higher) at one of
-// HEADINGS headings. Each picture comes in two halves: what is behind the
-// middle of the car, and what is in front of it, so a cat riding in it can
-// be drawn in between (its lower half hidden by the near wall).
+// HEADINGS headings. Each picture comes in two halves: what is beyond the
+// space riders sit in (its near wall, say), and everything else, so a cat
+// riding in it can be drawn in between (its lower half hidden by the near
+// wall), wherever in the car it sits.
 
 import { Raster, hex, type RGB } from './raster.ts';
 
@@ -83,7 +84,7 @@ const tone = (c: RGB, k: number): RGB => (k >= 0 ? (c.map((x) => Math.round(x + 
 
 /**
  * The car seen heading `h` (0 = to the right, then clockwise in HEADINGS steps): the half behind its
- * middle and the half in front, and where the middle of its footprint is in the pictures.
+ * riders and the half in front of them, and where the middle of its footprint is in the pictures.
  */
 export function buildCar(kind: CarKind, h: number): { back: Raster; front: Raster; ox: number; oy: number } {
   const a = (h / HEADINGS) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
@@ -92,6 +93,11 @@ export function buildCar(kind: CarKind, h: number): { back: Raster; front: Raste
     const [u, v] = local(gx, gy);
     return solid(kind, u, v, z);
   };
+  // what lies further down the screen than anywhere a rider can sit is in front of it: the near
+  // wall, or the boiler of a lok heading down (the cab with its rider is behind the boiler then)
+  const hl = CAR_LEN[kind] / 2 - CAR_WALL, hw = CAR_W / 2 - CAR_WALL;
+  const front = kind === 'lok' ? -CAR_LEN.lok / 2 + CAB_LEN - 2 : hl;
+  const seats = Math.max(...[-hl, front].flatMap((u) => [-hw, hw].map((v) => u * sa + v * ca)));
   const colour = new Array<RGB | null>(W * H).fill(null);
   const near = new Array<boolean>(W * H).fill(false);
   for (let py = 0; py < H; py++)
@@ -106,7 +112,7 @@ export function buildCar(kind: CarKind, h: number): { back: Raster; front: Raste
         // lit from above and the left: tops brightest, faces turned right darkest
         const k = !at(gx, gy, z + 0.6) ? 0.22 : !at(gx + 0.7, gy, z) ? -0.28 : !at(gx - 0.7, gy, z) ? 0.08 : 0;
         colour[py * W + px] = m === 'lamp' || m === 'hub' ? base : tone(base, k);
-        near[py * W + px] = gy > 0.25;
+        near[py * W + px] = gy > seats + 0.25;
         break;
       }
     }
@@ -120,12 +126,12 @@ export function buildCar(kind: CarKind, h: number): { back: Raster; front: Raste
       outlined[py * W + px] = OUTLINE;
       near[py * W + px] = near[by[1] * W + by[0]];
     }
-  const back = new Raster(W, H), front = new Raster(W, H);
+  const behind = new Raster(W, H), before = new Raster(W, H);
   for (let i = 0; i < W * H; i++) {
     const c = outlined[i];
-    if (c) (near[i] ? front : back).set(i % W, Math.floor(i / W), c);
+    if (c) (near[i] ? before : behind).set(i % W, Math.floor(i / W), c);
   }
-  return { back, front, ox: OX, oy: OY };
+  return { back: behind, front: before, ox: OX, oy: OY };
 }
 
 /** The old-school engine driver's cap: hickory stripes, a stiff peak to the front (facing right). 10×6. */

@@ -35,6 +35,8 @@ export const catLight = {
 
 /** Walking into shade, a cat takes this long to darken fully. */
 const SHADE_IN_MS = 700;
+/** Riding the train, the part of a cat drawn over the car's walls: all of it this high over its feet and up (px, grown). */
+const HEAD_FROM = 7;
 
 /** Draws one cat (local or remote): shadow, sprite and emote bubble. */
 export class CatView {
@@ -85,6 +87,8 @@ export class CatView {
   /** A solid green silhouette, drawn over the hill where it hides the cat. */
   private readonly ghost: Phaser.GameObjects.Sprite;
   private readonly rim: Phaser.GameObjects.Sprite;
+  /** Riding the train: its head again, on top of the car, so it always shows over the walls. */
+  private readonly head: Phaser.GameObjects.Sprite;
   private readonly eyes: Phaser.GameObjects.Sprite;
   private readonly label: Phaser.GameObjects.Text;
   private labelAlpha = 1;
@@ -101,6 +105,7 @@ export class CatView {
     this.held = scene.add.image(x, y, 'held-fish', 0).setVisible(false);
     this.ghost = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(98000).setVisible(false)
       .setTint(SILHOUETTE).setTintMode(Phaser.TintModes.FILL);
+    this.head = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setVisible(false);
     this.rim = scene.add.sprite(x, y, 'cat-rim', 0).setOrigin(0.5, 1).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     this.eyes = scene.add.sprite(x, y, `cat-eyes-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(DEPTH.glow)
       .setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
@@ -163,6 +168,11 @@ export class CatView {
     this.sprite.setFrame(this.frame);
     if (shade > 0) this.sprite.setTint(Phaser.Display.Color.GetColor(255 - 90 * shade, 255 - 80 * shade, 255 - 50 * shade));
     else this.sprite.clearTint();
+    // (just above the car's near half: everything of the cat higher than HEAD_FROM over its feet)
+    this.head.setVisible(this.ride !== null);
+    if (this.ride !== null)
+      this.head.setPosition(x, y - lift).setDepth(this.ride + 0.7).setFrame(this.frame).setTint(this.sprite.tintTopLeft)
+        .setCrop(0, 0, CAT, CAT - Math.round(HEAD_FROM * k));
     const top = y - lift;
     const rim = catLight.rim * (1 - shade);
     this.rim.setVisible(rim > 0);
@@ -222,6 +232,7 @@ export class CatView {
     this.held.destroy();
     this.ghost.destroy();
     this.rim.destroy();
+    this.head.destroy();
     this.eyes.destroy();
     this.label.destroy();
   }

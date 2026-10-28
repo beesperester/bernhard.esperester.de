@@ -1174,7 +1174,8 @@ export class GardenScene extends Phaser.Scene {
     const side = cat.facing === Facing.Left ? -1 : cat.facing === Facing.Right ? 1 : 0;
     cap.setVisible(true).setFlipX(side < 0)
       .setPosition(Math.round(cat.x + side * 3 * k), Math.round(cat.y - cat.z - cat.perch - 12 * k))
-      .setDepth(cat.depth + 0.01);
+      // (over the car's near half, like its head)
+      .setDepth(cat.depth + (cat.ride !== null ? 0.71 : 0.01));
   }
 
   /** Put our cat somewhere (handy from the console while developing). */
