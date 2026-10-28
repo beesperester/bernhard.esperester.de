@@ -16,15 +16,20 @@ import { LANDMARK_SIZE } from './landmarks.ts';
 
 type Pt = [number, number];
 
-export type FurnitureKind = 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath';
+export type FurnitureKind = 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath' | 'box' | 'pump' | 'catnip' | 'bed' | 'barrow' | 'hotel';
 
 /** Tiles each kind of furniture takes up. */
 export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
   bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3], birdbath: [1, 1],
+  // (the pump's puddle takes the tile to its right)
+  box: [2, 1], pump: [2, 1], catnip: [2, 1], bed: [3, 2], barrow: [2, 1], hotel: [1, 1],
 };
 
 /** How many of each piece a garden gets, in the order they are placed. */
-const WANT: [FurnitureKind, number][] = [['picnic', 3], ['blanket', 3], ['bistro', 3], ['birdbath', 5], ['bench', 14]];
+const WANT: [FurnitureKind, number][] = [
+  ['picnic', 3], ['blanket', 3], ['bistro', 3], ['birdbath', 5], ['bench', 14],
+  ['bed', 3], ['pump', 3], ['hotel', 3], ['catnip', 4], ['barrow', 3], ['box', 4],
+];
 
 const MAZE_W = 17, MAZE_H = 13;
 

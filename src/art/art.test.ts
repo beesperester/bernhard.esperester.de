@@ -68,6 +68,18 @@ describe('the garden through the seasons', () => {
     expect(Buffer.from(rippled.data).equals(Buffer.from(buildGround(1, season).data))).toBe(true);
   });
 
+  it('grows the vegetables and the catnip in summer, not in winter; soil in the wheelbarrow in spring', () => {
+    const [winter, spring, summer] = [seasonAt(dates.winter), seasonAt(dates.spring), seasonAt(dates.summer)];
+    expect(furniture.growth(winter)).toBe(0);
+    expect(furniture.growth(summer)).toBe(2);
+    expect(furniture.catnipUp(winter)).toBe(false);
+    expect(furniture.catnipUp(summer)).toBe(true);
+    expect(opaque(furniture.buildCatnip(summer))).toBeGreaterThan(opaque(furniture.buildCatnip(winter)));
+    // (the crops differ from bare soil)
+    expect(Buffer.from(furniture.buildRaisedBed(summer).data).equals(Buffer.from(furniture.buildRaisedBed(winter).data))).toBe(false);
+    expect(opaque(furniture.buildBarrow(spring))).toBeGreaterThan(opaque(furniture.buildBarrow(summer)));
+  });
+
   it('raises the plateaus and scatters the flora', () => {
     const summer = seasonAt(dates.summer);
     expect(buildTerrain(buildGround(0, summer)).length).toBeGreaterThan(0);

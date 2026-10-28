@@ -75,6 +75,12 @@ export class Effects {
       });
   }
 
+  /** A drop falling from height `z` at (x, y), and a little ring where it lands. */
+  drip(x: number, y: number, z: number): void {
+    this.add(this.image('drop'), { kind: 'drop', x, y, z, life: 2 });
+    this.ripple(x, y, Math.sqrt((2 * z) / DROP_GRAVITY), 0.5);
+  }
+
   splashSound(x: number, y: number, volume: number, rate: number): void {
     void sound.play('splash', { at: { x, y }, volume, rate: rate * (0.92 + Math.random() * 0.16) });
   }

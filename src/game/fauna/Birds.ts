@@ -1,6 +1,7 @@
 import { BIRD_COLOURS } from '../../art/critters.ts';
 import { Act, Prey, SWIPE_AT_MS } from '../state.ts';
 import type { CatView } from '../CatView.ts';
+import { PUDDLE } from '../Furniture.ts';
 import { BATH_H, FORK_Z, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../../world/map.ts';
 import { RISE } from '../../world/trees.ts';
 import { SEASON } from '../../world/season.ts';
@@ -88,8 +89,15 @@ export class Birds implements Fauna {
     });
     // lawns: open grass or path a few steps from the trunk, at the tree's level
     this.lawns = trees.map(({ p }) => this.lawnAround(Math.floor((p.x + 32) / TILE), Math.floor(p.depthY / TILE)));
-    // bird baths: on the rim at the front of the basin, and the lawn around
-    this.baths = FURNITURE.filter((f) => f.kind === 'birdbath').map((f) => {
+    // bird baths: on the rim at the front of the basin, and the lawn around; the puddles under the pumps: round their edge
+    this.baths = FURNITURE.filter((f) => f.kind === 'birdbath' || f.kind === 'pump').map((f) => {
+      if (f.kind === 'pump') {
+        const cx = f.tx * TILE + PUDDLE.x, cy = f.ty * TILE + PUDDLE.y;
+        return {
+          rim: [[-7, -2], [-3, -3], [4, -3], [8, 0], [3, 3]].map(([dx, dy]) => ({ x: cx + dx, y: cy + dy, h: elevAt(cx, cy), depth: cy + dy, perch: false, bath: true })),
+          lawn: this.lawnAround(f.tx + 1, f.ty),
+        };
+      }
       const cx = f.tx * TILE + 8, y = f.ty * TILE + 10;
       return {
         rim: [-4, -1, 2, 5].map((dx) => ({ x: cx + dx, y, h: BATH_H, depth: y, perch: false, bath: true })),

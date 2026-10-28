@@ -6,7 +6,7 @@ import { buildProps, type Prop } from '../art/trees.ts';
 import type { Raster } from '../art/raster.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
 import { HOUSES, TREES, standingOn, surfaceAt } from '../world/trees.ts';
-import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
+import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow } from './Meadow.ts';
@@ -53,6 +53,7 @@ import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canPounce, ca
 import { Fader } from '../ui/fader.ts';
 import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
+import { catnipUp } from '../art/furniture.ts';
 
 // a cat that lands in the pond hops straight back out to dry land
 const HOP_MS = 480;
@@ -93,6 +94,10 @@ type Pose = [number, number, number, number];
 const POUNCE_REACH = 56, KITTEN_POUNCE_REACH = 36, POUNCE_MS = 340;
 /** How high a pounce goes at most (px). */
 const POUNCE_HEIGHT = 7;
+/** A sniff of catnip works again after this long (ms). */
+const CATNIP_MS = 120000;
+/** How far from a piece of furniture a paw reaches it (px). */
+const PAW_REACH = 10;
 
 export class GardenScene extends Phaser.Scene {
   private me!: CatView;
@@ -153,6 +158,9 @@ export class GardenScene extends Phaser.Scene {
   private waterSurface!: WaterSurface;
   private lighting!: Lighting;
   private readonly dash = new Dash();
+  private furniture!: Furniture;
+  /** When the catnip works on our cat again. */
+  private catnipAt = 0;
   private lastDry = { x: 0, y: 0, z: 0 };
   /** When we arrived. */
   private arrived = 0;
@@ -188,7 +196,7 @@ export class GardenScene extends Phaser.Scene {
 
     const props = buildProps();
     this.trees = new Trees(this, props, canvases.props);
-    const furniture = new Furniture(this, toCanvas);
+    const furniture = (this.furniture = new Furniture(this, toCanvas));
     this.landmarks = new Landmarks(this, toCanvas);
     const standing = [...furniture.pieces, ...this.landmarks.pieces];
     // birds sing from a tree somewhere near you, preferably one with a bird in it
@@ -537,6 +545,7 @@ export class GardenScene extends Phaser.Scene {
     this.streams.update(gt, light.night, view);
     this.landmarks.update(time, this.cameras.main.zoom);
     this.puddles.update(gt, time, dt, cats, view);
+    this.furniture.update(time, cats, this.ambient.fx, view);
     this.clouds.update(gt);
     this.clouds.setDaylight(light.day);
     this.sun.update(time, dt, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), light.day);
@@ -702,6 +711,14 @@ export class GardenScene extends Phaser.Scene {
       const prey = this.ambient.preyNear(me);
       // (with nothing in reach it swipes the way it faces)
       if (prey) me.facing = facingTowards(me, prey);
+      // a sniff at the catnip: a roll in it, and the dash is ready again (zoomies!)
+      else if (this.catnipNear(now)) {
+        this.catnipAt = now + CATNIP_MS;
+        this.dash.rest(now);
+        this.sparkle();
+        begin(Act.Roll);
+        return;
+      }
       // pawing at a monument brings up its name; at a tree's trunk, maybe shakes something down
       else if (!this.landmarks.touch(me.x, me.y, now)) {
         const tree = trunkNear(me.x, me.y, me.z);
@@ -864,8 +881,9 @@ export class GardenScene extends Phaser.Scene {
     if (me.act === Act.Sit && now >= this.nextLick) begin(Act.Lick);
     // after a long while the cat curls up and falls asleep
     if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS) me.setAct(Act.Sleep, now);
-    // a rest in a bird house or the tree house: ready to dash again
-    if (on && HOUSES.has(on.kind) && (me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep)) this.dash.rest(now);
+    // a rest in a bird house, the tree house or a cardboard box: ready to dash again
+    const resting = me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep;
+    if (resting && ((on && HOUSES.has(on.kind)) || inBox(me.x, me.y, me.z))) this.dash.rest(now);
   }
 
   /** Put our cat somewhere (handy from the console while developing). */
@@ -945,11 +963,18 @@ export class GardenScene extends Phaser.Scene {
   private updateHint(): void {
     const me = this.me;
     const free = this.revealed && !this.hop && !this.youMarker.active && (me.act === Act.Idle || me.act === Act.Walk || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Crouch || me.act === Act.Sneak || me.act === Act.Mew);
-    const show = free && !wetAt(me.x, me.y) && (!!this.ambient.preyNear(me) || this.landmarks.near(me.x, me.y) || (canShake(me.stage) && trunkNear(me.x, me.y, me.z) >= 0));
+    const show = free && !wetAt(me.x, me.y) && (!!this.ambient.preyNear(me) || this.landmarks.near(me.x, me.y) || this.catnipNear(this.time.now)
+      || (!SEASON.frozen && me.z < 2 && !!furnitureNear('pump', me.x, me.y, PAW_REACH)) || (canShake(me.stage) && trunkNear(me.x, me.y, me.z) >= 0));
     this.hint.setVisible(show);
     // (just over the head: a crouching cat's is lower)
     const low = me.act === Act.Crouch || me.act === Act.Sneak ? 3 : 0;
     if (show) this.hint.setPosition(Math.round(me.x), Math.round(me.y - me.z) - Math.round(15 * me.size) - 2 + low);
+  }
+
+  /** Catnip within a paw's reach of our cat, in leaf, and it isn't still dizzy from the last sniff. */
+  private catnipNear(now: number): boolean {
+    const me = this.me;
+    return now >= this.catnipAt && catnipUp() && me.z < 2 && !!furnitureNear('catnip', me.x, me.y, PAW_REACH);
   }
 
   /** "+3" floating up from our cat after a catch (or "-1" after a bee). */

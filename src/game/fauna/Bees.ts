@@ -1,17 +1,19 @@
 import { Prey } from '../state.ts';
-import { elevAt } from '../../world/map.ts';
+import { FURNITURE, TILE, elevAt } from '../../world/map.ts';
 import { lightAt } from '../../world/sky.ts';
 import { inSeason } from '../../world/season.ts';
 import { Wary, type Senses } from './Wary.ts';
 import { Pool, clamp01, hash2, lerp, remember, smooth, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
 
-// Bees buzzing from flower to flower by day. A cat creeping up can swat one,
+// Bees buzzing from flower to flower by day, and in and out of the insect hotels. A cat creeping up can swat one,
 // but it stings (points off) and the bee zooms off in a huff.
 
 type Pt = [number, number];
 
 /** BEES bees, each out for part of every BEE_EPOCH ms, moving on to a nearby flower every BEE_HOP ms. */
 const BEES = 5, BEE_EPOCH = 45000, BEE_HOP = 4000;
+/** Share of bees that start out from an insect hotel; how far up its front they buzz (px). */
+const HOTEL_P = 0.3, HOTEL_LIFT = 12;
 /** Flowers this close (px) are a bee's hop apart. */
 const HOP_RANGE = 72;
 /** A stung-and-swatted (or startled) bee zooms off for this long. */
@@ -23,7 +25,10 @@ interface Flee { t: number; x: number; y: number; h: number; dir: number }
 
 export class Bees implements Fauna {
   readonly catches = [Prey.Bee] as const;
+  /** The flowers, then the insect hotels. */
   private readonly flowers: Pt[];
+  /** Index of the first hotel in `flowers`. */
+  private readonly hotels: number;
   /** For each flower, the other flowers within a short bee hop. */
   private readonly neighbours: number[][];
   private readonly routes = new Map<string, number[]>();
@@ -35,7 +40,8 @@ export class Bees implements Fauna {
   private readonly bees: Pool;
 
   constructor(ctx: FaunaContext) {
-    this.flowers = ctx.flowers;
+    this.hotels = ctx.flowers.length;
+    this.flowers = [...ctx.flowers, ...FURNITURE.filter((f) => f.kind === 'hotel').map((f): Pt => [f.tx * TILE + 8, f.ty * TILE + 15])];
     this.isCaught = (id) => ctx.isCaught(Prey.Bee, id);
     this.wary = new Wary(ctx.scene);
     this.bees = new Pool(ctx.scene, 'bee');
@@ -60,7 +66,9 @@ export class Bees implements Fauna {
   /** Flower indices bee `b` visits during epoch `e`, hopping between nearby flowers. */
   private route(b: number, e: number, hops: number): number[] {
     const key = `${b}:${e}`;
-    const route = this.routes.get(key) ?? remember(this.routes, key, [Math.floor(hash2(b, e, 903) * this.flowers.length)], 20);
+    const hotels = this.flowers.length - this.hotels;
+    const first = hotels && hash2(b, e, 908) < HOTEL_P ? this.hotels + Math.floor(hash2(b, e, 909) * hotels) : Math.floor(hash2(b, e, 903) * this.flowers.length);
+    const route = this.routes.get(key) ?? remember(this.routes, key, [first], 20);
     while (route.length <= hops) {
       const near = this.neighbours[route[route.length - 1]];
       const pick = hash2(b, e, route.length, 3);
@@ -86,7 +94,8 @@ export class Bees implements Fauna {
         const ang = (gt / 1000) * spin + b;
         const x = lerp(ax, bx, m) + Math.cos(ang) * 6;
         const y = lerp(ay, by, m) + Math.sin(ang) * 3;
-        const h = 7 + Math.sin(gt / 250 + b) * 2 + lerp(elevAt(ax, ay), elevAt(bx, by), m);
+        const lift = (i: number) => (i >= this.hotels ? HOTEL_LIFT : 0);
+        const h = 7 + Math.sin(gt / 250 + b) * 2 + lerp(elevAt(ax, ay) + lift(route[hop]), elevAt(bx, by) + lift(route[hop + 1]), m);
         const alpha = Math.min(1, tau / 1000, (dur - tau) / 1000);
         if (alpha > 0.5) {
           const v = this.wary.watch(Prey.Bee * 1e10 + id, x, y, h, cats, gt, now, SENSES);

@@ -11,7 +11,7 @@ import { FURNITURE_SIZE, layOut, type FurnitureKind } from './layout.ts';
 import { worldSeed } from './seed.ts';
 import { TILE, MAP_W, MAP_H, WORLD_W, WORLD_H } from './size.ts';
 import { LANDMARK_COVERS, LANDMARK_SIZE, LANDMARK_SOLIDS } from './landmarks.ts';
-import { LEGEND, WALL, groundOf, isPond, isRunning, isStairs, isTree, isWaterway } from './legend.ts';
+import { LEGEND, WALL, groundOf, isOpenGround, isPond, isRunning, isStairs, isTree, isWaterway } from './legend.ts';
 
 export { TILE, MAP_W, MAP_H, WORLD_W, WORLD_H };
 /** Height of one terrain level in px: more than a jump (~14px), so cliffs can't be hopped up. */
@@ -222,7 +222,8 @@ for (const [tx, ty] of treeTiles()) {
 
 // ---- garden furniture ----
 // Things people left in the park: benches, a picnic table, a bistro set, a
-// picnic blanket and a bird bath. Each stands on a patch of plain lawn (`tx`,
+// picnic blanket, a bird bath, a cardboard box, a street pump, pots of catnip,
+// a raised vegetable bed, a wheelbarrow and an insect hotel. Each stands on a patch of plain lawn (`tx`,
 // `ty` is its top-left tile; layout.ts places them); all can be jumped onto.
 
 export { FURNITURE, FURNITURE_SIZE, type FurnitureKind };
@@ -237,6 +238,8 @@ export function furnished(tx: number, ty: number): boolean {
 
 /** Height of the bird bath's rim. */
 export const BATH_H = 13;
+/** Height of the cardboard box's walls, and of the wheelbarrow's tub. */
+export const BOX_H = 4, BARROW_H = 8;
 
 /** Solid parts of the furniture in world px, relative to the spot's top-left corner, with their height. */
 const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, number][]> = {
@@ -248,7 +251,56 @@ const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, n
   // the basket (the blanket itself is flat)
   blanket: [[39, 26, 51, 31, 6]],
   birdbath: [[3, 7, 13, 14, BATH_H]],
+  // the box's four walls, low enough for a kitten to hop over (the floor inside is the lawn: BOX_INSIDE)
+  box: [[4, 3, 28, 5, BOX_H], [4, 13, 28, 15, BOX_H], [4, 5, 6, 13, BOX_H], [26, 5, 28, 13, BOX_H]],
+  // the column (its puddle is flat)
+  pump: [[4, 8, 12, 14, 30]],
+  // big pot, middle pot, little pot
+  catnip: [[2, 9, 12, 15, 6], [13, 10, 21, 15, 5], [23, 11, 29, 15, 4]],
+  bed: [[2, 6, 46, 30, 8]],
+  // the tub (the wheel and handles are in the way of nothing)
+  barrow: [[8, 6, 26, 13, BARROW_H]],
+  // the post
+  hotel: [[6, 10, 10, 14, 30]],
 };
+
+/** Inside the box's walls, relative to its top-left tile. */
+const BOX_INSIDE = { x0: 6, y0: 5, x1: 26, y1: 13 };
+
+/** The furniture of `kind` within `r` px of (x, y) (its middle), nearest first. */
+export function furnitureNear(kind: FurnitureKind, x: number, y: number, r: number): { tx: number; ty: number } | null {
+  let best: { tx: number; ty: number } | null = null, bd = r;
+  for (const f of FURNITURE) {
+    if (f.kind !== kind) continue;
+    const [w, h] = FURNITURE_SIZE[kind];
+    const d = Math.hypot(Math.max(0, Math.abs(x - (f.tx + w / 2) * TILE) - (w * TILE) / 2), Math.max(0, Math.abs(y - (f.ty + h / 2) * TILE) - (h * TILE) / 2));
+    if (d <= bd) { best = f; bd = d; }
+  }
+  return best;
+}
+
+/** Open ground right round each piece of these kinds (tile middles, world px): where critters that like them hang about. */
+export function aroundFurniture(...kinds: FurnitureKind[]): [number, number][] {
+  const out: [number, number][] = [];
+  for (const f of FURNITURE) {
+    if (!kinds.includes(f.kind)) continue;
+    const [w, h] = FURNITURE_SIZE[f.kind], level = levelAt(f.tx, f.ty);
+    for (let ty = f.ty - 1; ty <= f.ty + h; ty++)
+      for (let tx = f.tx - 1; tx <= f.tx + w; tx++)
+        if (isOpenGround(tileAt(tx, ty)) && levelAt(tx, ty) === level && !furnished(tx, ty)) out.push([tx * TILE + 8, ty * TILE + 10]);
+  }
+  return out;
+}
+
+/** Is a cat at (x, y), height z, sitting inside a cardboard box? */
+export function inBox(x: number, y: number, z: number): boolean {
+  if (z > elevAt(x, y) + 1) return false;
+  return FURNITURE.some((f) => {
+    if (f.kind !== 'box') return false;
+    const ox = f.tx * TILE, oy = f.ty * TILE;
+    return x + FEET.x0 >= ox + BOX_INSIDE.x0 && x + FEET.x1 <= ox + BOX_INSIDE.x1 && y + FEET.y0 >= oy + BOX_INSIDE.y0 && y <= oy + BOX_INSIDE.y1;
+  });
+}
 
 /** Solid things in world px: x0, y0, x1, y1, top, and bottom (above the terrain). */
 const SOLIDS: [number, number, number, number, number, number][] = [
