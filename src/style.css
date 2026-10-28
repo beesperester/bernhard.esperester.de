@@ -54,6 +54,33 @@ html, body {
   top: calc(max(12px, env(safe-area-inset-top)) + 40px);
 }
 
+/* the snack log: who ate what, bottom left, each line fading after a while */
+#feed {
+  position: fixed;
+  left: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  max-width: min(420px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  pointer-events: none;
+}
+/* on touch devices the D-pad owns the bottom left: above it */
+#touch:not([hidden]) ~ #feed { bottom: 200px; }
+#feed p {
+  margin: 0;
+  padding: 1px 6px 2px;
+  font: 13px/1.2 'Pixelify Sans', ui-monospace, monospace;
+  letter-spacing: 0.02em;
+  color: #f4f0dc;
+  background: rgba(14, 26, 16, 0.6);
+  transition: opacity 0.6s;
+}
+#feed p b { font-weight: normal; color: #ffe27a; }
+#feed p.ours b { color: #9fe870; }
+#feed p.gone { opacity: 0; }
+
 #music, #sound, #fullscreen, #help-btn {
   left: auto;
   right: 12px;

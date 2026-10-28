@@ -55,6 +55,7 @@ import { setupCollar } from '../ui/collar.ts';
 import { cullerFor } from './Culler.ts';
 import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canDrive, canPounce, canShake, nextAt, stageOf } from './growth.ts';
 import { Fader } from '../ui/fader.ts';
+import { logSnack } from '../ui/feed.ts';
 import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
 import { catnipUp } from '../art/furniture.ts';
@@ -353,7 +354,9 @@ export class GardenScene extends Phaser.Scene {
       },
       onCatch: (id, kind, preyId) => {
         const cat = this.remotes.get(id);
-        if (cat && this.referee.claim(id, kind, preyId, performance.now())) this.ambient.catchPrey(kind, preyId, cat);
+        if (!cat || !this.referee.claim(id, kind, preyId, performance.now())) return;
+        logSnack(this.board.nameOf(id), kind, this.ambient.colourOf(kind, preyId), false);
+        this.ambient.catchPrey(kind, preyId, cat);
       },
       // another cat pawed at a tree: believed if that cat is at the trunk (as far as we can see) and it is about now
       onShake: (id, tree, gt) => {
@@ -1206,6 +1209,7 @@ export class GardenScene extends Phaser.Scene {
   private ate(kind: Prey, id: number, colour: number): void {
     const points = preyPoints(kind, colour);
     this.scorePop(points);
+    logSnack(this.board.me.name, kind, colour, true);
     void this.board.ate(kind, id, points).then((counted) => {
       if (counted) this.grown();
     });

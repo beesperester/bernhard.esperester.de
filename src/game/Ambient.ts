@@ -148,6 +148,11 @@ export class Ambient {
    * the module it belongs to adds its own touch (feathers, a splash, a bee
    * zooming off).
    */
+  /** Which variety a catch is (which bird, which food), if it's about here; -1 if not. */
+  colourOf(kind: Prey, id: number): number {
+    return this.prey.find((v) => v.kind === kind && v.id === id)?.colour ?? -1;
+  }
+
   catchPrey(kind: Prey, id: number, cat: CatView): void {
     const key = preyKey(kind, id);
     if (this.caught.has(key)) return;
