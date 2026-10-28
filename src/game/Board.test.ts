@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Board, NAME_MAX, sanitizeBoard, verifyBoard, type BoardMsg, type Entry } from './Board.ts';
+import { Board, NAME_MAX, givenName, nameFor, sanitizeBoard, verifyBoard, type BoardMsg, type Entry } from './Board.ts';
 import { Identity, verify, type Signed } from '../net/identity.ts';
 import { Chain } from '../net/ledger.ts';
 import { memory, testBeacon } from '../net/testing.ts';
@@ -193,9 +193,46 @@ describe('the board', () => {
 
   it('gives up a random name that clashes with a custom one', async () => {
     const a = await newCat('peer-a'), b = await newCat('peer-b');
+    for (let i = 0; i < 9; i++) await a.board.ate(Prey.Find, i, 12);
     a.board.rename(b.board.me.name);
     await meet(a, b);
-    expect(a.board.me.name).not.toBe(b.board.me.name);
+    expect(b.board.me.name).not.toBe(a.board.me.name);
+  });
+
+  it('shows a name of its own only for a cat that has earned it', async () => {
+    const a = await newCat('peer-a'), b = await newCat('peer-b');
+    a.board.rename('Tiger');
+    await meet(a, b);
+    // (the others see a given name instead, the same one every time)
+    const shown = b.board.nameOf('peer-a');
+    expect(shown).not.toBe('Tiger');
+    expect(givenName(shown)).toBe(true);
+    expect(nameFor(a.me.id)).toBe(shown);
+    for (let i = 0; i < 9; i++) await a.board.ate(Prey.Find, i, 12);
+    await run();
+    expect(b.board.nameOf('peer-a')).toBe('Tiger');
+  });
+
+  it('drops a name of its own when its chain is short of earning it (started over)', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+    try {
+      store.set('cat-name', JSON.stringify({ name: 'Tiger', custom: true }));
+      const a = await newCat('peer-a');
+      store.set(`named-${a.me.id}`, '1');
+      store.set('cat-name', JSON.stringify({ name: 'Tiger', custom: true }));
+      const again = new Board(0, { id: a.me.id, peer: 'peer-a2', sign: (d) => a.me.sign(d), now: () => clock, chain: a.chain, check: verify, seed: 7 }, () => {}, () => {});
+      expect(again.me.custom).toBe(false);
+      expect(givenName(again.me.name)).toBe(true);
+      expect(store.has(`named-${a.me.id}`)).toBe(false);
+      // with the snacks for it, the name stays
+      for (let i = 0; i < 9; i++) await a.chain.append(7, Prey.Find, i, 12);
+      store.set('cat-name', JSON.stringify({ name: 'Tiger', custom: true }));
+      const named = new Board(0, { id: a.me.id, peer: 'peer-a3', sign: (d) => a.me.sign(d), now: () => clock, chain: a.chain, check: verify, seed: 7 }, () => {}, () => {});
+      expect(named.me).toMatchObject({ name: 'Tiger', custom: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("answers a request for blocks from a cat that hasn't said who it is yet", async () => {

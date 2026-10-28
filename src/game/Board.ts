@@ -108,6 +108,22 @@ function randomName(): string {
 }
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
+/** One of the names cats are given (two words off the lists), as opposed to one chosen. */
+export function givenName(name: string): boolean {
+  const [a, n, ...rest] = name.split(' ');
+  return !rest.length && ADJ.includes(a) && NOUN.includes(n ?? '');
+}
+
+/** A given name for a cat, always the same one for the same id (for a cat showing a name it hasn't earned). */
+export function nameFor(id: string): string {
+  let h = 0;
+  for (const ch of id) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0;
+  for (let k = 0; ; k++) {
+    const name = `${ADJ[(h + k) % ADJ.length]} ${NOUN[Math.floor(h / ADJ.length + k * 7) % NOUN.length]}`;
+    if (name.length <= NAME_MAX) return name;
+  }
+}
+
 /** A cat we have met: its name and coat when we last saw it, and how far its chain checked out. */
 type Known = { name: string; coat: number; seen: number; tally: Tally };
 
@@ -154,7 +170,13 @@ export class Board {
     this.changed = changed;
     this.known = loadKnown();
     // the name given on the first visit (or chosen since) comes back on later ones
-    const saved = loadName();
+    let saved = loadName();
+    // a name of its own is earned (NAME_AT snacks): a chain that's short of that again (a new cat, or one
+    // started over) goes back to a given name, and is asked for one again when it gets there
+    if (saved && this.chain.top < NAME_AT && (saved.custom || !givenName(saved.name))) {
+      saved = null;
+      try { localStorage.removeItem(`named-${this.id}`); } catch { /* storage unavailable */ }
+    }
     this.mine = { id: this.id, name: saved?.name ?? randomName(), coat, custom: saved?.custom ?? false, t: 0, p: signer.peer, ...this.chain.head };
     this.signed = signer.sign(this.mine);
     saveName(this.me);
@@ -174,14 +196,25 @@ export class Board {
     const rows: Row[] = [{ id: this.id, name: this.mine.name, coat: this.mine.coat, score: this.chain.score, verified: this.chain.anchor > 0 }];
     const silent = new Set([...this.quiet].map((p) => this.peers.get(p)));
     for (const { d } of this.entries.values())
-      if (!silent.has(d.id)) rows.push({ id: d.id, name: d.name, coat: d.coat, score: this.scoreOf(d.id), verified: this.tallyOf(d.id).anchor > 0 });
+      if (!silent.has(d.id)) rows.push({ id: d.id, name: this.shownName(d), coat: d.coat, score: this.scoreOf(d.id), verified: this.tallyOf(d.id).anchor > 0 });
     return rows.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   }
 
   /** The name of the cat behind a peer, once it has told us. */
   nameOf(peerId: string): string {
     const id = this.peers.get(peerId);
-    return (id && this.entries.get(id)?.d.name) || '';
+    const e = id && this.entries.get(id)?.d;
+    return e ? this.shownName(e) : '';
+  }
+
+  /** Whether a cat may go by a name of its own: its chain checks out at NAME_AT or more for us. */
+  private earned(id: string): boolean {
+    return this.tallyOf(id).top >= NAME_AT;
+  }
+
+  /** A cat's name as we show it: one it chose only once it has earned that, else a given one. */
+  private shownName(e: Entry): string {
+    return givenName(e.name) || this.earned(e.id) ? e.name : nameFor(e.id);
   }
 
   /** A cat's score as far as its chain checks out for us. */
@@ -268,7 +301,7 @@ export class Board {
 
   /** Is this name free for us to take? */
   available(name: string): boolean {
-    return ![...this.entries.values()].some((s) => same(s.d.name, name));
+    return ![...this.entries.values()].some((s) => same(this.shownName(s.d), name));
   }
 
   rename(name: string): void {
@@ -408,6 +441,8 @@ export class Board {
       // (an answer that got us further: ask for more straight away; one that didn't, not before ASK_AGAIN_MS)
       if (t.n !== this.tallyOf(id).n || t.h !== this.tallyOf(id).h) this.asking.delete(peerId);
       this.remember(id, e, t);
+      // (it may have earned the name it goes by now)
+      this.resolveClash();
       this.changed();
     });
     this.checking.set(id, next);
@@ -442,8 +477,10 @@ export class Board {
   /** Two cats with one name: the one that came up with it later (or at random) picks another. */
   private resolveClash(): void {
     const me = this.me;
-    const rival = [...this.entries.values()].map((s) => s.d).find((e) => same(e.name, me.name));
-    if (!rival || (me.custom && !rival.custom) || (me.custom === rival.custom && this.id < rival.id)) return;
+    const rival = [...this.entries.values()].map((s) => s.d).find((e) => same(this.shownName(e), me.name));
+    // (a name of its own it hasn't earned counts for nothing)
+    const theirs = rival && rival.custom && this.earned(rival.id);
+    if (!rival || (me.custom && !theirs) || (me.custom === theirs && this.id < rival.id)) return;
     let name = randomName();
     for (let i = 0; i < 50 && !this.available(name); i++) name = randomName();
     this.restate({ name, custom: false });
