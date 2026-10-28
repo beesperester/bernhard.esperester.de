@@ -4,3 +4,4 @@ dist/
 *.local
 preview/
 tools/berlin/cache/
+masters/

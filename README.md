@@ -69,6 +69,8 @@ There are two playlists: every `.mp3`/`.ogg`/`.m4a` in `src/music/day/` plays wh
 ffmpeg -i "Song.wav" -c:a libmp3lame -q:a 2 "src/music/day/Song.mp3"
 ```
 
+The original WAVs (music and sounds) are kept in `masters/`, laid out like `src/` and named like their converted files; the folder is ignored by git, so it only exists on the machine they were added on.
+
 ## Sounds
 
 Every folder in `src/sounds/` is a sound group (`birds`, `purr`, `hiss`, `mew`, `dash`, `splash`, `eat`, `rustle`, `steps`, `jump`, `levelup` (growing up a size), `rain` — a seamless loop that plays while it rains, louder the harder it pours; later e.g. `wind`), and each play picks one of its files at random (never the same twice in a row). Groups play on Web Audio, so any number overlap.
