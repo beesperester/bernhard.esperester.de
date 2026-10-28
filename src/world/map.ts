@@ -105,16 +105,47 @@ export function heightUnder(x0: number, y0: number, x1: number, y1: number, z = 
       const fx0 = tx * TILE + l, fy0 = ty * TILE + t, fx1 = (tx + 1) * TILE - r, fy1 = (ty + 1) * TILE - b;
       if (x1 > fx0 && x0 < fx1 && y1 > fy0 && y0 < fy1) h = base + standing;
     }
-  for (const [ax, ay, bx, by, top] of TRUNKS) if (z < top && x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
+  const { trunks, solids } = nearby(tx0, ty0, tx1, ty1);
+  for (const [ax, ay, bx, by, top] of trunks) if (z < top && x1 > ax && x0 < bx && y1 > ay && y0 < by) return WALL;
   // (something with room under it only counts for a cat up at its height)
-  for (const [ax, ay, bx, by, sh, sb] of SOLIDS) if (x1 > ax && x0 < bx && y1 > ay && y0 < by && sh > h && z + HEAD > sb) h = sh;
+  for (const [ax, ay, bx, by, sh, sb] of solids) if (x1 > ax && x0 < bx && y1 > ay && y0 < by && sh > h && z + HEAD > sb) h = sh;
   return h;
+}
+
+type Box = readonly number[];
+/** The trunks and solids touching each tile (built on first use, once everything is placed). */
+let byTile: { trunks: Box[]; solids: Box[] }[] | null = null;
+const NONE = { trunks: [] as Box[], solids: [] as Box[] };
+
+/** The trunks and solids that may touch tiles tx0..tx1 × ty0..ty1 (one tile: no copying). */
+function nearby(tx0: number, ty0: number, tx1: number, ty1: number): { trunks: Box[]; solids: Box[] } {
+  if (!byTile) {
+    const grid: { trunks: Box[]; solids: Box[] }[] = Array.from({ length: MAP_W * MAP_H }, () => ({ trunks: [], solids: [] }));
+    const put = (b: Box, list: 'trunks' | 'solids') => {
+      for (let ty = Math.max(0, Math.floor(b[1] / TILE)); ty <= Math.min(MAP_H - 1, Math.floor((b[3] - 0.01) / TILE)); ty++)
+        for (let tx = Math.max(0, Math.floor(b[0] / TILE)); tx <= Math.min(MAP_W - 1, Math.floor((b[2] - 0.01) / TILE)); tx++) grid[ty * MAP_W + tx][list].push(b);
+    };
+    for (const b of TRUNKS) put(b, 'trunks');
+    for (const b of SOLIDS) put(b, 'solids');
+    byTile = grid;
+  }
+  const at = (tx: number, ty: number) => (tx >= 0 && ty >= 0 && tx < MAP_W && ty < MAP_H ? byTile![ty * MAP_W + tx] : NONE);
+  if (tx0 === tx1 && ty0 === ty1) return at(tx0, ty0);
+  const out = { trunks: [] as Box[], solids: [] as Box[] };
+  for (let ty = ty0; ty <= ty1; ty++)
+    for (let tx = tx0; tx <= tx1; tx++) {
+      const c = at(tx, ty);
+      out.trunks.push(...c.trunks);
+      out.solids.push(...c.solids);
+    }
+  return out;
 }
 
 /** The top of the tree trunk a world-space box is over, if any (its fork: a cat dropping onto it stops there). */
 export function trunkTop(x0: number, y0: number, x1: number, y1: number): number {
   let top = -Infinity;
-  for (const [ax, ay, bx, by, t] of TRUNKS) if (t < Infinity && x1 > ax && x0 < bx && y1 > ay && y0 < by) top = Math.max(top, t);
+  const { trunks } = nearby(Math.floor(x0 / TILE), Math.floor(y0 / TILE), Math.floor((x1 - 0.01) / TILE), Math.floor((y1 - 0.01) / TILE));
+  for (const [ax, ay, bx, by, t] of trunks) if (t < Infinity && x1 > ax && x0 < bx && y1 > ay && y0 < by) top = Math.max(top, t);
   return top;
 }
 
@@ -390,3 +421,5 @@ function placeLanterns(): [number, number][] {
 /** Lantern posts (bottom centre), the same for every visitor. */
 export const LANTERNS = placeLanterns();
 for (const [x, y] of LANTERNS) TRUNKS.push([x - 2, y - 3, x + 2, y + 1, Infinity]);
+// (anything asked before this was asked without the posts)
+byTile = null;
