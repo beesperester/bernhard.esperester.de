@@ -146,3 +146,18 @@ export function buildDriverCap(): Raster {
       if (!r.isSet(x, y) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => r.isSet(x + dx, y + dy) && !(r.data[((y + dy) * 10 + x + dx) * 4 + 3] === 254))) r.set(x, y, hex('#10182e'), 254);
   return r;
 }
+
+/** The headlamp's beam on the ground ahead: a soft wedge widening away from the lamp (at its left middle, pointing right). */
+export function buildBeam(): Raster {
+  const L = 56, Wd = 30, r = new Raster(L, Wd);
+  const warm = hex('#fff0b0');
+  for (let y = 0; y < Wd; y++)
+    for (let x = 0; x < L; x++) {
+      const u = (x + 0.5) / L, half = 2 + u * (Wd / 2 - 2), v = Math.abs(y + 0.5 - Wd / 2) / half;
+      if (v >= 1) continue;
+      // brightest near the lamp and along the middle, in a few bands like the lanterns' pools
+      const a = Math.ceil((1 - u) ** 1.2 * (1 - v * v) * 5) / 5;
+      if (a > 0) r.set(x, y, warm, Math.round(a * 200));
+    }
+  return r;
+}

@@ -37,7 +37,8 @@ const KEYBOARD: Row[] = [
   [[['F'], 'catch, splash to lure fish, paw at a tree or a monument']],
   [[['F'], 'hold it to creep up on something, let go with an arrow held to pounce']],
   [[['E'], 'mew; hold it and'], [['left'], 'hiss'], [['right'], 'roll']],
-  [[['right'], 'in the train\'s cab (grown cats): a notch forwards,'], [['left'], 'a notch back'], [['SPACE'], 'out']],
+  [[['F'], 'beside the train: get in (a grown cat at the lok drives)'], [['SPACE'], 'out']],
+  [[['up'], 'driving: the throttle a notch forwards,'], [['down'], 'a notch back']],
 ];
 
 const TOUCH: Row[] = [
@@ -46,7 +47,8 @@ const TOUCH: Row[] = [
   [[['B'], 'catch, splash to lure fish, paw at a tree or a monument']],
   [[['B'], 'hold it to creep up on something, let go with a way held to pounce']],
   [[['SELECT'], 'mew; hold it and ← hiss, → roll']],
-  [[['dpad'], 'in the train\'s cab (grown cats): → a notch forwards, ← back'], [['A'], 'out']],
+  [[['B'], 'beside the train: get in (a grown cat at the lok drives)'], [['A'], 'out']],
+  [[['dpad'], 'driving: ↑ the throttle a notch forwards, ↓ back']],
 ];
 
 function keyEl(key: Key, onTouch: boolean): HTMLElement {

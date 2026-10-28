@@ -5,7 +5,6 @@ import { WORLD_H, WORLD_W } from '../world/size.ts';
 import { CAR_LEN, CAR_W } from '../art/train.ts';
 import { CAR_GAP, FLOOR_H, NOTCHES, SPEEDS, WALL_H, aboard, advance, inCab, poses, ridingIn, span, startState, trainUnder, world } from './train.ts';
 import { STEP_UP } from './movement.ts';
-import { STAGE_JUMP, Stage } from './growth.ts';
 
 describe('the Ring', () => {
   it('is one closed line all round the map', () => {
@@ -75,10 +74,9 @@ describe('the train', () => {
     expect(front - back).toBe(CAR_LEN.lok + CAR_LEN.blue + CAR_LEN.yellow + 2 * CAR_GAP);
   });
 
-  it('can be got into by a kitten, not walked into, nor walked out of', () => {
+  it('is not walked into, nor walked out of (the way in and out is through the door)', () => {
     expect(WALL_H).toBeGreaterThan(STEP_UP);
     expect(WALL_H).toBeGreaterThan(FLOOR_H + STEP_UP);
-    expect(STAGE_JUMP[Stage.Kitten] + 0.5).toBeGreaterThanOrEqual(WALL_H);
   });
 
   it('has a floor inside its waggons and walls round them', () => {

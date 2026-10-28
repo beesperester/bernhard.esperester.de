@@ -1,6 +1,10 @@
-import type Phaser from 'phaser';
+import Phaser from 'phaser';
 import type { Raster } from '../art/raster.ts';
-import { HEADINGS, buildCar, buildDriverCap } from '../art/train.ts';
+import { HEADINGS, buildBeam, buildCar, buildDriverCap } from '../art/train.ts';
+import { buildGlow } from '../art/critters.ts';
+import type { Light } from '../world/sky.ts';
+import { DEPTH } from './Daylight.ts';
+import { world } from './train.ts';
 import { moving } from '../world/map.ts';
 import { TRACK_LENGTH } from '../world/track.ts';
 import type { TrainMsg } from '../net/protocol.ts';
@@ -35,6 +39,9 @@ export class TrainView {
   private readonly images: { back: Phaser.GameObjects.Image; front: Phaser.GameObjects.Image }[] = [];
   private readonly made = new Set<string>();
   readonly cap: Phaser.GameObjects.Image;
+  /** After dark: the lok's headlamp and its beam ahead, the lamp in its cab, the last waggon's red tail lamp. */
+  private readonly lamps: { lamp: Phaser.GameObjects.Image; beam: Phaser.GameObjects.Image; cab: Phaser.GameObjects.Image; tail: Phaser.GameObjects.Image };
+  private lit = 0;
 
   constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement, self: string, start: TrainState, say: (msg: TrainMsg) => void) {
     this.scene = scene;
@@ -49,6 +56,15 @@ export class TrainView {
     scene.textures.addCanvas('driver-cap', toCanvas(buildDriverCap()));
     this.cap = scene.add.image(0, 0, 'driver-cap').setOrigin(0.5, 1).setVisible(false);
     moving.under = (x, y) => trainUnder(this.cars, x, y);
+    scene.textures.addCanvas('train-beam', toCanvas(buildBeam()));
+    scene.textures.addCanvas('train-tail', toCanvas(buildGlow(9, 9, [255, 70, 50])));
+    const glow = (key: string) => scene.add.image(0, 0, key).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+    this.lamps = { lamp: glow('glow-lamp'), beam: glow('train-beam').setOrigin(0, 0.5), cab: glow('glow-lantern').setScale(0.6), tail: glow('train-tail') };
+  }
+
+  /** The lamps come on after dark, like the lanterns along the paths. */
+  light(light: Light): void {
+    this.lit = Math.max(0, Math.min(1, (-2 - light.elevation) / 4));
   }
 
   get driver(): string | null {
@@ -158,6 +174,7 @@ export class TrainView {
 
   /** Put the cars where they are, each picture turned the way the car points (only those on screen). */
   render(view: Phaser.Geom.Rectangle): void {
+    this.renderLamps();
     this.cars.forEach((c, i) => {
       const { back, front } = this.images[i];
       const on = c.x > view.x - 40 && c.x < view.right + 40 && c.y > view.y - 40 && c.y < view.bottom + 60;
@@ -178,6 +195,19 @@ export class TrainView {
       back.setTexture(`${key}-back`).setPosition(x, y).setDepth(c.y - 0.6);
       front.setTexture(`${key}-front`).setPosition(x, y).setDepth(c.y + 0.6);
     });
+  }
+
+  private renderLamps(): void {
+    const { lamp, beam, cab, tail } = this.lamps, on = this.lit;
+    for (const l of [lamp, beam, cab, tail]) l.setVisible(on > 0);
+    if (!on) return;
+    const lok = this.cars[0], last = this.cars[this.cars.length - 1];
+    // (the lamp sits on the lok's nose, 9 px up; the beam lies on the ground ahead of it)
+    const nose = world(lok, lok.len / 2 + 1, 0), seat = world(lok, -lok.len / 2 + 5, 0), back = world(last, -last.len / 2 - 1, 0);
+    lamp.setPosition(nose.x, nose.y - 9).setAlpha(on);
+    beam.setPosition(nose.x, nose.y).setRotation(Math.atan2(lok.dy, lok.dx)).setAlpha(on * 0.9);
+    cab.setPosition(seat.x, seat.y - 8).setAlpha(on * 0.45);
+    tail.setPosition(back.x, back.y - 6).setAlpha(on * 0.9);
   }
 
   private tell(gt: number, now: boolean): void {

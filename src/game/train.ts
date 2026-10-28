@@ -16,7 +16,7 @@ export const SPEEDS = [0, 26, 52, 92];
 export const NOTCHES = SPEEDS.length - 1;
 /** Speeding up, and slowing down (px/s²). */
 const ACCEL = 28, BRAKE = 44;
-/** How high the walls are, and the floor, for a cat (px): a kitten can just jump over, nobody steps over from either side. */
+/** How high the walls are, and the floor, for a cat (px): nobody steps over them from either side (cats get in and out by the door). */
 export const WALL_H = 4.5, FLOOR_H = 1;
 /** The lok's boiler: too tall to get onto. */
 const BOILER_H = 16;

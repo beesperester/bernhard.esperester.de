@@ -185,6 +185,8 @@ export class GardenScene extends Phaser.Scene {
   private train!: TrainView;
   /** Where in the train our cat rides (car, along it, across it), or null. */
   private riding: { i: number; u: number; v: number } | null = null;
+  /** Got on properly (F beside a car), not jumped in over the side. */
+  private boarded = false;
   /** When the lok's chimney puffs next (s). */
   private chuffIn = 0;
   /** The D-pad as it was last frame (the driver works the throttle with it). */
@@ -591,6 +593,7 @@ export class GardenScene extends Phaser.Scene {
     this.clouds.setDaylight(light.day);
     this.sun.update(time, dt, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), light.day);
     this.lanterns.update(light, time);
+    this.train.light(light);
     this.nightWater.update(light, time, view);
     this.waterSurface.update(light, gt, time, overcast, view);
     // keep the clock in the status line current
@@ -618,11 +621,11 @@ export class GardenScene extends Phaser.Scene {
     const up = held(k.up, touch.up), below = held(k.down, touch.down);
     let dir = dirOf(up, below, left, right);
     const jump = hit(k.jump, 'jump');
-    // in the driver's seat the arrows work the throttle: each one pressed a notch forwards (→ ↑) or back (← ↓);
-    // a jump is out of the cab
+    // in the driver's seat ↑ and ↓ work the throttle: each press a notch forwards or back (← and → do
+    // nothing there); a jump is out of the cab
     if (this.train.driving && live) {
       const fresh = [...dir].filter((c) => !this.lastDir.includes(c));
-      const by = fresh.reduce((n, c) => n + (c === 'r' || c === 'u' ? 1 : -1), 0);
+      const by = fresh.reduce((n, c) => n + (c === 'u' ? 1 : c === 'd' ? -1 : 0), 0);
       if (by) this.train.throttle(Math.sign(by), this.net.now());
       this.lastDir = dir;
       if (jump && !this.hop) {
@@ -703,7 +706,10 @@ export class GardenScene extends Phaser.Scene {
       me.z = h.tz * u + HOP_HEIGHT * 4 * u * (1 - u);
       if (u >= 1) {
         me.z = h.tz;
-        if (h.car) this.riding = h.car;
+        if (h.car) {
+          this.riding = h.car;
+          this.boarded = true;
+        }
         this.hop = null;
         me.setAct(Act.Idle, now);
       }
@@ -773,6 +779,11 @@ export class GardenScene extends Phaser.Scene {
       const prey = this.ambient.preyNear(me);
       // (with nothing in reach it swipes the way it faces)
       if (prey) me.facing = facingTowards(me, prey);
+      // beside the train: in through the door (a grown cat at the lok into the driver's seat, if it's free)
+      else if (this.boardable()) {
+        this.hopInto(now, this.boardable()!);
+        return;
+      }
       // a sniff at the catnip: a roll in it, and the dash is ready again (zoomies!)
       else if (this.catnipNear(now)) {
         this.catnipAt = now + CATNIP_MS;
@@ -835,6 +846,12 @@ export class GardenScene extends Phaser.Scene {
       me.mews = (me.mews + 1) & 0xffff;
       me.mewAt = now;
       if (!moving && (me.act === Act.Idle || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep)) begin(Act.Mew);
+    }
+    // on the train, a jump is out of it (down beside the car, or over the water into the next one)
+    if (jump && grounded && this.riding) {
+      const car = this.train.cars[this.riding.i];
+      if (!this.hopOff(now, car)) this.hopInto(now, { i: car.i === 1 ? 2 : 1, u: 0, v: 0 });
+      return;
     }
     if (hiss && grounded) begin(Act.Hiss);
     else if (roll && grounded) begin(Act.Roll);
@@ -942,7 +959,8 @@ export class GardenScene extends Phaser.Scene {
     }
     if (me.act === Act.Sit && now >= this.nextLick) begin(Act.Lick);
     // after a long while the cat curls up and falls asleep
-    if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS) me.setAct(Act.Sleep, now);
+    // (but not at the controls)
+    if (me.act === Act.Sit && now - this.lastInput > SLEEP_AFTER_MS && !this.train.driving) me.setAct(Act.Sleep, now);
     // a rest in a bird house, the tree house or a cardboard box: ready to dash again
     const resting = me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Sleep;
     if (resting && ((on && HOUSES.has(on.kind)) || inBox(me.x, me.y, me.z))) this.dash.rest(now);
@@ -967,7 +985,10 @@ export class GardenScene extends Phaser.Scene {
       }
     }
     this.riding = seat;
-    if (!seat) return;
+    if (!seat) {
+      this.boarded = false;
+      return;
+    }
     const p = world(this.train.cars[seat.i], seat.u, seat.v);
     me.x = p.x;
     me.y = p.y + 2;
@@ -982,6 +1003,11 @@ export class GardenScene extends Phaser.Scene {
     const me = this.me, t = this.train;
     if (this.hop || !this.revealed) return;
     const settled = me.act !== Act.Jump;
+    // jumped in over the side (or onto it): back out again; the way in is through the door (F)
+    if (settled && this.riding && !this.boarded) {
+      if (!this.hopOff(now, t.cars[this.riding.i])) this.boarded = true;
+      return;
+    }
     if (settled && inCab(t.cars, me.x, me.y, me.z)) {
       if (!t.driving && canDrive(me.stage) && t.free()) t.claim(gt);
       if (!t.driving) this.hopInto(now, { i: 1, u: 0, v: 0 });
@@ -994,6 +1020,25 @@ export class GardenScene extends Phaser.Scene {
       const c = t.cars.reduce((a, b) => (Math.hypot(b.x - me.x, b.y - me.y) < Math.hypot(a.x - me.x, a.y - me.y) ? b : a));
       this.hopOff(now, c);
     }
+  }
+
+  /** The place in the train a paw now would get our cat to: the car it stands beside (none if it's on the train already). */
+  private boardable(): { i: number; u: number; v: number } | null {
+    const me = this.me, t = this.train;
+    if (this.riding || this.hop || me.z > 2) return null;
+    let best: { i: number; u: number; v: number } | null = null, bd = Infinity;
+    for (const c of t.cars) {
+      const { u, v } = local(c, me.x, me.y - 2);
+      if (Math.abs(v) > CAR_W / 2 + 9 || Math.abs(u) > c.len / 2 + 4) continue;
+      const d = Math.abs(v) + Math.max(0, Math.abs(u) - c.len / 2);
+      if (d >= bd) continue;
+      bd = d;
+      const inner = c.len / 2 - 4;
+      best = c.kind !== 'lok' ? { i: c.i, u: Math.max(-inner, Math.min(inner, u)), v: 0 }
+        : canDrive(me.stage) && t.free() ? { i: 0, u: -c.len / 2 + 5, v: 0 }
+          : { i: 1, u: 0, v: 0 };
+    }
+    return best;
   }
 
   /** Out of the driver's seat: down beside the lok (or, over the water, back into the waggon). */
@@ -1172,7 +1217,7 @@ export class GardenScene extends Phaser.Scene {
     const me = this.me;
     const free = this.revealed && !this.hop && !this.youMarker.active && (me.act === Act.Idle || me.act === Act.Walk || me.act === Act.Sit || me.act === Act.Lick || me.act === Act.Crouch || me.act === Act.Sneak || me.act === Act.Mew);
     const show = free && !wetAt(me.x, me.y) && (!!this.ambient.preyNear(me) || this.landmarks.near(me.x, me.y) || this.catnipNear(this.time.now)
-      || (!SEASON.frozen && me.z < 2 && !!furnitureNear('pump', me.x, me.y, PAW_REACH)) || (canShake(me.stage) && trunkNear(me.x, me.y, me.z) >= 0));
+      || (!SEASON.frozen && me.z < 2 && !!furnitureNear('pump', me.x, me.y, PAW_REACH)) || (canShake(me.stage) && trunkNear(me.x, me.y, me.z) >= 0) || !!this.boardable());
     this.hint.setVisible(show);
     // (just over the head: a crouching cat's is lower)
     const low = me.act === Act.Crouch || me.act === Act.Sneak ? 3 : 0;
