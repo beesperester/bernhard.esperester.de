@@ -1,7 +1,9 @@
-// The Ring's railway: one closed line round the city (garden.ts, from the
-// real S41), rounded off and measured out so that a train can be put
-// anywhere along it by how far round it is (`s`, px). Kept free of Phaser:
-// the layout keeps the trackside clear with it, and the train runs on it.
+// The Ring's railway: one closed line round the city (garden.ts, after the
+// real S41), in the tiles' own style: straight along a row or a column of
+// tiles, turning through a right angle in a quarter circle within the corner
+// tile. Measured out so that a train can be put anywhere along it by how far
+// round it is (`s`, px). Kept free of Phaser: the layout keeps the trackside
+// clear with it, and the train runs on it.
 
 import { TRACK } from './garden.ts';
 import { TILE } from './size.ts';
@@ -13,32 +15,40 @@ const STEP = 2;
 /** Lawn closer to the line than this (px) is kept clear: the trains are wider than their rails. */
 export const TRACK_CLEARANCE = 12;
 
-/** Chaikin's corner cutting on a closed line: every corner rounded off, `n` times. */
-function round(pts: Pt[], n: number): Pt[] {
-  for (let k = 0; k < n; k++)
-    pts = pts.flatMap(([ax, ay], i) => {
-      const [bx, by] = pts[(i + 1) % pts.length];
-      return [[ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25], [ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]] as Pt[];
-    });
-  return pts;
-}
-
-/** The line, rounded, then sampled every STEP px of the way. */
+/** The line through the corner tiles' middles, each corner a quarter circle; sampled every STEP px of the way. */
 function measure(): { xs: Float32Array; ys: Float32Array; length: number } {
   const corners: Pt[] = [];
-  for (let i = 0; i + 1 < TRACK.length; i += 2) corners.push([TRACK[i], TRACK[i + 1]]);
-  const line = round(corners, 3);
+  for (let i = 0; i + 1 < TRACK.length; i += 2) corners.push([(TRACK[i] + 0.5) * TILE, (TRACK[i + 1] + 0.5) * TILE]);
+  const n = corners.length, r = TILE / 2;
+  const unit = (a: Pt, b: Pt): Pt => { const d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [(b[0] - a[0]) / d, (b[1] - a[1]) / d]; };
+  // the way: pieces, each a point along it at `u` of its length (straight runs, and quarter circles round the corners)
+  const pieces: { len: number; at: (u: number) => Pt }[] = [];
+  for (let i = 0; i < n; i++) {
+    const p = corners[(i + n - 1) % n], c = corners[i], q = corners[(i + 1) % n];
+    const din = unit(p, c), dout = unit(c, q);
+    // into the corner tile at its edge, round its middle, out at the next edge
+    const a: Pt = [c[0] - din[0] * r, c[1] - din[1] * r], b: Pt = [c[0] + dout[0] * r, c[1] + dout[1] * r];
+    const m: Pt = [a[0] + dout[0] * r, a[1] + dout[1] * r];
+    const a0 = Math.atan2(a[1] - m[1], a[0] - m[0]);
+    let sweep = Math.atan2(b[1] - m[1], b[0] - m[0]) - a0;
+    if (sweep > Math.PI) sweep -= Math.PI * 2;
+    if (sweep < -Math.PI) sweep += Math.PI * 2;
+    pieces.push({ len: Math.abs(sweep) * r, at: (u) => [m[0] + Math.cos(a0 + sweep * u) * r, m[1] + Math.sin(a0 + sweep * u) * r] });
+    // then straight on to the next corner tile's edge
+    const e: Pt = [q[0] - dout[0] * r, q[1] - dout[1] * r];
+    const len = Math.hypot(e[0] - b[0], e[1] - b[1]);
+    if (len > 0) pieces.push({ len, at: (u) => [b[0] + (e[0] - b[0]) * u, b[1] + (e[1] - b[1]) * u] });
+  }
   const xs: number[] = [], ys: number[] = [];
   let carry = 0;
-  for (let i = 0; i < line.length; i++) {
-    const [ax, ay] = line[i], [bx, by] = line[(i + 1) % line.length];
-    const d = Math.hypot(bx - ax, by - ay);
-    let at = carry;
-    for (; at < d; at += STEP) {
-      xs.push(ax + ((bx - ax) * at) / d);
-      ys.push(ay + ((by - ay) * at) / d);
+  for (const { len, at } of pieces) {
+    let d = carry;
+    for (; d < len; d += STEP) {
+      const [x, y] = at(d / len);
+      xs.push(x);
+      ys.push(y);
     }
-    carry = at - d;
+    carry = d - len;
   }
   return { xs: Float32Array.from(xs), ys: Float32Array.from(ys), length: xs.length * STEP };
 }

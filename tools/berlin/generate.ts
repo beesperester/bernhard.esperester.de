@@ -246,7 +246,81 @@ for (const w of ways) {
   if (!/^(trunk|primary)$/.test(t.highway ?? '') || t.tunnel === 'yes' || Number(t.layer ?? 0) < 0) continue;
   road(cellsOf(line(w.geometry!), (x, y) => !outside[y][x]), t.bridge !== undefined && t.bridge !== 'no');
 }
-for (const g of ringWays) road(cellsOf(line(g), () => true));
+// the Ring itself: a railway in the tile style, straight runs along the rows and columns, turning
+// through right angles (track.ts rounds each corner within its tile)
+const ringLine = rings(ringWays.map(line)).sort((a, b) => b.length - a.length)[0];
+/** Douglas-Peucker: drop points within `eps` tiles of the line between their neighbours. */
+function simplify(pts: Pt[], eps: number): Pt[] {
+  if (pts.length < 3) return pts;
+  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
+  const len = Math.hypot(bx - ax, by - ay) || 1;
+  let far = 0, at = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = Math.abs((bx - ax) * (ay - pts[i][1]) - (ax - pts[i][0]) * (by - ay)) / len;
+    if (d > far) { far = d; at = i; }
+  }
+  return far <= eps ? [pts[0], pts[pts.length - 1]] : [...simplify(pts.slice(0, at + 1), eps).slice(0, -1), ...simplify(pts.slice(at), eps)];
+}
+/** Shortest run between two corners (tiles): shorter steps are smoothed out. */
+const MIN_RUN = 3;
+/** A slanting stretch becomes a staircase with steps about this long (tiles). */
+const STAIR = 6;
+const TRACK_TILES: Pt[] = (() => {
+  // (split in two, as a closed line has no ends to simplify between)
+  const half = Math.floor(ringLine.length / 2);
+  const rough = [...simplify(ringLine.slice(0, half + 1), 1.5).slice(0, -1), ...simplify(ringLine.slice(half), 1.5).slice(0, -1)]
+    .map(([x, y]): Pt => [Math.floor(x), Math.floor(y)]);
+  // each stretch as runs along x and y, in steps; carrying on the way the last run went where it can
+  const pts: Pt[] = [rough[0]];
+  let alongX = true;
+  for (let i = 0; i < rough.length; i++) {
+    const [ax, ay] = rough[i], [bx, by] = rough[(i + 1) % rough.length];
+    const dx = bx - ax, dy = by - ay;
+    const n = Math.max(1, Math.round(Math.min(Math.abs(dx), Math.abs(dy)) / STAIR));
+    let [x, y] = [ax, ay];
+    for (let k = 1; k <= n; k++) {
+      const nx = ax + Math.round((dx * k) / n), ny = ay + Math.round((dy * k) / n);
+      if (alongX) { pts.push([nx, y], [nx, ny]); } else { pts.push([x, ny], [nx, ny]); }
+      [x, y] = [nx, ny];
+      if (dx && dy) alongX = !alongX;
+    }
+  }
+  // tidy: no repeats, no corners that aren't, no little jogs
+  let loop = pts;
+  for (let pass = 0; pass < 50; pass++) {
+    const out: Pt[] = [];
+    for (const p of loop) if (!out.length || out[out.length - 1][0] !== p[0] || out[out.length - 1][1] !== p[1]) out.push(p);
+    while (out.length > 1 && out[0][0] === out[out.length - 1][0] && out[0][1] === out[out.length - 1][1]) out.pop();
+    const straight = out.filter((p, i) => {
+      const a = out[(i + out.length - 1) % out.length], b = out[(i + 1) % out.length];
+      return !((a[0] === p[0] && p[0] === b[0]) || (a[1] === p[1] && p[1] === b[1]));
+    });
+    // a short run between two turns the opposite way (a jog): the line carries straight on
+    // instead, the run after it taking up the difference
+    let changed = straight.length !== loop.length;
+    const m = straight.length;
+    for (let i = 0; i < m && !changed; i++) {
+      const A = straight[i], B = straight[(i + 1) % m], C = straight[(i + 2) % m], D = straight[(i + 3) % m], E = straight[(i + 4) % m];
+      const run = Math.abs(C[0] - B[0]) + Math.abs(C[1] - B[1]);
+      const turn = (p: Pt, q: Pt, r: Pt) => Math.sign((q[0] - p[0]) * (r[1] - q[1]) - (q[1] - p[1]) * (r[0] - q[0]));
+      if (run >= MIN_RUN || turn(A, B, C) === turn(B, C, D)) continue;
+      const D2: Pt = [D[0] - (C[0] - B[0]), D[1] - (C[1] - B[1])];
+      if (Math.abs(E[0] - D2[0]) + Math.abs(E[1] - D2[1]) < 1) continue;
+      const keep = straight.filter((_, j) => j !== (i + 1) % m && j !== (i + 2) % m);
+      keep[keep.indexOf(D)] = D2;
+      straight.splice(0, m, ...keep);
+      changed = true;
+    }
+    loop = straight;
+    if (!changed) break;
+  }
+  return loop;
+})();
+console.log(`the Ring's track: ${TRACK_TILES.length} corners`);
+{
+  const centres = TRACK_TILES.map(([x, y]): Pt => [x + 0.5, y + 0.5]);
+  road(cellsOf([...centres, centres[0]], () => true));
+}
 
 // ---- parks and woods: where the trees grow thick
 const greenCover = cover(areas((t) => t.leisure === 'park' || /^(forest|cemetery|allotments|meadow)$/.test(t.landuse ?? '') || t.natural === 'wood').map((a) => a.poly));
@@ -603,24 +677,6 @@ const ELEV = E.map((r) => r.join(''));
 const ZONES = T.map((r, y) => r.map((_, x) => (outside[y][x] ? 'o' : green[y][x] ? 'g' : '.')).join(''));
 png(ROWS, ELEV, `${here}cache/garden.png`);
 
-// the Ring's track: its ways joined into the one closed line round the city, simplified a little
-const ringLine = rings(ringWays.map(line)).sort((a, b) => b.length - a.length)[0];
-/** Douglas-Peucker: drop points within `eps` tiles of the line between their neighbours. */
-function simplify(pts: Pt[], eps: number): Pt[] {
-  if (pts.length < 3) return pts;
-  const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
-  const len = Math.hypot(bx - ax, by - ay) || 1;
-  let far = 0, at = 0;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const d = Math.abs((bx - ax) * (ay - pts[i][1]) - (ax - pts[i][0]) * (by - ay)) / len;
-    if (d > far) { far = d; at = i; }
-  }
-  return far <= eps ? [pts[0], pts[pts.length - 1]] : [...simplify(pts.slice(0, at + 1), eps).slice(0, -1), ...simplify(pts.slice(at), eps)];
-}
-// (split in two, as a closed line has no ends to simplify between)
-const half = Math.floor(ringLine.length / 2);
-const TRACK = [...simplify(ringLine.slice(0, half + 1), 0.2).slice(0, -1), ...simplify(ringLine.slice(half), 0.2).slice(0, -1)];
-console.log(`the Ring's track: ${TRACK.length} points`);
 
 // where cats arrive: along the paths round the Brandenburger Tor
 const [sx, sy] = deg(52.5163, 13.3777);
@@ -641,7 +697,8 @@ const out = `// The fixed part of the park: Berlin inside the S-Bahn Ring, as a 
 //  - ELEV gives every tile its terrain level (0 = lawn, each level is 16px up).
 //  - LANDMARK_SPOTS places the follies of famous places (world/landmarks.ts).
 //  - RIVERS are the lines the running water ('~') flows along.
-//  - TRACK is the Ring's railway, one closed line round the city.
+//  - TRACK is the Ring's railway, one closed line round the city: the tiles it turns a corner in
+//    (x, y), in order, with straight runs along a row or a column between them.
 //  - SPAWN is where cats arrive: the paths in this box.
 // \`npm test\` checks the result for a good few seeds: everything walkable
 // reachable from the spawn, furniture on lawn, lanterns apart, and so on.
@@ -674,7 +731,7 @@ ${RIVERS.map((r) => `  [${riverPx(r).join(', ')}],`).join('\n')}
 
 /** The Ring's railway, all the way round (closed: the last point joins the first): world px, x, y, x, y, ... */
 export const TRACK: number[] = [
-  ${TRACK.map(([x, y]) => `${Math.round(x * 16 * 10) / 10}, ${Math.round(y * 16 * 10) / 10}`).join(',\n  ')},
+  ${TRACK_TILES.map(([x, y]) => `${x}, ${y}`).join(',\n  ')},
 ];
 
 /** Cats arrive on the paths in this box of tiles. */
