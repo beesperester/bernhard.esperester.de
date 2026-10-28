@@ -33,7 +33,7 @@ const KEYBOARD: Row[] = [
   [[['arrows'], 'walk about; tap one twice to dash (it needs a breather after)']],
   [[['SPACE'], 'jump, up onto things and into trees'], [['down'], 'drops back down']],
   [[['X'], 'catch, splash to lure fish, paw at a tree or a monument']],
-  [[['X'], 'hold it to creep up on something, let go to pounce on it']],
+  [[['X'], 'hold it to creep up on something, let go with an arrow held to pounce']],
   [[['E'], 'mew; hold it and'], [['left'], 'hiss'], [['right'], 'roll']],
 ];
 
@@ -41,7 +41,7 @@ const TOUCH: Row[] = [
   [[['dpad'], 'walk about; tap a way twice to dash (it needs a breather after)']],
   [[['A'], 'jump, up onto things and into trees (down drops back down)']],
   [[['B'], 'catch, splash to lure fish, paw at a tree or a monument']],
-  [[['B'], 'hold it to creep up on something, let go to pounce on it']],
+  [[['B'], 'hold it to creep up on something, let go with a way held to pounce']],
   [[['SELECT'], 'mew; hold it and ← hiss, → roll']],
 ];
 

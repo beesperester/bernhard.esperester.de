@@ -5,7 +5,7 @@
 //   A       jump (↓ up a tree drops back down)
 //   B       paw: a tap swipes (catch, splash for fish, paw at a tree or a
 //           monument); held, the cat crouches and creeps; let go after
-//           creeping, it leaps at the nearest prey within reach
+//           creeping with a direction held, it pounces that way
 //   SELECT  a tap mews; held, ← hiss, ↑ mew, → roll
 //
 // What each button means from moment to moment is worked out here, free of

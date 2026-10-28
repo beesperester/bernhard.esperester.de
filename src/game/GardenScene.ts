@@ -573,16 +573,18 @@ export class GardenScene extends Phaser.Scene {
     // a direction tapped twice dashes, for as long as it stays held
     const doubled = this.doubleTap.update(steer ? dir : '', now) && me.act !== Act.Jump;
     const paw = this.paw.update(down(k.paw, 'paw'), now, me.act === Act.Jump);
-    // let go after creeping: a leap at whatever is nearest (just short of it, so the paws land on it),
-    // else the way the cat faces; with the dash still resting, it only swipes
-    const pounce = paw.pounce && me.act !== Act.Jump && this.dash.cooldown(now) === 0 && !this.dash.active;
-    const grab = paw.swipe || (paw.pounce && !pounce);
+    // let go after creeping with an arrow held: a leap that way, or at whatever is nearest more or less
+    // that way (just short of it, so the paws land on it); with the dash still resting, only a swipe.
+    // Let go with no arrow held, the cat just gets up (crouch, creep, stop, get up: no pounce)
+    const aimed = paw.pounce && (dx !== 0 || dy !== 0);
+    const pounce = aimed && me.act !== Act.Jump && this.dash.cooldown(now) === 0 && !this.dash.active;
+    const grab = paw.swipe || (aimed && !pounce);
     const sneakHeld = paw.low;
     if (pounce) {
-      const prey = this.ambient.pounceTarget(me, me.stage === Stage.Kitten ? KITTEN_POUNCE_REACH : POUNCE_REACH);
-      const f = me.facing;
-      let ux = f === Facing.Left ? -1 : f === Facing.Right ? 1 : 0, uy = f === Facing.Up ? -1 : f === Facing.Down ? 1 : 0;
+      const len = Math.hypot(dx, dy);
+      let ux = dx / len, uy = dy / len;
       let ms = POUNCE_MS;
+      const prey = this.ambient.pounceTarget(me, me.stage === Stage.Kitten ? KITTEN_POUNCE_REACH : POUNCE_REACH, ux, uy);
       if (prey) {
         const d = Math.hypot(prey.x - me.x, prey.y - me.y);
         if (d > 0.5) { ux = (prey.x - me.x) / d; uy = (prey.y - me.y) / d; }
