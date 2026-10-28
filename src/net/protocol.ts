@@ -28,17 +28,19 @@ export function sanitizeShake(d: unknown, trees: number): [number, number] | nul
 
 /**
  * The train: how far round the track the lok's front is (px), its speed (px/s, backwards below 0),
- * the throttle's notch, whether the sender is driving it (1) or has just let go (0), and the garden
- * time (ms) all that is for.
+ * the throttle's notch, whether the sender is driving it (1) or has just let go (0), the garden
+ * time (ms) all that is for, and how many times its driver has sounded the whistle (counting on
+ * from 0, round at 65536: a new number is a toot).
  */
-export type TrainMsg = [number, number, number, number, number];
+export type TrainMsg = [number, number, number, number, number, number];
 
 /** Accept only a train somewhere on the track, going no faster than it can. */
 export function sanitizeTrain(d: unknown, length: number, notches: number, top: number): TrainMsg | null {
-  if (!Array.isArray(d) || d.length !== 5 || !d.every((x) => typeof x === 'number' && Number.isFinite(x))) return null;
-  const [s, v, notch, driving, t] = d as number[];
+  if (!Array.isArray(d) || d.length !== 6 || !d.every((x) => typeof x === 'number' && Number.isFinite(x))) return null;
+  const [s, v, notch, driving, t, toots] = d as number[];
   if (s < 0 || s >= length || Math.abs(v) > top || !Number.isInteger(notch) || Math.abs(notch) > notches || (driving !== 0 && driving !== 1) || t <= 0) return null;
-  return [s, v, notch, driving, t];
+  if (!Number.isInteger(toots) || toots < 0 || toots > 0xffff) return null;
+  return [s, v, notch, driving, t, toots];
 }
 
 /** What the cats already in the garden tell a newcomer: prey caught lately, fruit shaken down ([tree, gt]), and where the train is. */

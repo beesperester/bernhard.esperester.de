@@ -16,6 +16,8 @@ const SAY_MS = 200;
 const DRIVER_GONE_MS = 3000;
 /** Off by more than this (px) the train jumps to where it is said to be; less, it catches up smoothly. */
 const SNAP_PX = 60;
+/** The whistle lasts about this long (ms): one toot at a time. */
+const TOOT_MS = 1000;
 /** A driver we haven't heard name themselves yet (from a newcomer's account of the garden). */
 const SOMEONE = '?';
 
@@ -42,6 +44,10 @@ export class TrainView {
   /** After dark: the lok's headlamp and its beam ahead, the lamp in its cab, the last waggon's red tail lamp. */
   private readonly lamps: { lamp: Phaser.GameObjects.Image; beam: Phaser.GameObjects.Image; cab: Phaser.GameObjects.Image; tail: Phaser.GameObjects.Image };
   private lit = 0;
+  /** The whistle: how many times its driver has sounded it, and what to do when they do. */
+  private toots = 0;
+  onToot: () => void = () => {};
+  private lastToot = -Infinity;
 
   constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement, self: string, start: TrainState, say: (msg: TrainMsg) => void) {
     this.scene = scene;
@@ -120,10 +126,19 @@ export class TrainView {
     this.tell(gt, true);
   }
 
+  /** The driver sounds the whistle (not more often than it lasts). */
+  toot(gt: number, now: number): void {
+    if (!this.driving || now - this.lastToot < TOOT_MS) return;
+    this.lastToot = now;
+    this.toots = (this.toots + 1) & 0xffff;
+    this.onToot();
+    this.tell(gt, true);
+  }
+
   /** What we know of the train, for a cat arriving (who drives it they'll hear from the driver). */
   account(gt: number): TrainMsg {
     const s = advance(this.state, gt);
-    return [s.s, s.v, s.notch, 0, Math.round(gt)];
+    return [s.s, s.v, s.notch, 0, Math.round(gt), this.toots];
   }
 
   /**
@@ -131,7 +146,7 @@ export class TrainView {
    * before has gone quiet, or it outranks them), or one letting go. `mayDrive`: that cat is old enough
    * and sits in the cab as far as we can see. Returns whether it took the driver's seat from us.
    */
-  receive(peer: string, [s, v, notch, driving, t]: TrainMsg, gt: number, now: number, mayDrive: boolean): boolean {
+  receive(peer: string, [s, v, notch, driving, t, toots]: TrainMsg, gt: number, now: number, mayDrive: boolean): boolean {
     const d = this.state.driver;
     const current = d === peer;
     if (driving) {
@@ -139,6 +154,9 @@ export class TrainView {
       // (two taking the seat at once: the lower id keeps it)
       if (!mayDrive || !(current || open || peer < d!)) return false;
       const bumped = d === this.self;
+      // (the driver we've been hearing from sounded the whistle; a new one just says how often it has so far)
+      if (current && toots !== this.toots) this.onToot();
+      this.toots = toots;
       this.state = advance({ s, v, notch, driver: peer, t }, gt);
       this.heard = now;
       return bumped;
@@ -213,7 +231,7 @@ export class TrainView {
   private tell(gt: number, now: boolean): void {
     if (!now && !this.driving) return;
     const s = this.state;
-    this.say([s.s, s.v, s.notch, this.driving ? 1 : 0, Math.round(gt)]);
+    this.say([s.s, s.v, s.notch, this.driving ? 1 : 0, Math.round(gt), this.toots]);
     this.lastSaid = performance.now();
   }
 }

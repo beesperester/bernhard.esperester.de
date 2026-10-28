@@ -399,6 +399,11 @@ export class GardenScene extends Phaser.Scene {
     this.me.id = this.net.id;
     // the train stands on the line nearest the middle of the park, till someone drives it off
     this.train = new TrainView(this, toCanvas, this.net.id, startState(WORLD_W / 2, WORLD_H / 2, this.net.now()), (msg) => this.net.train(msg));
+    // the whistle, heard from the lok
+    this.train.onToot = () => {
+      const lok = this.train.cars[0];
+      void sound.play('whistle', { at: { x: lok.x, y: lok.y }, volume: 0.45 });
+    };
     this.referee = new Referee(this.net.id, {
       vote: (msg) => this.net.vote(msg),
       judgeCatch: (peer, kind, id) => {
@@ -636,7 +641,9 @@ export class GardenScene extends Phaser.Scene {
     } else this.lastDir = dir;
     const driving = this.train.driving;
     // the emote button held, the D-pad picks an emote instead of walking
-    const emote = this.emotes.update(down(k.emote, 'emote'), dir, now);
+    // (and E sounds the whistle)
+    if (driving && hit(k.emote, 'emote')) this.train.toot(this.net.now(), now);
+    const emote = this.emotes.update(!driving && down(k.emote, 'emote'), dir, now);
     const steer = !emote.steering;
     let dx = steer && !driving ? (right ? 1 : 0) - (left ? 1 : 0) : 0;
     let dy = steer && !driving ? (below ? 1 : 0) - (up ? 1 : 0) : 0;
