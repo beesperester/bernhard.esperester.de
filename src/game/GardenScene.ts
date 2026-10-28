@@ -286,7 +286,7 @@ export class GardenScene extends Phaser.Scene {
     const K = Phaser.Input.Keyboard.KeyCodes;
     this.keys = {
       up: kb.addKey(K.UP), down: kb.addKey(K.DOWN), left: kb.addKey(K.LEFT), right: kb.addKey(K.RIGHT),
-      jump: kb.addKey(K.SPACE), paw: kb.addKey(K.X), emote: kb.addKey(K.E),
+      jump: kb.addKey(K.SPACE), paw: kb.addKey(K.F), emote: kb.addKey(K.E),
     };
     this.emoteBubble = this.add.text(0, 0, '← hiss  ↑ mew  → roll', {
       fontFamily: PIXEL_FONT,
