@@ -188,7 +188,7 @@ for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (!water[y][x]) runnin
 
 // ---- preview
 const COLOURS: Record<string, [number, number, number]> = {
-  '.': [120, 190, 90], ',': [90, 160, 70], f: [230, 120, 160], p: [220, 200, 150], B: [150, 100, 60], w: [70, 130, 210], '~': [40, 100, 190],
+  '.': [120, 190, 90], ',': [90, 160, 70], f: [230, 120, 160], p: [220, 200, 150], B: [150, 100, 60], R: [90, 80, 90], w: [70, 130, 210], '~': [40, 100, 190],
   l: [60, 170, 90], F: [60, 40, 30], T: [30, 100, 40], P: [20, 70, 50], H: [200, 120, 40], b: [50, 130, 50], r: [160, 160, 160], m: [20, 80, 30],
   '#': [40, 110, 40], o: [180, 220, 255], S: [200, 200, 200], g: [120, 80, 40], L: [240, 60, 60],
 };
@@ -219,7 +219,7 @@ const path = grid(false);
 /** Where a road crossed the water: the middle of the crossing (the bridge is laid when the map is tidied). */
 const fords: Pt[] = [];
 /** Lay a road along these tiles. Where it crosses water it breaks off, and the crossing is noted; a road running along in the water (a bank) is left out there. */
-function road(cells: Pt[], isBridge = false): void {
+function road(cells: Pt[], isBridge = false, ford = true): void {
   // a bridge is a way of its own in OSM: it crosses the water wherever it is over it
   const over = cells.filter(([x, y]) => water[y][x]);
   if (isBridge && over.length) fords.push(over[over.length >> 1]);
@@ -228,7 +228,7 @@ function road(cells: Pt[], isBridge = false): void {
     if (!water[y][x]) { path[y][x] = true; i++; continue; }
     let j = i;
     while (j < cells.length && water[cells[j][1]][cells[j][0]]) j++;
-    if (i > 0 && j < cells.length && j - i <= 10) fords.push(cells[(i + j) >> 1]);
+    if (ford && i > 0 && j < cells.length && j - i <= 10) fords.push(cells[(i + j) >> 1]);
     i = j;
   }
 }
@@ -314,13 +314,46 @@ const TRACK_TILES: Pt[] = (() => {
     loop = straight;
     if (!changed) break;
   }
+  // each straight run moved over a few tiles where that keeps it (and the runs either side) off
+  // the water: the railway crosses rivers, it doesn't run along in them
+  const wetOn = (pts: Pt[]) => {
+    let n = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % pts.length];
+      const len = Math.abs(bx - ax) + Math.abs(by - ay);
+      for (let k = 0; k < len; k++) {
+        const x = ax + Math.sign(bx - ax) * k, y = ay + Math.sign(by - ay) * k;
+        if (!inMap(x, y) || water[y][x]) n++;
+      }
+    }
+    return n;
+  };
+  const runsOk = (pts: Pt[]) => pts.every(([ax, ay], i) => {
+    const [bx, by] = pts[(i + 1) % pts.length];
+    return Math.abs(bx - ax) + Math.abs(by - ay) >= MIN_RUN && ax > 1 && ay > 1 && ax < W - 2 && ay < H - 2;
+  });
+  for (let pass = 0; pass < 3; pass++)
+    for (let i = 0; i < loop.length; i++) {
+      const j = (i + 1) % loop.length;
+      const across: Pt = loop[i][1] === loop[j][1] ? [0, 1] : [1, 0];
+      let best = loop, score = wetOn(loop);
+      for (const o of [1, -1, 2, -2, 3, -3]) {
+        const moved = loop.map((p, k): Pt => (k === i || k === j ? [p[0] + across[0] * o, p[1] + across[1] * o] : p));
+        const sc = wetOn(moved) + Math.abs(o) * 0.1;
+        if (sc < score && runsOk(moved)) { best = moved; score = sc; }
+      }
+      loop = best;
+    }
   return loop;
 })();
 console.log(`the Ring's track: ${TRACK_TILES.length} corners`);
-{
+/** The tiles the track runs through. */
+const trackCells = (() => {
   const centres = TRACK_TILES.map(([x, y]): Pt => [x + 0.5, y + 0.5]);
-  road(cellsOf([...centres, centres[0]], () => true));
-}
+  return cellsOf([...centres, centres[0]], () => true);
+})();
+// (over the water it gets bridges of its own, once the water is tidied up)
+road(trackCells, false, false);
 
 // ---- parks and woods: where the trees grow thick
 const greenCover = cover(areas((t) => t.leisure === 'park' || /^(forest|cemetery|allotments|meadow)$/.test(t.landuse ?? '') || t.natural === 'wood').map((a) => a.poly));
@@ -487,6 +520,17 @@ const rectFree = (x0: number, y0: number, w: number, h: number, margin: number) 
   for (const p of pieces((x, y) => at(x, y) === 'p' || at(x, y) === 'B'))
     if (p.length < 5) for (const [x, y] of p) T[y][x] = at(x, y) === 'B' ? waterAt(x, y) : '.';
   console.log(`${laid.length} bridges for ${fords.length} crossings`);
+}
+
+// the railway crosses the water on bridges of its own, wherever it is over it
+{
+  let n = 0;
+  for (const [x, y] of trackCells)
+    if ('~wlB'.includes(T[y][x])) {
+      T[y][x] = 'R';
+      n++;
+    }
+  console.log(`${n} tiles of railway bridge`);
 }
 
 // garden ponds (with lily pads) in the parks: Viktoriapark, Weinbergspark, Görlitzer Park

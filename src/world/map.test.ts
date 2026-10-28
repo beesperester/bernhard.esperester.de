@@ -14,7 +14,7 @@ type Map = typeof map;
 
 /** How high a jump gets: v² / 2g. */
 const JUMP_HEIGHT = (JUMP_V * JUMP_V) / (2 * GRAVITY);
-const WALKABLE = '.,pfBS';
+const WALKABLE = '.,pfBRS';
 
 describe('the map', () => {
   it('is fenced in all round', () => {
@@ -111,7 +111,7 @@ describe('the map', () => {
   });
 
   it('has no specks of water or slivers of land', () => {
-    const wet = (x: number, y: number) => '~wlB'.includes(tileAt(x, y));
+    const wet = (x: number, y: number) => '~wlBR'.includes(tileAt(x, y));
     for (let y = 2; y < MAP_H - 2; y++)
       for (let x = 2; x < MAP_W - 2; x++) {
         const n = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => wet(x + dx, y + dy)).length;

@@ -3,6 +3,7 @@ import { TILE, MAP_W, MAP_H, isChannel, tileAt, levelAt, treeTiles, trunkBase } 
 import { SEASON, type Season } from '../world/season.ts';
 import { DEFAULT_LIGHT, sunLight, type ScreenLight } from './lighting.ts';
 import { LEGEND, isPath, isStairs, isWaterway } from '../world/legend.ts';
+import { trackPoints } from '../world/track.ts';
 
 const C = {
   g0: hex('#68b848'), g1: hex('#90d468'), g2: hex('#4c9a34'), g3: hex('#2e6e24'), g4: hex('#5aaa3e'), g5: hex('#78c454'),
@@ -213,6 +214,57 @@ function bridge(r: Raster, ox: number, oy: number, tx: number, ty: number, phase
     }
 }
 
+const RAIL_DECK = { d: hex('#4a2e1a'), b: hex('#6e4426'), l: hex('#8a5a32') };
+const GIRDER = { d: hex('#2e3a4a'), b: hex('#4a5e74'), l: hex('#7088a0') };
+/** Half the deck's width, and how far its girders' outer edge is off the line (px). */
+const DECK_IN = 5.5, DECK_OUT = 7;
+
+/** The track's samples near each tile (by ty * MAP_W + tx), to measure from. */
+let railNear: Map<number, number[]> | null = null;
+function samplesNear(tx: number, ty: number): number[] {
+  if (!railNear) {
+    railNear = new Map();
+    const { xs, ys } = trackPoints();
+    for (let i = 0; i < xs.length; i++)
+      for (let y = Math.floor((ys[i] - 12) / TILE); y <= Math.floor((ys[i] + 12) / TILE); y++)
+        for (let x = Math.floor((xs[i] - 12) / TILE); x <= Math.floor((xs[i] + 12) / TILE); x++) {
+          const k = y * MAP_W + x;
+          (railNear.get(k) ?? railNear.set(k, []).get(k)!).push(i);
+        }
+  }
+  return railNear.get(ty * MAP_W + tx) ?? [];
+}
+
+/**
+ * The railway's bridge over the water: a timber deck the width of the track, following it round
+ * its bends, with a steel girder along each side. Its piers and the girders' faces stand out into
+ * the water round it, so they're drawn with the rest of the railway (art/railway.ts), above the
+ * water's reflections, as are the sleepers and rails.
+ */
+function railBridge(r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number): void {
+  water(r, ox, oy, tx, ty, phase);
+  const near = samplesNear(tx, ty);
+  if (!near.length) return;
+  const { xs, ys } = trackPoints();
+  const n = xs.length;
+  const closest = (x: number, y: number) => near.reduce((b, i) => ((xs[i] - x) ** 2 + (ys[i] - y) ** 2 < (xs[b] - x) ** 2 + (ys[b] - y) ** 2 ? i : b), near[0]);
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const wx = tx * TILE + x + 0.5, wy = ty * TILE + y + 0.5;
+      const i = closest(wx, wy);
+      const a = (i + n - 1) % n, b = (i + 1) % n;
+      const dx = xs[b] - xs[a], dy = ys[b] - ys[a], len = Math.hypot(dx, dy) || 1;
+      // across the line
+      const ak = Math.abs((wx - xs[i]) * (-dy / len) + (wy - ys[i]) * (dx / len));
+      let c: RGB | null = null;
+      if (ak <= DECK_IN) {
+        // planks along the track, a seam every third px across
+        c = Math.round(ak + 100) % 3 === 0 ? RAIL_DECK.d : hash2(Math.round(wx), Math.round(wy), 1904) < 0.15 ? RAIL_DECK.l : RAIL_DECK.b;
+      } else if (ak <= DECK_OUT) c = ak > DECK_OUT - 0.75 ? GIRDER.d : ak > DECK_IN + 0.75 ? GIRDER.b : GIRDER.l;
+      if (c) r.set(ox + x, oy + y, c);
+    }
+}
+
 function fence(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
   grass(r, ox, oy, tx, ty);
   const horiz = ty === 0 || ty === MAP_H - 1;
@@ -371,6 +423,7 @@ export const TILE_ART: Record<string, { ground?: Painter; upright?: Painter }> =
     },
   },
   B: { ground: bridge },
+  R: { ground: railBridge },
   '#': { upright: (r, ox, oy, tx, ty) => hedge(r, ox, oy, tx, ty) },
   m: { upright: (r, ox, oy, tx, ty) => hedge(r, ox, oy, tx, ty, true) },
   F: { upright: (r, ox, oy, tx, ty) => fence(r, ox, oy, tx, ty) },

@@ -46,6 +46,7 @@ export const LEGEND: Record<string, TileKind> = {
   f: { name: 'flower bed', ground: 'flowers' },
   p: { name: 'path', ground: 'path', path: true },
   B: { name: 'footbridge', water: 'bridged', path: true },
+  R: { name: 'railway bridge', water: 'bridged', path: true },
   w: { name: 'water', water: 'open' },
   '~': { name: 'river', water: 'open', running: true },
   l: { name: 'lily pad', water: 'open', lily: true },
