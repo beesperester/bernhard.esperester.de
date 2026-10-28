@@ -283,41 +283,49 @@ export function buildPumpPuddle(): Raster {
     }
   return r;
 }
-/** Three terracotta pots of catnip (grey-green, with lilac spikes in summer; cut back to stalks out of season). 32×24. */
+/**
+ * Three terracotta pots of catnip (grey-green, with lilac spikes in summer; cut
+ * back to stalks out of season), grouped rather than lined up: a small one in
+ * front on the left, the big one set back behind it, a medium one on the
+ * right. Each pot has its own outline, so the front ones stand off the one
+ * behind. 32×24.
+ */
 export function buildCatnip(s: Season = SEASON): Raster {
   const r = new Raster(32, 24);
   const up = growth(s);
-  // [left, width, rim y] of each pot; they stand on the bottom row
-  const pots: [number, number, number][] = [[2, 10, 13], [13, 8, 15], [23, 6, 17]];
-  pots.forEach(([x0, w, top], i) => {
-    const cx = x0 + w / 2;
+  // [left, width, pot height, bottom row, plant height], back to front
+  const pots: [number, number, number, number, number][] = [[9, 12, 9, 19, 10], [19, 9, 7, 21, 7], [3, 7, 5, 22, 5]];
+  pots.forEach(([x0, w, ph, base, hgt], i) => {
+    const p = new Raster(32, 24);
+    const top = base - ph + 1, cx = x0 + w / 2;
     // the plant: a mound of small leaves, spikes of flowers poking up out of it
     if (up) {
-      const hgt = up === 2 ? 7 + (i === 0 ? 3 : 0) : 3;
-      for (let y = top - hgt; y < top; y++)
+      const ht = up === 2 ? hgt : Math.ceil(hgt / 3);
+      for (let y = top - ht; y < top; y++)
         for (let x = x0 - 1; x < x0 + w + 1; x++) {
-          const dx = (x + 0.5 - cx) / (w / 2 + 1), dy = (y + 0.5 - top) / hgt;
+          const dx = (x + 0.5 - cx) / (w / 2 + 1), dy = (y + 0.5 - top) / ht;
           if (dx * dx + dy * dy > 1 || hash2(x, y, 84 + i) < 0.12) continue;
           const k = hash2(x, y, 85 + i);
-          r.set(x, y, k < 0.3 ? NEPETA.d : k < 0.75 ? NEPETA.b : NEPETA.l);
+          p.set(x, y, k < 0.3 ? NEPETA.d : k < 0.75 ? NEPETA.b : NEPETA.l);
         }
       if (up === 2 && s.bloom > 0.3)
         for (let x = x0 + 1; x < x0 + w - 1; x += 2) {
-          const h = 2 + Math.floor(hash2(x, i, 86) * 3), y0 = top - hgt + 1 - h + Math.round(Math.abs(x + 0.5 - cx));
-          for (let y = y0; y < y0 + h; y++) r.set(x, y, y === y0 ? NEPETA.fl : NEPETA.f);
+          const h = 2 + Math.floor(hash2(x, i, 86) * 3), y0 = top - ht + 1 - h + Math.round(Math.abs(x + 0.5 - cx));
+          for (let y = y0; y < y0 + h; y++) p.set(x, y, y === y0 ? NEPETA.fl : NEPETA.f);
         }
-    } else for (let x = x0 + 1; x < x0 + w - 1; x += 2) r.rect(x, top - 3 - (x % 3), 1, 3 + (x % 3), NEPETA.dry);
+    } else for (let x = x0 + 1; x < x0 + w - 1; x += 2) p.rect(x, top - 2 - (x % 3), 1, 2 + (x % 3), NEPETA.dry);
     // the pot: a rim, then tapering down
-    r.rect(x0, top, w, 2, TERRA.l);
-    r.rect(x0, top + 1, w, 1, TERRA.b);
-    for (let y = top + 2; y < 23; y++) {
-      const inset = Math.floor((y - top - 2) / 3);
-      r.rect(x0 + 1 + inset, y, w - 2 - 2 * inset, 1, TERRA.b);
-      r.set(x0 + 1 + inset, y, TERRA.l);
-      r.set(x0 + w - 2 - inset, y, TERRA.d);
+    p.rect(x0, top, w, 1, TERRA.l);
+    p.rect(x0, top + 1, w, 1, TERRA.b);
+    for (let y = top + 2; y <= base; y++) {
+      const inset = Math.floor(((y - top - 2) * 3) / Math.max(3, ph * 2));
+      p.rect(x0 + 1 + inset, y, w - 2 - 2 * inset, 1, y === base ? TERRA.d : TERRA.b);
+      p.set(x0 + 1 + inset, y, TERRA.l);
+      p.set(x0 + w - 2 - inset, y, TERRA.d);
     }
+    outline(p, TERRA.o);
+    r.blit(p, 0, 0);
   });
-  outline(r, TERRA.o);
   return r;
 }
 

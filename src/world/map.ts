@@ -255,8 +255,8 @@ const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, n
   box: [[4, 3, 28, 5, BOX_H], [4, 13, 28, 15, BOX_H], [4, 5, 6, 13, BOX_H], [26, 5, 28, 13, BOX_H]],
   // the column (its puddle is flat)
   pump: [[4, 8, 12, 14, 30]],
-  // big pot, middle pot, little pot
-  catnip: [[2, 9, 12, 15, 6], [13, 10, 21, 15, 5], [23, 11, 29, 15, 4]],
+  // the big pot set back, the medium one on the right, the little one in front on the left
+  catnip: [[9, 6, 21, 12, 9], [19, 8, 28, 14, 7], [3, 10, 10, 15, 5]],
   bed: [[2, 6, 46, 30, 8]],
   // the tub (the wheel and handles are in the way of nothing)
   barrow: [[8, 6, 26, 13, BARROW_H]],
