@@ -56,6 +56,7 @@ import { cullerFor } from './Culler.ts';
 import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canDrive, canPounce, canShake, nextAt, stageOf } from './growth.ts';
 import { Fader } from '../ui/fader.ts';
 import { logSnack } from '../ui/feed.ts';
+import { Zones } from './Zones.ts';
 import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
 import { catnipUp } from '../art/furniture.ts';
@@ -159,6 +160,8 @@ export class GardenScene extends Phaser.Scene {
   private ambient!: Ambient;
   private referee!: Referee;
   private weather!: Weather;
+  /** The themed zones (a carnival's music, …). */
+  private zones!: Zones;
   private streams!: Streams;
   private landmarks!: Landmarks;
   private puddles!: Puddles;
@@ -274,6 +277,7 @@ export class GardenScene extends Phaser.Scene {
       for (let tx = 0; tx < MAP_W; tx++) if (groundOf(tileAt(tx, ty)) === 'flowers') flowers.push([tx * TILE + 8, ty * TILE + 8]);
     this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: reflect.props });
     this.weather = new Weather(this, props, water);
+    this.zones = new Zones();
     this.streams = new Streams(this, water);
     this.puddles = new Puddles(this, this.ambient.fx);
 
@@ -562,6 +566,7 @@ export class GardenScene extends Phaser.Scene {
     this.camZ += (Math.max(elevAt(this.me.x, this.me.y), this.camFloor) - this.camZ) * Math.min(1, dt * (this.camFloor > this.camZ + 4 ? 3 : 6));
     // in whole pixels like the cat sprite, or the cat wobbles against the view by a sub-pixel each frame
     this.camAnchor.setPosition(Math.round(this.me.x), Math.round(this.me.y) - Math.round(this.camZ));
+    this.zones.update({ x: this.me.x, y: this.me.y });
     sound.setListener({ x: this.me.x, y: this.me.y });
 
     const cats: CatView[] = [this.me, ...this.remotes.values()];
