@@ -103,6 +103,11 @@ export class Effects {
       });
   }
 
+  /** A puff of smoke from the train's chimney at (x, y), drawn in front of the lok (`depth`), drifting back off it (vx). */
+  smoke(x: number, y: number, depth: number, vx: number): void {
+    this.add(this.image('dash-puff', 0).setOrigin(0.5, 1).setScale(0.75), { kind: 'cloud', x, y, vx, vy: -16, life: 0.9, depth });
+  }
+
   /** A caught firefly's light swelling and going out. */
   glowPuff(x: number, y: number): void {
     const img = this.image('glow-puff').setPosition(x, y).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD);

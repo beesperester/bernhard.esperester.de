@@ -22,6 +22,8 @@ export interface UI {
   hideHelp: () => void;
   /** Seconds until dash can be used again (0 = ready). */
   setDashCooldown: (s: number) => void;
+  /** Driving the train: where the throttle stands (null: not driving). */
+  setThrottle: (notch: number | null) => void;
 }
 
 /** A key (or, on touch, a button) as drawn on the help sign: 'arrows' and 'dpad' are whole clusters. */
@@ -35,6 +37,7 @@ const KEYBOARD: Row[] = [
   [[['F'], 'catch, splash to lure fish, paw at a tree or a monument']],
   [[['F'], 'hold it to creep up on something, let go with an arrow held to pounce']],
   [[['E'], 'mew; hold it and'], [['left'], 'hiss'], [['right'], 'roll']],
+  [[['right'], 'in the train\'s cab (grown cats): a notch forwards,'], [['left'], 'a notch back'], [['SPACE'], 'out']],
 ];
 
 const TOUCH: Row[] = [
@@ -43,6 +46,7 @@ const TOUCH: Row[] = [
   [[['B'], 'catch, splash to lure fish, paw at a tree or a monument']],
   [[['B'], 'hold it to creep up on something, let go with a way held to pounce']],
   [[['SELECT'], 'mew; hold it and ← hiss, → roll']],
+  [[['dpad'], 'in the train\'s cab (grown cats): → a notch forwards, ← back'], [['A'], 'out']],
 ];
 
 function keyEl(key: Key, onTouch: boolean): HTMLElement {
@@ -139,14 +143,23 @@ export function setupUI(onHelp: (open: boolean) => void = () => {}): UI {
 
   let base = '';
   let cooldown = 0;
-  const render = () => (status.textContent = cooldown ? `${base} · dash ${cooldown}s` : base);
+  let throttle: number | null = null;
+  const render = () => {
+    const train = throttle === null ? '' : ` · throttle ${throttle === 0 ? 'stop' : `${throttle > 0 ? 'forwards' : 'back'} ${'|'.repeat(Math.abs(throttle))}`}`;
+    status.textContent = `${base}${cooldown ? ` · dash ${cooldown}s` : ''}${train}`;
+  };
+  const setThrottle = (n: number | null) => {
+    if (n === throttle) return;
+    throttle = n;
+    render();
+  };
   const setDashCooldown = (s: number) => {
     if (s === cooldown) return;
     cooldown = s;
     render();
   };
 
-  return { setStatus: (s) => { base = s; render(); }, hideHelp, setDashCooldown };
+  return { setStatus: (s) => { base = s; render(); }, hideHelp, setDashCooldown, setThrottle };
 }
 
 function setupDpad(el: HTMLElement): void {

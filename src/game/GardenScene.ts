@@ -185,6 +185,8 @@ export class GardenScene extends Phaser.Scene {
   private train!: TrainView;
   /** Where in the train our cat rides (car, along it, across it), or null. */
   private riding: { i: number; u: number; v: number } | null = null;
+  /** When the lok's chimney puffs next (s). */
+  private chuffIn = 0;
   /** The D-pad as it was last frame (the driver works the throttle with it). */
   private lastDir = '';
   private catching: { swiped: boolean; got: Prey | null } | null = null;
@@ -537,6 +539,7 @@ export class GardenScene extends Phaser.Scene {
     this.me.ride = this.riding ? this.train.cars[this.riding.i].y + (this.me.z > FLOOR_H + 1.5 ? 1 : 0) : null;
     this.me.render(time);
     this.train.render(this.cameras.main.worldView);
+    this.chuff(dt);
     this.wearCap();
 
     // follow the cat's feet on the terrain or up a tree (not mid-jump), so the view climbs the hills smoothly
@@ -738,6 +741,7 @@ export class GardenScene extends Phaser.Scene {
       me.setAct(Act.Roll, now - (ROLL_MS - TUMBLE_MS));
     }
     this.ui.setDashCooldown(Math.ceil(this.dash.cooldown(now) / 1000));
+    this.ui.setThrottle(this.train.driving ? this.train.notch : null);
     if (((me.act === Act.Eat || me.act === Act.Feast) && elapsed >= EAT_MS) || (me.act === Act.Munch && elapsed >= MUNCH_MS)) me.setAct(Act.Idle, now);
     if (me.act === Act.Sleep && (jump || hiss || roll || mew || grab)) me.setAct(Act.Idle, now);
 
@@ -1053,6 +1057,24 @@ export class GardenScene extends Phaser.Scene {
     cat.tx = at.x;
     cat.ty = at.y + 2;
     cat.ride = c.y;
+  }
+
+  /** The lok puffs smoke as it goes: chuff, chuff, quicker the faster it runs. */
+  private chuff(dt: number): void {
+    const v = Math.abs(this.train.speed);
+    if (v < 4) {
+      this.chuffIn = 0;
+      return;
+    }
+    this.chuffIn -= dt;
+    if (this.chuffIn > 0) return;
+    this.chuffIn = 30 / v;
+    const lok = this.train.cars[0], view = this.cameras.main.worldView;
+    const p = world(lok, lok.len / 2 - 5, 0);
+    if (!view.contains(p.x, p.y)) return;
+    // (the smoke trails back off the way it's going)
+    const back = -Math.sign(this.train.speed) * lok.dx * 10;
+    this.ambient.fx.smoke(p.x, p.y - 19, lok.y + 1, back);
   }
 
   /** The engine driver's cap, on whoever drives. */
