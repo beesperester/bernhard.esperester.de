@@ -1,9 +1,9 @@
 import { Prey } from './state.ts';
 
-// Growing up. A cat new to the garden is a kitten: half size, a little hop
+// Growing up. A cat new to the garden is a kitten: small, all head, a little hop
 // for a jump, a short dash that ends in a tumble, and too small for anything
 // but bugs, butterflies and the food lying about. Eating its way to YOUNG_AT
-// points it grows to three quarters (and gets to choose its name): now it
+// points it grows bigger (and gets to choose its name): now it
 // can jump up onto rocks and into the trees, and catch mice, frogs, fish and
 // birds that sit still. At GROWN_AT it is fully grown and can do it all:
 // pounce, lure fish over with a splash, paw at a tree to shake things down,
@@ -17,8 +17,8 @@ export type Stage = (typeof Stage)[keyof typeof Stage];
 
 /** Points eaten (all gardens together) to reach each stage. */
 export const YOUNG_AT = 100, GROWN_AT = 500;
-/** How big it is drawn. */
-export const STAGE_SCALE: Record<Stage, number> = { [Stage.Kitten]: 0.5, [Stage.Young]: 0.75, [Stage.Grown]: 1 };
+/** How big it is (art/kitten.ts draws the smaller ones), as a share of a grown cat. */
+export const STAGE_SIZE: Record<Stage, number> = { [Stage.Kitten]: 10 / 14, [Stage.Young]: 12 / 14, [Stage.Grown]: 1 };
 /** How high a jump gets (px): a kitten's is a hop, not enough for a rock; from young on it reaches the first branch. */
 export const STAGE_JUMP: Record<Stage, number> = { [Stage.Kitten]: 4.5, [Stage.Young]: Infinity, [Stage.Grown]: Infinity };
 /** Longest dash (ms); a kitten's ends in a tumble if it runs out. */

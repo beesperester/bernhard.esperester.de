@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
-import { COATS, CAT, FRAME_NAMES } from '../art/cat.ts';
+import { COATS, CAT } from '../art/cat.ts';
 import { buildUprightMask } from '../art/tiles.ts';
 import { buildProps, type Prop } from '../art/trees.ts';
 import type { Raster } from '../art/raster.ts';
@@ -210,7 +210,7 @@ export class GardenScene extends Phaser.Scene {
     const upright = buildUprightMask();
     this.rims = new RimLight(this, {
       trees: [...reflect.props, ...standing], upright, terrain: canvases.terrain,
-      catSheet: canvases.cats[0], catFrames: FRAME_NAMES.length * 2, catSize: CAT,
+      catSheet: canvases.cats[0], catSize: CAT,
     });
     // what can stand in front of a lantern's light
     const source = (key: string) => this.textures.get(key).getSourceImage() as HTMLCanvasElement;

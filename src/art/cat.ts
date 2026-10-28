@@ -1,4 +1,5 @@
 import { Raster, hex, type RGB } from './raster.ts';
+import { KITTEN_FRAMES, youngFrame } from './kitten.ts';
 
 // Cat sprites are 16x16 character maps.
 //   o outline   b fur   d fur shade/stripes   k patch (calico)
@@ -420,6 +421,23 @@ export const FRAMES = {
 
 export type FrameName = keyof typeof FRAMES;
 export const FRAME_NAMES = Object.keys(FRAMES) as FrameName[];
+/** Frames in one row of the sheet: every frame, then all of them mirrored. */
+export const ROW_FRAMES = FRAME_NAMES.length * 2;
+/**
+ * The sheet has a row for each size of cat (growth.ts): grown cats first (so
+ * frameFor's numbers are theirs), then young ones, then kittens.
+ */
+export const stageRow = (stage: number): number => (2 - stage) * ROW_FRAMES;
+/** Where frame f is on the sheet (px). */
+export const framePos = (f: number): [number, number] => [(f % ROW_FRAMES) * CAT, Math.floor(f / ROW_FRAMES) * CAT];
+
+/** A frame for each size: grown, young (a few rows and columns of body taken out), kitten (drawn on its own). */
+const SIZED: ((name: FrameName) => readonly string[])[] = [
+  (name) => FRAMES[name],
+  (name) => youngFrame(name, FRAMES[name]),
+  (name) => KITTEN_FRAMES[name],
+];
+
 /** Frame index in the sheet; right-facing frames are mirrored copies appended after. */
 export const frameIndex = (name: FrameName, flip = false): number =>
   FRAME_NAMES.indexOf(name) + (flip ? FRAME_NAMES.length : 0);
@@ -455,14 +473,16 @@ export function buildCatSheet(coatIndex: number): Raster {
   const coat = COATS[((coatIndex % COATS.length) + COATS.length) % COATS.length];
   const pal = coatPalette(coat);
   const n = FRAME_NAMES.length;
-  const sheet = new Raster(CAT * n * 2, CAT);
-  FRAME_NAMES.forEach((name, i) => {
-    let rows: readonly string[] = FRAMES[name];
-    if (coat.name === 'calico') rows = calicoize(rows);
-    if (coat.name === 'siamese') rows = siamesize(rows);
-    sheet.paint(rows, i * CAT, 0, pal);
-    sheet.paint(rows, (i + n) * CAT, 0, pal, true);
-  });
+  const sheet = new Raster(CAT * n * 2, CAT * SIZED.length);
+  SIZED.forEach((sized, row) =>
+    FRAME_NAMES.forEach((name, i) => {
+      let rows = sized(name);
+      if (coat.name === 'calico') rows = calicoize(rows);
+      if (coat.name === 'siamese') rows = siamesize(rows);
+      sheet.paint(rows, i * CAT, row * CAT, pal);
+      sheet.paint(rows, (i + n) * CAT, row * CAT, pal, true);
+    }),
+  );
   return sheet;
 }
 
@@ -475,7 +495,9 @@ function calicoize(rows: readonly string[]): string[] {
 
 /** Siamese: dark points on ears, face centre, paws and tail tip. */
 function siamesize(rows: readonly string[]): string[] {
-  return rows.map((r, y) => [...r].map((ch) => (ch === 'b' && (y < 6 || y > 12) ? 'd' : ch)).join(''));
+  // (the head is the top four rows of whatever size of cat this is)
+  const top = rows.findIndex((r) => /[^.]/.test(r));
+  return rows.map((r, y) => [...r].map((ch) => (ch === 'b' && (y - top < 4 || y > 12) ? 'd' : ch)).join(''));
 }
 
 /** Just the eyes of every frame (in the coat's eye colour, brightened), to make them glow at night. */
@@ -484,10 +506,12 @@ export function buildEyeSheet(coatIndex: number): Raster {
   const [r, g, b] = hex(coat.e);
   const glow: RGB = [Math.min(255, r * 0.6 + 110), Math.min(255, g * 0.6 + 110), Math.min(255, b * 0.6 + 90)];
   const n = FRAME_NAMES.length;
-  const sheet = new Raster(CAT * n * 2, CAT);
-  FRAME_NAMES.forEach((name, i) => {
-    sheet.paint(FRAMES[name], i * CAT, 0, { e: glow });
-    sheet.paint(FRAMES[name], (i + n) * CAT, 0, { e: glow }, true);
-  });
+  const sheet = new Raster(CAT * n * 2, CAT * SIZED.length);
+  SIZED.forEach((sized, row) =>
+    FRAME_NAMES.forEach((name, i) => {
+      sheet.paint(sized(name), i * CAT, row * CAT, { e: glow });
+      sheet.paint(sized(name), (i + n) * CAT, row * CAT, { e: glow }, true);
+    }),
+  );
   return sheet;
 }

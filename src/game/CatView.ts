@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { Act, ACT_MAX, EAT_MS, MEW_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
-import { CAT, COATS } from '../art/cat.ts';
+import { CAT, COATS, stageRow } from '../art/cat.ts';
 import { WORLD_W, WORLD_H, terrainCover, upOnFolly } from '../world/map.ts';
 import { TREES, surfaceAt, treeHolding } from '../world/trees.ts';
 import { DEPTH } from './Daylight.ts';
-import { STAGE_SCALE, Stage } from './growth.ts';
+import { STAGE_SIZE, Stage } from './growth.ts';
 
-/** How long growing up to the next size (a quarter bigger) takes (ms). */
-const GROW_MS = 1200;
+/** Growing up: it flickers between its old size and its new one, quicker and quicker, for this long (ms). */
+const GROW_MS = 1600;
 
 /** Colour of a cat hidden behind a hill. */
 const SILHOUETTE = 0x5ee86a;
@@ -59,10 +59,12 @@ export class CatView {
   heldKey = 'held-fish';
   /** Shown under the cat. */
   name = '';
-  /** How grown up it is (growth.ts), and the size it is drawn at (on its way to that stage's, after growing). */
+  /** How grown up it is (growth.ts); the size it is drawn at lags behind for a moment while it grows. */
   stage: Stage = Stage.Grown;
-  scale = 1;
-  private drawnAt = -1;
+  /** How big it is drawn, for things placed on it (what's in its mouth, its emotes): 1 for a grown cat. */
+  size = 1;
+  private shown: Stage | null = null;
+  private growing: { from: Stage; t: number } | null = null;
   /** How many times it has mewed, and when the last one began (it can mew walking, running or mid-jump). */
   mews = 0;
   mewAt = -Infinity;
@@ -112,12 +114,17 @@ export class CatView {
 
   render(now: number): void {
     const ms = now - this.actStart;
-    // growing: up to the new size over a moment (a cat seen for the first time just is its size)
-    const target = STAGE_SCALE[this.stage];
-    if (this.drawnAt < 0) this.scale = target;
-    else if (this.scale !== target) this.scale += Math.sign(target - this.scale) * Math.min(Math.abs(target - this.scale), (0.25 * Math.max(0, now - this.drawnAt)) / GROW_MS);
-    this.drawnAt = now;
-    const k = this.scale;
+    // growing up: flickering between the sizes, quicker and quicker (a cat seen for the first time just is its size)
+    if (this.shown !== null && this.shown !== this.stage && !this.growing) this.growing = { from: this.shown, t: now };
+    this.shown = this.stage;
+    let stage = this.stage;
+    if (this.growing) {
+      const u = (now - this.growing.t) / GROW_MS;
+      if (u >= 1 || this.growing.from === this.stage) this.growing = null;
+      else if (Math.floor(u * u * 14) % 2 === 0) stage = this.growing.from;
+    }
+    const k = STAGE_SIZE[stage];
+    this.size = k;
     const z = this.z;
     const x = Math.round(this.x), y = Math.round(this.y);
     const dtm = now - this.last.t;
@@ -135,31 +142,29 @@ export class CatView {
     this.depth = d;
     // the shadow lies on whatever surface is below the cat
     const below = Math.round(surfaceAt(this.x, this.y, z));
-    this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft).setScale(k);
+    this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft).setScale(Math.min(1, k + 0.15));
     // standing in the shade of something
     const shade = catLight.shade(this.x, this.y);
-    this.sprite.setPosition(x, y - Math.round(z)).setDepth(d).setScale(k);
-    this.frame = frameFor(this.act, this.facing, ms, now, this.speed > 110);
+    this.sprite.setPosition(x, y - Math.round(z)).setDepth(d);
+    this.frame = stageRow(stage) + frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
     if (shade > 0) this.sprite.setTint(Phaser.Display.Color.GetColor(255 - 90 * shade, 255 - 80 * shade, 255 - 50 * shade));
     else this.sprite.clearTint();
     const top = y - Math.round(z);
     const rim = catLight.rim * (1 - shade);
     this.rim.setVisible(rim > 0);
-    if (rim > 0) this.rim.setPosition(x, top).setDepth(d + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour).setScale(k);
+    if (rim > 0) this.rim.setPosition(x, top).setDepth(d + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour);
     // eyes shine in the dark, unless something stands in front of this cat
     const glow = catLight.night > 0.05 && (this.local || !catLight.occluded(x, top - 9 * k, y));
     this.eyes.setVisible(glow);
-    if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setScale(k).setAlpha(catLight.night * (this.act === Act.Sleep ? 0 : 0.9));
+    if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * (this.act === Act.Sleep ? 0 : 0.9));
     // our own cat, where a hill hides it: the covered part shows as a silhouette
-    const size = CAT * k;
-    const cover = this.local ? terrainCover(x, this.y, Math.round(z), size, size) : null;
+    const cover = this.local ? terrainCover(x, this.y, Math.round(z), CAT, CAT) : null;
     this.ghost.setVisible(!!cover);
     if (cover) {
-      // (the crop is in the picture's own pixels)
-      const left = x - size / 2, top = y - Math.round(z) - size;
-      this.ghost.setPosition(x, y - Math.round(z)).setFrame(this.frame).setScale(k)
-        .setCrop((cover.x0 - left) / k, (cover.y0 - top) / k, (cover.x1 - cover.x0) / k, (cover.y1 - cover.y0) / k);
+      const left = x - CAT / 2, top = y - Math.round(z) - CAT;
+      this.ghost.setPosition(x, y - Math.round(z)).setFrame(this.frame)
+        .setCrop(cover.x0 - left, cover.y0 - top, cover.x1 - cover.x0, cover.y1 - cover.y0);
     }
 
     // a fish or a bird in the mouth while eating: whole, half, bones (or a last tuft)
@@ -171,7 +176,6 @@ export class CatView {
       this.held.setTexture(this.act === Act.Feast ? this.heldKey : 'held-fish', ms < 900 ? 0 : ms < 1700 ? 1 : 2).setDepth(d + 0.5);
       // side on, the art faces left with the head at x=0: the head goes in the mouth, tail sticking out;
       // facing us, it is held crosswise in the mouth
-      this.held.setScale(k);
       if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5) * k, y - 6 * k - Math.round(z));
       else this.held.setFlipX(false).setOrigin(0.3, 0.5).setPosition(x, y - 5 * k - Math.round(z));
     }

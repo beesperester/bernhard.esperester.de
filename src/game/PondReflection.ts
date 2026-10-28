@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CAT } from '../art/cat.ts';
+import { CAT, framePos } from '../art/cat.ts';
 import { FLORA } from '../art/flora.ts';
 import type { Prop } from '../art/trees.ts';
 import type { CatView } from './CatView.ts';
@@ -68,10 +68,10 @@ export class PondReflection {
   }
 
   /** Draw `src` region flipped vertically around world line `base`. */
-  private flipped(src: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, wx: number, wy: number, base: number, scale = 1): void {
+  private flipped(src: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, wx: number, wy: number, base: number): void {
     const { x, y } = this.box;
     this.raw.setTransform(1, 0, 0, -1, -x, 2 * base - y);
-    this.raw.drawImage(src, sx, sy, sw, sh, wx, wy, sw * scale, sh * scale);
+    this.raw.drawImage(src, sx, sy, sw, sh, wx, wy, sw, sh);
   }
 
   /** Redraw the trees' and plants' reflections. */
@@ -101,8 +101,8 @@ export class PondReflection {
     const raw = this.begin();
     for (const c of near) {
       const cx = Math.round(c.x), cy = Math.round(c.y);
-      const size = CAT * c.scale;
-      this.flipped(this.catSheets[c.coat], c.frame * CAT, 0, CAT, CAT, cx - size / 2, cy - size - Math.round(c.z), cy, c.scale);
+      const [sx, sy] = framePos(c.frame);
+      this.flipped(this.catSheets[c.coat], sx, sy, CAT, CAT, cx - CAT / 2, cy - CAT - Math.round(c.z), cy);
     }
     raw.setTransform(1, 0, 0, 1, 0, 0);
     this.finish(this.catTex.getContext(), time);

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CAT } from '../art/cat.ts';
+import { CAT, framePos } from '../art/cat.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
 import type { Raster } from '../art/raster.ts';
 import type { CatView } from './CatView.ts';
@@ -326,10 +326,10 @@ export class Shadows {
     img = new ImageData(CELL, CELL);
     const [sx, sy] = this.s;
     const steps = Math.ceil(Math.hypot(sx, sy)) + 1;
-    const c = CELL / 2, x0 = frame * CAT, w = this.catSheetW;
+    const c = CELL / 2, [x0, y0] = framePos(frame), w = this.catSheetW;
     for (let y = 0; y < CAT; y++)
       for (let x = 0; x < CAT; x++) {
-        if (!this.catAlpha[y * w + x0 + x]) continue;
+        if (!this.catAlpha[(y0 + y) * w + x0 + x]) continue;
         for (let k = 0; k < steps; k++) {
           const h = CAT_TOP - y + k / steps;
           const px = Math.round(c + x - CAT / 2 + sx * h), py0 = Math.round(c + sy * h);
@@ -365,7 +365,7 @@ export class Shadows {
       // a jumping cat's shadow slides away from it; on a ledge it lies on the ledge
       const elev = elevAt(cat.x, cat.y), up = cat.z - elev;
       const [sx, sy] = this.s;
-      s.img.setPosition(Math.round(cat.x + sx * up), Math.round(cat.y + sy * up - elev)).setAlpha(alpha).setScale(cat.scale)
+      s.img.setPosition(Math.round(cat.x + sx * up), Math.round(cat.y + sy * up - elev)).setAlpha(alpha)
         .setDepth(elev > 0 ? Math.floor(cat.y / TILE) * TILE + 0.0015 : -99992);
     }
     for (const [cat, s] of this.cats)
