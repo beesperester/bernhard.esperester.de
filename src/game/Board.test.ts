@@ -190,6 +190,32 @@ describe('the board', () => {
     expect(a.board.me.name).not.toBe(b.board.me.name);
   });
 
+  it("answers a request for blocks from a cat that hasn't said who it is yet", async () => {
+    const a = await newCat('peer-a'), b = await newCat('peer-b');
+    await a.board.ate(Prey.Fish, 1, 3);
+    await settle();
+    b.inbox.length = 0;
+    // b hears of a first and asks for its blocks before a has heard of b
+    b.board.receive('peer-a', { me: await a.me.sign({ ...a.board.me, t: 2 }) }, 0);
+    await run();
+    expect(scoreOf(b, a)).toBe(3);
+  });
+
+  it('asks again when an answer is lost', async () => {
+    const a = await newCat('peer-a'), b = await newCat('peer-b');
+    await a.board.ate(Prey.Fish, 1, 3);
+    await settle();
+    b.inbox.length = 0;
+    b.board.receive('peer-a', { me: await a.me.sign({ ...a.board.me, t: 2 }) }, 0);
+    await settle();
+    a.inbox.length = 0;
+    await run();
+    expect(scoreOf(b, a)).toBe(0);
+    b.board.update(10_000);
+    await run();
+    expect(scoreOf(b, a)).toBe(3);
+  });
+
   it('lets no peer switch to another cat mid-visit, or pose as us', async () => {
     const a = await newCat('peer-a'), b = await newCat('peer-b');
     await meet(a, b);

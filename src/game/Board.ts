@@ -273,9 +273,10 @@ export class Board {
       if (!old || sender.t > old.d.t) this.entries.set(sender.id, msg.me!);
       this.resolveClash();
     }
+    // (our own blocks we hand to anyone who asks: its entry may not have reached us yet)
+    if (msg.want) this.serve(peerId, msg.want);
     const id = this.peers.get(peerId);
     if (!id) return;
-    if (msg.want) this.serve(peerId, msg.want);
     if (msg.cosign && msg.cosign.d.a === id) void this.chain.cosigned(msg.cosign, this.signer.check);
     if (msg.blocks || msg.proof) this.take(peerId, id, msg.proof, msg.blocks ?? [], now);
     else this.sync(peerId, now);
@@ -341,8 +342,9 @@ export class Board {
         }
         t = r;
       }
+      // (an answer that got us further: ask for more straight away; one that didn't, not before ASK_AGAIN_MS)
+      if (t.n !== this.tallyOf(id).n || t.h !== this.tallyOf(id).h) this.asking.delete(peerId);
       this.remember(id, e, t);
-      this.asking.delete(peerId);
       this.changed();
     });
     this.checking.set(id, next);
@@ -360,9 +362,11 @@ export class Board {
     return tally;
   }
 
-  /** Co-sign the chains of the cats we've been playing alongside (`now`: page clock). */
+  /** Catch up on the chains of the cats here, and co-sign those we've been playing alongside (`now`: page clock). */
   update(now: number): void {
     for (const [peerId, id] of this.peers) {
+      // (an answer lost on the way, or a request that came before we'd said who we are: ask again)
+      this.sync(peerId, now);
       const e = this.entries.get(id)?.d, t = this.known.get(id)?.tally, last = this.cosigned.get(id);
       if (!e || !t || t.n === 0 || t.n !== e.n || t.h !== e.h || this.bad.has(id)) continue;
       if (now - (this.met.get(peerId) ?? now) < COSIGN_AFTER_MS || (last && (last.n >= t.n || now - last.at < COSIGN_EVERY_MS))) continue;

@@ -39,7 +39,8 @@ function plankArt() {
 export function renderBoard(rows: Row[], myId: string): void {
   const list = document.querySelector<HTMLOListElement>('#board ol')!;
   const art = plankArt();
-  const top = rows.filter((r) => r.score > 0 || r.id === myId).slice(0, SHOWN);
+  // (everyone here, and whoever has eaten something of those who left)
+  const top = rows.filter((r) => r.score > 0 || r.here).slice(0, SHOWN);
   const me = rows.find((r) => r.id === myId);
   if (me && !top.includes(me)) top.push(me);
   // names come from other visitors: only ever set as text
