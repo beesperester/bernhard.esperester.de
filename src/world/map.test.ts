@@ -14,7 +14,7 @@ type Map = typeof map;
 
 /** How high a jump gets: v² / 2g. */
 const JUMP_HEIGHT = (JUMP_V * JUMP_V) / (2 * GRAVITY);
-const WALKABLE = '.,pfBRS';
+const WALKABLE = '.,pfBRSZ';
 
 describe('the map', () => {
   it('is fenced in all round', () => {

@@ -19,6 +19,8 @@ const C = {
   t0: hex('#a06a38'), t1: hex('#6a4220'), t2: hex('#3a2410'),
   c0: hex('#80cc58'), c1: hex('#54a83c'), c2: hex('#347c2c'), c3: hex('#1a4a1e'),
   yellow: hex('#f8d038'), orange: hex('#f89838'),
+  // a themed zone's floor: warm sand laid with worn flagstones
+  z0: hex('#e6c48a'), z1: hex('#d2a868'), z2: hex('#f2dcae'),
 };
 
 const FLOWERS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f8f8f8'), hex('#f890c8'), hex('#9878e8'), hex('#58a0f8')];
@@ -119,6 +121,30 @@ function path(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
     if (s) { r.set(ox + i, oy + 15, C.p2); r.set(ox + i, oy + 14, C.p1); }
     if (w) { r.set(ox, oy + i, C.g0); r.set(ox + wob, oy + i, C.g0); r.set(ox + 1 + wob, oy + i, C.p1); }
     if (e) { r.set(ox + 15, oy + i, C.g0); r.set(ox + 15 - wob, oy + i, C.g0); r.set(ox + 14 - wob, oy + i, C.p1); }
+  }
+}
+
+/** A themed zone's floor: worn flagstones in rows, half a stone offset, bedded in sand, edged like a path. */
+function fairground(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
+  r.rect(ox, oy, TILE, TILE, C.z0);
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const wx = tx * TILE + x, wy = ty * TILE + y;
+      // (the joints between the stones, 8×8 with every other row shifted, a few stones missing)
+      const row = Math.floor(wy / 8), sx = (wx + (row & 1) * 4) & 7, sy = wy & 7;
+      const stone = hash2(Math.floor((wx + (row & 1) * 4) / 8), row, 9) > 0.15;
+      if (stone && (sx === 0 || sy === 0)) r.set(ox + x, oy + y, C.z1);
+      else if (stone && (sx === 1 || sy === 1) && hash2(wx, wy, 10) < 0.5) r.set(ox + x, oy + y, C.z2);
+      else if (!stone && hash2(wx, wy, 11) < 0.08) r.set(ox + x, oy + y, C.p2);
+    }
+  const n = !isPathCh(tileAt(tx, ty - 1)), s = !isPathCh(tileAt(tx, ty + 1));
+  const w = !isPathCh(tileAt(tx - 1, ty)), e = !isPathCh(tileAt(tx + 1, ty));
+  for (let i = 0; i < TILE; i++) {
+    const wob = hash2(tx * TILE + i, ty, 6) < 0.3 ? 1 : 0;
+    if (n) { r.set(ox + i, oy, C.g0); r.set(ox + i, oy + wob, C.g0); r.set(ox + i, oy + 1 + wob, C.z1); }
+    if (s) { r.set(ox + i, oy + 15, C.p2); r.set(ox + i, oy + 14, C.z1); }
+    if (w) { r.set(ox, oy + i, C.g0); r.set(ox + wob, oy + i, C.g0); r.set(ox + 1 + wob, oy + i, C.z1); }
+    if (e) { r.set(ox + 15, oy + i, C.g0); r.set(ox + 15 - wob, oy + i, C.g0); r.set(ox + 14 - wob, oy + i, C.z1); }
   }
 }
 
@@ -414,6 +440,7 @@ export const TILE_ART: Record<string, { ground?: Painter; upright?: Painter }> =
   ',': { ground: (r, ox, oy, tx, ty) => tallGrass(r, ox, oy, tx, ty) },
   f: { ground: (r, ox, oy, tx, ty) => flowers(r, ox, oy, tx, ty) },
   p: { ground: (r, ox, oy, tx, ty) => path(r, ox, oy, tx, ty) },
+  Z: { ground: (r, ox, oy, tx, ty) => fairground(r, ox, oy, tx, ty) },
   w: { ground: water },
   '~': { ground: water },
   l: {

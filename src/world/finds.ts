@@ -16,6 +16,7 @@ import { FURNITURE, LEVEL, MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileA
 import { LEGEND, groundOf, isLawnOrTall, isOpenWater, isPath } from './legend.ts';
 import { TREES } from './trees.ts';
 import { Food } from './food.ts';
+import { ZONE_FLOOR } from './themes.ts';
 
 export { Food };
 
@@ -88,7 +89,7 @@ export function planFinds(seed: number): FindSlot[] {
       out.push({ kind: 'snack', foods: snacks, chance: 0.5, spots });
     }
   const paths: [number, number][] = [];
-  for (let ty = 2; ty < MAP_H - 2; ty++) for (let tx = 2; tx < MAP_W - 2; tx++) if (groundOf(tileAt(tx, ty)) === 'path' && !furnished(tx, ty)) paths.push([tx, ty]);
+  for (let ty = 2; ty < MAP_H - 2; ty++) for (let tx = 2; tx < MAP_W - 2; tx++) if (groundOf(tileAt(tx, ty)) === 'path' && tileAt(tx, ty) !== ZONE_FLOOR && !furnished(tx, ty)) paths.push([tx, ty]);
   // (each one somewhere along its own stretch of path: the paths in reading order, cut into pieces)
   const PATH_SNACKS = 16;
   for (let n = 0; n < PATH_SNACKS && paths.length; n++) {
@@ -106,7 +107,8 @@ export function planFinds(seed: number): FindSlot[] {
   for (let ty = 2; ty < MAP_H - 2; ty++)
     for (let tx = 2; tx < MAP_W - 2; tx++) {
       const ch = tileAt(tx, ty);
-      if ((!isLawnOrTall(ch) && !isPath(ch)) || LEGEND[ch]?.water || furnished(tx, ty)) continue;
+      // (not in a themed zone: that's its own)
+      if ((!isLawnOrTall(ch) && !isPath(ch)) || ch === ZONE_FLOOR || LEGEND[ch]?.water || furnished(tx, ty)) continue;
       const side = ([[0, 1], [0, -1], [1, 0], [-1, 0]] as const).find(([dx, dy]) => isOpenWater(tileAt(tx + dx, ty + dy)) && levelAt(tx + dx, ty + dy) === levelAt(tx, ty));
       if (side) banks.push([tx, ty, side[0], side[1]]);
     }

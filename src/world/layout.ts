@@ -3,7 +3,8 @@
 // the landmark follies); the first cat into an empty garden picks a seed, and
 // from that seed this lays out the rest on the open ground: lawns and
 // meadows, flower beds and their box hedges, the maze, the tree house, the
-// trees, bushes and rocks, and the furniture. Every cat that joins is handed
+// themed zones (themes.ts: a carnival, say), the trees, bushes and rocks, and
+// the furniture. Every cat that joins is handed
 // the seed (net.ts) and lays out the same garden; when the last cat leaves,
 // the garden is gone, and the next one is a new one.
 //
@@ -15,6 +16,7 @@ import { hash2 } from '../art/raster.ts';
 import { BASE, ELEV, LANDMARK_SPOTS, ZONES } from './garden.ts';
 import { LANDMARK_SIZE } from './landmarks.ts';
 import { trackside } from './track.ts';
+import { carveZones, type ThemedZone } from './themes.ts';
 
 type Pt = [number, number];
 
@@ -40,6 +42,8 @@ export interface Layout {
   rows: string[];
   /** Furniture by its top-left tile. */
   furniture: { kind: FurnitureKind; tx: number; ty: number }[];
+  /** The themed zones (a carnival, say): their tiles are laid with their own floor in `rows`. */
+  zones: ThemedZone[];
 }
 
 /** The garden that grows from `seed`. */
@@ -139,6 +143,9 @@ export function layOut(seed: number): Layout {
     if (spot) T[spot[1]][spot[0]] = 'H';
   }
 
+  // the themed zones, each taking a cell of the lawn left (nothing else grows there)
+  const zones = carveZones(T, E, order, hash);
+
   // meadows and flower beds
   for (let y = 1; y < H - 1; y++)
     for (let x = 1; x < W - 1; x++) {
@@ -211,7 +218,7 @@ export function layOut(seed: number): Layout {
 
   connect(T, E);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (T[y][x] === 'L' || T[y][x] === 'K') T[y][x] = '.';
-  return { rows: T.map((r) => r.join('')), furniture };
+  return { rows: T.map((r) => r.join('')), furniture, zones };
 }
 
 /**

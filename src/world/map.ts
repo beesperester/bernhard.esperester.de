@@ -21,7 +21,7 @@ export const LEVEL = 16;
 export { WALL };
 
 /** This garden: the fixed park with what grew from its seed. */
-const { rows: ROWS, furniture: FURNITURE } = layOut(worldSeed().seed);
+const { rows: ROWS, furniture: FURNITURE, zones: THEMED_ZONES } = layOut(worldSeed().seed);
 for (const [i, r] of ROWS.entries()) if (r.length !== MAP_W) throw new Error(`map row ${i} is ${r.length} wide`);
 if (ELEV.length !== MAP_H || ELEV.some((r) => r.length !== MAP_W)) throw new Error('elevation map size mismatch');
 
@@ -267,7 +267,7 @@ for (const [tx, ty] of treeTiles()) {
 // a raised vegetable bed, a wheelbarrow and an insect hotel. Each stands on a patch of plain lawn (`tx`,
 // `ty` is its top-left tile; layout.ts places them); all can be jumped onto.
 
-export { FURNITURE, FURNITURE_SIZE, type FurnitureKind };
+export { FURNITURE, FURNITURE_SIZE, THEMED_ZONES, type FurnitureKind };
 
 export { LANDMARK_SPOTS };
 
