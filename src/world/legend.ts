@@ -60,7 +60,7 @@ export const LEGEND: Record<string, TileKind> = {
   r: { name: 'rock', height: 5, inset: [1, 4, 1, 2], nightBlob: true },
   o: { name: 'fountain', height: 6, inset: [0, 1, 0, 1], span: 2 },
   S: { name: 'stairs', stairs: true },
-  // a themed zone's floor (themes.ts): trodden sand, walked like a path
+  // a themed zone's floor (themes.ts): the paths' gravel, walked like a path
   Z: { name: 'fairground', ground: 'path', path: true },
 };
 

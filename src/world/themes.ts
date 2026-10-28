@@ -5,7 +5,7 @@
 // the point it is the fewest steps from (a Voronoi diagram, measured on foot,
 // so a cell never reaches across a river, a path or a terrace edge). A few
 // of those cells become zones: each clears its cell for its own floor
-// (nothing else grows there) and is then filled with as much of its theme
+// (nothing else grows there, it's gravelled like the paths) and is then filled with as much of its theme
 // as fits (game/…, later). Like everything else in the layout it follows
 // from the seed, so every cat in the garden has the same zones.
 
