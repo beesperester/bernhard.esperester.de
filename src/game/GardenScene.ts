@@ -797,7 +797,7 @@ export class GardenScene extends Phaser.Scene {
       // the cat moved freely both ways (not on the first frame only: sliding along a bush or
       // a fence holds one of them back and puts them out of step)
       const free = Math.abs(body.x - bx - this.vel.x * dt) < 1e-6 && Math.abs(body.y - by - this.vel.y * dt) < 1e-6;
-      if (wx && wy && !icy && free) alignDiagonal(body, wx, wy);
+      if (wx && wy && !icy && free) alignDiagonal(body, wx, wy, by);
       me.x = body.x; me.y = body.y; me.z = body.z;
       // sliding into something stops the slide that way
       if (icy) {
