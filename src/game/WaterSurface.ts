@@ -1,8 +1,7 @@
 import Phaser from 'phaser';
-import { Raster, hex, type RGB } from '../art/raster.ts';
+import { hex, type Mask, type RGB } from '../art/raster.ts';
 import { buildBed, clarity, shoreDistance, surfacePixel, type Sky } from '../art/water.ts';
 import type { Light } from '../world/sky.ts';
-import { toCanvas } from './textures.ts';
 import { cullerFor } from './Culler.ts';
 import { TILE, tileAt } from '../world/map.ts';
 import { isBridge, isLilyPad } from '../world/legend.ts';
@@ -17,6 +16,8 @@ type Box = { x: number; y: number; w: number; h: number };
 
 /** Under the fish and their shadows (-99995)... */
 const BED_DEPTH = -99998;
+/** Depth is counted this far out from the bank (px). */
+const MAX_DEPTH = 60;
 /** ...and over them, under the cast shadows (-99993) and the mirrored trees and cats (-99990). */
 const SURFACE_DEPTH = -99994.5;
 /** Redraw the visible surface this often (ms): waves are slow, and it's pixel art. */
@@ -44,21 +45,29 @@ export class WaterSurface {
   }[] = [];
   private readonly px = [0, 0, 0, 0];
 
-  constructor(scene: Phaser.Scene, boxes: Box[], mask: Raster) {
-    // lily pads and bridges float on the water: it's as deep under them as round them
-    const dist = shoreDistance(mask, 60, (x, y) => {
-      const ch = tileAt(Math.floor(x / TILE), Math.floor(y / TILE));
-      return isLilyPad(ch) || isBridge(ch);
-    });
-    scene.textures.addCanvas('water-bed', toCanvas(buildBed(mask, dist)));
-    scene.add.image(0, 0, 'water-bed').setOrigin(0).setDepth(BED_DEPTH);
+  constructor(scene: Phaser.Scene, boxes: Box[], mask: Mask) {
     boxes.forEach((box, n) => {
+      // how deep it is, worked out over the patch and as far round it as depth is counted
+      const wx = Math.max(0, box.x - MAX_DEPTH), wy = Math.max(0, box.y - MAX_DEPTH);
+      const ww = Math.min(mask.w, box.x + box.w + MAX_DEPTH) - wx, wh = Math.min(mask.h, box.y + box.h + MAX_DEPTH) - wy;
+      const around = mask.window(wx, wy, ww, wh);
+      // lily pads and bridges float on the water: it's as deep under them as round them
+      const dist = shoreDistance(around, MAX_DEPTH, (x, y) => {
+        const ch = tileAt(Math.floor((x + wx) / TILE), Math.floor((y + wy) / TILE));
+        return isLilyPad(ch) || isBridge(ch);
+      });
+      const bed = buildBed(around, dist, wx, wy);
+      const bedKey = `water-bed-${n}`;
+      const bedTex = scene.textures.createCanvas(bedKey, box.w, box.h)!;
+      bedTex.getContext().putImageData(new ImageData(bed.data, bed.w, bed.h), wx - box.x, wy - box.y);
+      bedTex.refresh();
+      cullerFor(scene).add(scene.add.image(box.x, box.y, bedKey).setOrigin(0).setDepth(BED_DEPTH));
       const key = `water-surface-${n}`;
       const tex = scene.textures.createCanvas(key, box.w, box.h)!;
       const clear = new Float32Array(box.w * box.h), wet = new Uint8Array(box.w * box.h);
       for (let y = 0; y < box.h; y++)
         for (let x = 0; x < box.w; x++) {
-          const d = dist[(box.y + y) * mask.w + box.x + x];
+          const d = dist[(box.y - wy + y) * ww + box.x - wx + x];
           wet[y * box.w + x] = d && mask.isSet(box.x + x, box.y + y) ? 1 : 0;
           clear[y * box.w + x] = clarity(d);
         }

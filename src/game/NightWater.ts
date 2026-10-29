@@ -4,6 +4,8 @@ import { DEPTH } from './Daylight.ts';
 import { seedRng } from './fauna/kit.ts';
 import { cullerFor } from './Culler.ts';
 import type { Occluder } from './Lanterns.ts';
+import { toCanvas } from './textures.ts';
+import type { Mask } from '../art/raster.ts';
 
 type Box = { x: number; y: number; w: number; h: number };
 const MOON_R = 6, HALO_R = MOON_R * 3;
@@ -20,9 +22,8 @@ export class NightWater {
   private readonly moon: { x: number; y: number } | null;
   private next = 0;
 
-  constructor(scene: Phaser.Scene, boxes: Box[], waterMask: HTMLCanvasElement, occluders: Occluder[]) {
-    const wm = waterMask.getContext('2d')!.getImageData(0, 0, waterMask.width, waterMask.height);
-    const wet = (x: number, y: number) => x >= 0 && y >= 0 && x < wm.width && y < wm.height && wm.data[(y * wm.width + x) * 4 + 3] > 0;
+  constructor(scene: Phaser.Scene, boxes: Box[], waterMask: Mask, occluders: Occluder[]) {
+    const wet = (x: number, y: number) => waterMask.isSet(x, y);
     // the moon sits in the widest stretch of open water
     let moon: { x: number; y: number } | null = null, best = 0;
     for (const b of boxes)
@@ -37,11 +38,8 @@ export class NightWater {
     boxes.forEach((box, i) => {
       const key = `night-water-${i}`;
       const tex = scene.textures.createCanvas(key, box.w, box.h)!;
-      const mask = document.createElement('canvas');
-      mask.width = box.w;
-      mask.height = box.h;
+      const mask = toCanvas(waterMask.crop(box.x, box.y, box.w, box.h));
       const mg = mask.getContext('2d')!;
-      mg.drawImage(waterMask, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
       // (only the water behind it: above the line its foot stands on)
       mg.globalCompositeOperation = 'destination-out';
       for (const o of occluders)

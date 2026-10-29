@@ -1,4 +1,4 @@
-import { Raster, hex, hash2, type RGB } from './raster.ts';
+import { Mask, Raster, hex, hash2, type RGB } from './raster.ts';
 import { TILE, MAP_W, MAP_H, isChannel, tileAt, levelAt, treeTiles, trunkBase } from '../world/map.ts';
 import { SEASON, type Season } from '../world/season.ts';
 import { DEFAULT_LIGHT, sunLight, type ScreenLight } from './lighting.ts';
@@ -499,52 +499,34 @@ function drawTile(r: Raster, ox: number, oy: number, tx: number, ty: number, pha
   art.upright?.(r, ox, oy, tx, ty, phase);
 }
 
-/** The static ground of the garden. `phase` alternates the water ripples (still while frozen). */
-export function buildGround(phase: number, season: Season = SEASON): Raster {
-  const r = new Raster(MAP_W * TILE, MAP_H * TILE);
-  for (let ty = 0; ty < MAP_H; ty++)
-    for (let tx = 0; tx < MAP_W; tx++) drawTile(r, tx * TILE, ty * TILE, tx, ty, season.frozen && !isChannel(tx, ty) ? 0 : phase);
-  shadeUnderCliffs(r);
-  applySeason(r, 0, 0, season);
-  scatterLitter(r, season);
-  return r;
+/**
+ * The ground of a part of the park: `tw`×`th` tiles from (tx0, ty0), finished exactly as everywhere
+ * else: drawn together with the column to its left (whose fallen leaves can reach a pixel over the
+ * edge), shaded under the cliffs, dressed for the season and littered. `phase` alternates the water's
+ * ripples (still while frozen). The park is far too big to draw at once; it is drawn a piece at a
+ * time, round where the cats are (game/Ground.ts).
+ */
+export function buildGroundRegion(tx0: number, ty0: number, tw: number, th: number, phase: number, season: Season = SEASON): Raster {
+  const wide = new Raster((tw + 1) * TILE, th * TILE);
+  for (let ty = ty0; ty < ty0 + th; ty++)
+    for (let tx = tx0 - 1; tx < tx0 + tw; tx++) drawTile(wide, (tx - tx0 + 1) * TILE, (ty - ty0) * TILE, tx, ty, season.frozen && !isChannel(tx, ty) ? 0 : phase);
+  const ox = (tx0 - 1) * TILE, oy = ty0 * TILE;
+  shadeUnderCliffs(wide, ox, oy);
+  applySeason(wide, ox, oy, season);
+  scatterLitter(wide, season, ox, oy);
+  const out = new Raster(tw * TILE, th * TILE);
+  for (let y = 0; y < out.h; y++) out.data.set(wide.data.subarray((y * wide.w + TILE) * 4, (y * wide.w + wide.w) * 4), y * out.w * 4);
+  return out;
 }
 
-/**
- * Both ripple phases of the ground. The second differs only on the water, so
- * rather than drawing the whole park twice (the slowest part of starting up)
- * it is a copy of the first with just the water tiles redrawn.
- */
-export function buildGrounds(season: Season = SEASON): [Raster, Raster] {
-  const still = buildGround(0, season);
-  const rippled = new Raster(still.w, still.h);
-  rippled.data.set(still.data);
-  for (let ty = 0; ty < MAP_H; ty++)
-    for (let tx = 0; tx < MAP_W; tx++) {
-      // frozen ponds don't ripple (the streams still run)
-      if (!isWaterway(tileAt(tx, ty)) || (season.frozen && !isChannel(tx, ty))) continue;
-      const tile = groundTile(tx, ty, 1, season);
-      for (let y = 0; y < TILE; y++) rippled.data.set(tile.data.subarray(y * TILE * 4, (y + 1) * TILE * 4), ((ty * TILE + y) * rippled.w + tx * TILE) * 4);
-    }
-  return [still, rippled];
-}
+/** One tile of the ground, finished exactly as in the whole park. */
+export const groundTile = (tx: number, ty: number, phase: number, season: Season = SEASON): Raster => buildGroundRegion(tx, ty, 1, 1, phase, season);
 
-/**
- * One tile of the ground, finished exactly as in the whole map: drawn together
- * with its left neighbour (whose fallen leaves can reach a pixel over the
- * edge), then shaded, dressed for the season and littered.
- */
-export function groundTile(tx: number, ty: number, phase: number, season: Season = SEASON): Raster {
-  const pair = new Raster(2 * TILE, TILE);
-  drawTile(pair, 0, 0, tx - 1, ty, phase);
-  drawTile(pair, TILE, 0, tx, ty, phase);
-  const ox = (tx - 1) * TILE, oy = ty * TILE;
-  shadeUnderCliffs(pair, ox, oy);
-  applySeason(pair, ox, oy, season);
-  scatterLitter(pair, season, ox, oy);
-  const tile = new Raster(TILE, TILE);
-  for (let y = 0; y < TILE; y++) tile.data.set(pair.data.subarray((y * pair.w + TILE) * 4, (y * pair.w + 2 * TILE) * 4), y * TILE * 4);
-  return tile;
+/** Does the ground of this part of the park change with the ripple's phase (water that isn't frozen)? */
+export function ripplesIn(tx0: number, ty0: number, tw: number, th: number, season: Season = SEASON): boolean {
+  for (let ty = ty0; ty < ty0 + th; ty++)
+    for (let tx = tx0; tx < tx0 + tw; tx++) if (isWaterway(tileAt(tx, ty)) && !(season.frozen && !isChannel(tx, ty))) return true;
+  return false;
 }
 
 /** Tiles whose art is shaded by the sun (redrawn by groundTile as it moves). */
@@ -615,7 +597,7 @@ function scatterLitter(r: Raster, s: Season, ox = 0, oy = 0): void {
   if (s.litter <= 0 || s.snow >= 0.6) return;
   const amount = s.litter * (1 - s.snow);
   const grassy = new Set([...GREENS].map((c) => key(drabFor(c, s.drab))));
-  const trees = treeTiles().map(([tx, ty]) => trunkBase(tx, ty));
+  const trees = treeTiles().map(([tx, ty]) => trunkBase(tx, ty)).filter(([x, y]) => x > ox - 40 && x < ox + r.w + 40 && y > oy - 20 && y < oy + r.h + 20);
   for (let y = 0; y < r.h; y += 1)
     for (let x = 0; x < r.w; x += 1) {
       // (hashed by world position, so a piece drawn on its own gets the same leaves)
@@ -637,31 +619,50 @@ function scatterLitter(r: Raster, s: Season, ox = 0, oy = 0): void {
     }
 }
 
+/** Each tile's pixels that belong to something standing up from it, once worked out (null: nothing stands there). */
+const uprights = new Map<number, Uint8Array | null>();
+
 /**
- * Which pixels of the ground art belong to things standing up from it (bushes,
- * rocks, hedges, fences, the gate, the fountain): drawn with and without the
- * object, the pixels that differ. Used to put sunlit rims on them.
+ * Does the pixel at world (x, y) of the ground art belong to a thing standing up from it (a bush, a
+ * rock, a hedge, the fence, the gate, the fountain)? Its tile is drawn with and without the thing, and
+ * the pixels that differ are the thing. Used to put sunlit rims on them, and to know where shadows lie.
  */
-export function buildUprightMask(): Raster {
-  const m = new Raster(MAP_W * TILE, MAP_H * TILE);
-  for (let ty = 0; ty < MAP_H; ty++)
-    for (let tx = 0; tx < MAP_W; tx++) {
-      const art = TILE_ART[tileAt(tx, ty)];
-      const span = spanAt(tx, ty);
-      if (!art?.upright || !span) continue;
+export function uprightAt(x: number, y: number): boolean {
+  const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+  if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return false;
+  // (a thing two tiles wide is drawn from its left tile, and noted there)
+  let lx = tx;
+  while (lx > 0 && spanAt(lx, ty) === 0) lx--;
+  const k = ty * MAP_W + lx;
+  let bits = uprights.get(k);
+  if (bits === undefined) {
+    bits = null;
+    const art = TILE_ART[tileAt(lx, ty)];
+    const span = spanAt(lx, ty);
+    if (art?.upright && span) {
       const w = span * TILE;
       const bare = new Raster(w, TILE);
-      for (let i = 0; i < span; i++) (art.ground ?? lawn)(bare, i * TILE, 0, tx + i, ty, 0);
+      for (let i = 0; i < span; i++) (art.ground ?? lawn)(bare, i * TILE, 0, lx + i, ty, 0);
       const full = new Raster(w, TILE);
       full.data.set(bare.data);
-      art.upright(full, 0, 0, tx, ty, 0);
-      for (let i = 0; i < full.data.length; i += 4)
-        if (full.data[i] !== bare.data[i] || full.data[i + 1] !== bare.data[i + 1] || full.data[i + 2] !== bare.data[i + 2]) {
-          const px = (i / 4) % w, py = Math.floor(i / 4 / w);
-          m.set(tx * TILE + px, ty * TILE + py, [255, 255, 255]);
-        }
+      art.upright(full, 0, 0, lx, ty, 0);
+      bits = new Uint8Array(w * TILE);
+      for (let i = 0; i < bits.length; i++) {
+        const j = i * 4;
+        if (full.data[j] !== bare.data[j] || full.data[j + 1] !== bare.data[j + 1] || full.data[j + 2] !== bare.data[j + 2]) bits[i] = 1;
+      }
     }
-  return m;
+    uprights.set(k, bits);
+  }
+  return !!bits && bits[(y - ty * TILE) * (bits.length / TILE) + x - lx * TILE] === 1;
+}
+
+/** Whether anything in tile (tx, ty) stands up from the ground (see uprightAt). */
+export function hasUpright(tx: number, ty: number): boolean {
+  if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return false;
+  let lx = tx;
+  while (lx > 0 && spanAt(lx, ty) === 0) lx--;
+  return !!TILE_ART[tileAt(lx, ty)]?.upright && spanAt(lx, ty) > 0;
 }
 
 /** A soft dithered shadow on the ground at the foot of every cliff face. `r` covers the world from (ox, oy). */
@@ -685,15 +686,24 @@ function shadeUnderCliffs(r: Raster, ox = 0, oy = 0): void {
     }
 }
 
-/** Opaque where the pond shows open water (not shore, not lily pads). */
-export function buildWaterMask(g0: Raster, g1: Raster): Raster {
-  const m = new Raster(g0.w, g0.h);
+/**
+ * Where the water shows open (not the banks, the lily pads or a bridge's boards; and not a frozen pond)
+ * over the whole park: each wet tile drawn on its own, and its open-water pixels marked.
+ */
+export function buildWaterMask(season: Season = SEASON): Mask {
+  const m = new Mask(MAP_W * TILE, MAP_H * TILE);
   const open = new Set([key(C.w0), key(C.w1), key(C.wd), key(C.wl)]);
-  const isWater = (r: Raster, i: number) => open.has((r.data[i] << 16) | (r.data[i + 1] << 8) | r.data[i + 2]);
-  for (let y = 0; y < m.h; y++)
-    for (let x = 0; x < m.w; x++) {
-      const i = (y * m.w + x) * 4;
-      if (isWater(g0, i) || isWater(g1, i)) m.set(x, y, [255, 255, 255]);
+  const scratch = new Raster(2 * TILE, TILE);
+  for (let ty = 0; ty < MAP_H; ty++)
+    for (let tx = 0; tx < MAP_W; tx++) {
+      if (!isWaterway(tileAt(tx, ty)) || (season.frozen && !isChannel(tx, ty))) continue;
+      scratch.data.fill(0);
+      drawTile(scratch, 0, 0, tx, ty, 0);
+      for (let y = 0; y < TILE; y++)
+        for (let x = 0; x < TILE; x++) {
+          const i = (y * scratch.w + x) * 4;
+          if (open.has((scratch.data[i] << 16) | (scratch.data[i + 1] << 8) | scratch.data[i + 2])) m.set(tx * TILE + x, ty * TILE + y);
+        }
     }
   return m;
 }

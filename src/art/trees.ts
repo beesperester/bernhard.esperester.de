@@ -14,7 +14,7 @@ import { TREES, type Perch, type TreePlan } from '../world/trees.ts';
 export interface Prop {
   raster: Raster;
   /** The pixels shaded by the light, and how (relightProp redraws them for another sun). */
-  lit?: Map<number, LitPixel>;
+  lit?: LitPixels;
   x: number;
   y: number;
   /** y used for depth sorting against cats (their feet). */
@@ -91,11 +91,67 @@ function barkColour(p: Extract<LitPixel, { leaf: false }>, L: ScreenLight): RGB 
 
 const litColour = (p: LitPixel, L: ScreenLight): RGB => (p.leaf ? p.pal[leafTone(p, L)] : barkColour(p, L));
 
+/** Numbers kept for shading are rounded to this, so they pack into 16 bits and shade the same packed as not. */
+const Q = 4096;
+const q = (v: number) => Math.max(-32768, Math.min(32767, Math.round(v * Q))) / Q;
+
+/**
+ * A prop's lit pixels, packed (a park has hundreds of trees with thousands of
+ * them each): where each is, its palette, and its numbers as 16-bit fixed point.
+ */
+export class LitPixels {
+  readonly at: Int32Array;
+  private readonly flags: Uint8Array;
+  private readonly pal: Uint8Array;
+  private readonly pals: RGB[][] = [];
+  private readonly f: Int16Array;
+
+  constructor(lit: Map<number, LitPixel>) {
+    const n = lit.size;
+    this.at = new Int32Array(n);
+    this.flags = new Uint8Array(n);
+    this.pal = new Uint8Array(n);
+    this.f = new Int16Array(n * 6);
+    let k = 0;
+    for (const [i, p] of lit) {
+      this.at[k] = i;
+      const f = this.f, o = k * 6;
+      if (p.leaf) {
+        let pi = this.pals.indexOf(p.pal);
+        if (pi < 0) pi = this.pals.push(p.pal) - 1;
+        this.pal[k] = pi;
+        this.flags[k] = 1 | (p.rim ? 2 : 0);
+        [p.nx, p.ny, p.cx, p.cy, p.jit, p.speck].forEach((v, j) => (f[o + j] = Math.round(v * Q)));
+      } else {
+        this.flags[k] = p.dark ? 4 : 0;
+        f[o] = Math.round(p.u * Q);
+      }
+      k++;
+    }
+  }
+
+  get size(): number {
+    return this.at.length;
+  }
+
+  /** The k-th pixel, unpacked. */
+  pixel(k: number): LitPixel {
+    const f = this.f, o = k * 6, fl = this.flags[k];
+    return fl & 1
+      ? { leaf: true, pal: this.pals[this.pal[k]], nx: f[o] / Q, ny: f[o + 1] / Q, cx: f[o + 2] / Q, cy: f[o + 3] / Q, jit: f[o + 4] / Q, speck: f[o + 5] / Q, rim: !!(fl & 2) }
+      : { leaf: false, u: f[o] / Q, dark: !!(fl & 4) };
+  }
+}
+
 /** Shade a prop's lit pixels for light L (in place). */
 export function relightProp(prop: Prop, L: ScreenLight): void {
-  if (!prop.lit) return;
+  const lit = prop.lit;
+  if (!lit) return;
   const w = prop.raster.w;
-  for (const [i, p] of prop.lit) prop.raster.set(i % w, Math.floor(i / w), litColour(p, L));
+  for (let k = 0; k < lit.size; k++) {
+    const i = lit.at[k];
+    prop.raster.set(i % w, Math.floor(i / w), litColour(lit.pixel(k), L));
+  }
 }
 
 type Clump = { x: number; y: number; r: number };
@@ -155,10 +211,10 @@ class Sketch {
     if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
     const { crown, t } = this;
     const px: LitPixel = {
-      leaf: true, pal, nx, ny, cx: (x - crown.x) / crown.rx, cy: (y - crown.y) / crown.ry,
+      leaf: true, pal, nx: q(nx), ny: q(ny), cx: q((x - crown.x) / crown.rx), cy: q((y - crown.y) / crown.ry),
       // (needles keep their fine grain; leaves come in dabs, little clusters of them catching the light)
-      jit: t.shape === 'pine' ? (bayer(x, y) - 0.5) * 0.35 + (hash2(x, y, t.seed + salt) - 0.5) * 0.25 : dab(x, y, t.seed + salt) * 0.7,
-      speck: hash2(x, y, t.seed * 7 + salt), rim,
+      jit: q(t.shape === 'pine' ? (bayer(x, y) - 0.5) * 0.35 + (hash2(x, y, t.seed + salt) - 0.5) * 0.25 : dab(x, y, t.seed + salt) * 0.7),
+      speck: q(hash2(x, y, t.seed * 7 + salt)), rim,
     };
     this.lit.set(y * this.W + x, px);
     this.r.set(x, y, litColour(px, DEFAULT_LIGHT));
@@ -185,7 +241,7 @@ class Sketch {
   /** A bark pixel, round across the trunk (u 0..1 from left to right). */
   bark(x: number, y: number, u: number): void {
     if (u < 0.1 || u >= 0.9) { this.r.set(x, y, BARK[3]); return; }
-    const px: LitPixel = { leaf: false, u, dark: hash2(x, Math.floor(y / 3) + (x % 2), this.t.seed) < 0.18 };
+    const px: LitPixel = { leaf: false, u: q(u), dark: hash2(x, Math.floor(y / 3) + (x % 2), this.t.seed) < 0.18 };
     this.lit.set(y * this.W + x, px);
     this.r.set(x, y, litColour(px, DEFAULT_LIGHT));
   }
@@ -374,7 +430,7 @@ class Sketch {
       if (r.data[k] !== c[0] || r.data[k + 1] !== c[1] || r.data[k + 2] !== c[2]) lit.delete(i);
     }
     return {
-      raster: r, lit, x: t.x - W / 2, y: t.y - (H - 1) - t.elev, depthY: t.y,
+      raster: r, lit: new LitPixels(lit), x: t.x - W / 2, y: t.y - (H - 1) - t.elev, depthY: t.y,
       kind: t.shape === 'pine' ? 4 : t.colour, plan: t,
     };
   }

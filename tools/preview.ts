@@ -4,7 +4,9 @@ import { deflateSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { Raster, hex } from '../src/art/raster.ts';
 import { buildCatSheet, COATS, FRAMES, CAT } from '../src/art/cat.ts';
-import { buildGround } from '../src/art/tiles.ts';
+import { buildGroundRegion } from '../src/art/tiles.ts';
+import { MAP_H, MAP_W, TILE } from '../src/world/map.ts';
+import { SPAWN } from '../src/world/garden.ts';
 import { buildProps } from '../src/art/trees.ts';
 import { buildTerrain } from '../src/art/terrain.ts';
 import { buildLandmark } from '../src/art/landmarks.ts';
@@ -70,15 +72,18 @@ COATS.forEach((_, ci) => {
 });
 writeFileSync(`${out}/cats.png`, png(sheet, 4));
 
-const ground = buildGround(0);
+// the park round where cats come in (the whole of it is too big to look at)
+const RW = 64, RH = 48;
+const rx = Math.max(0, Math.min(MAP_W - RW, Math.round((SPAWN.x0 + SPAWN.x1) / 2) - RW / 2)), ry = Math.max(0, Math.min(MAP_H - RH, Math.round((SPAWN.y0 + SPAWN.y1) / 2) - RH / 2));
+const ground = buildGroundRegion(rx, ry, RW, RH, 0);
 const scene = new Raster(ground.w, ground.h);
 scene.blit(ground, 0, 0);
 // raised terrain and trees, painted back to front like the game sorts them
 const layers = [
-  ...buildTerrain(ground).map((t) => ({ r: t.raster, x: t.x, y: t.y, d: t.depth })),
+  ...buildTerrain().map((t) => ({ r: t.raster, x: t.x, y: t.y, d: t.depth })),
   ...buildProps().map((p) => ({ r: p.raster, x: p.x, y: p.y, d: p.depthY })),
 ].sort((a, b) => a.d - b.d);
-for (const l of layers) scene.blit(l.r, l.x, l.y);
+for (const l of layers) scene.blit(l.r, l.x - rx * TILE, l.y - ry * TILE);
 writeFileSync(`${out}/garden.png`, png(scene, 1));
 console.log('ok', out);
 

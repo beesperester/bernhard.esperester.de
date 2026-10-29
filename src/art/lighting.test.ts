@@ -12,7 +12,7 @@ const SUMMER = seasonAt(Date.UTC(2026, 6, 10, 12));
 const sides = (prop: ReturnType<typeof buildProps>[number]) => {
   const w = prop.raster.w, d = prop.raster.data;
   const sum = [0, 0], n = [0, 0];
-  for (const i of prop.lit!.keys()) {
+  for (const i of prop.lit!.at) {
     const s = i % w < w / 2 ? 0 : 1;
     sum[s] += d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2];
     n[s]++;

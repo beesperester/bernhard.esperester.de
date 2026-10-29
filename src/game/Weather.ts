@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Raster, hex, hash2, type RGB } from '../art/raster.ts';
+import { Raster, hex, hash2, type Bits, type RGB } from '../art/raster.ts';
 import { SNOW } from '../art/tiles.ts';
 import type { Prop } from '../art/trees.ts';
 import { Act } from './state.ts';
@@ -109,7 +109,7 @@ export class Weather {
   private flakes: Flake[] = [];
   private drops: Flake[] = [];
   private hits: Hit[] = [];
-  private readonly water: Raster;
+  private readonly water: Bits;
   private readonly overcast: Phaser.GameObjects.Rectangle;
   private leaves: Leaf[] = [];
   private readonly piles: Pile[] = [];
@@ -126,7 +126,7 @@ export class Weather {
   private rainSoundStarting = false;
   private nextRainTry = 0;
 
-  constructor(scene: Phaser.Scene, trees: Prop[], water: Raster) {
+  constructor(scene: Phaser.Scene, trees: Prop[], water: Bits) {
     this.scene = scene;
     this.trees = trees;
     this.water = water;

@@ -1,14 +1,16 @@
 import Phaser from 'phaser';
 import { catFrames } from './textures.ts';
-import type { Raster } from '../art/raster.ts';
 import type { Prop } from '../art/trees.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
-import { LEVEL, TILE, levelAt } from '../world/map.ts';
+import { LEVEL, MAP_H, MAP_W, TILE, WORLD_H, WORLD_W, levelAt } from '../world/map.ts';
+import { hasUpright } from '../art/tiles.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 
 /** The sun's direction is rounded to one of this many, so rims are only redrawn now and then. */
 const DIRECTIONS = 16;
+/** The rims of what stands up in the ground are drawn in pieces this many tiles square. */
+const CHUNK = 8;
 /** Brightness of the outer rim pixel and of the one inside it. */
 const OUTER = 255, INNER = 110;
 
@@ -36,7 +38,7 @@ export class RimLight {
 
   constructor(
     scene: Phaser.Scene,
-    parts: { trees: { p: Pick<Prop, 'x' | 'y' | 'depthY'>; canvas: HTMLCanvasElement }[]; upright: Raster; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catSize: number },
+    parts: { trees: { p: Pick<Prop, 'x' | 'y' | 'depthY'>; canvas: HTMLCanvasElement }[]; upright: (x: number, y: number) => boolean; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catSize: number },
   ) {
     const add = (key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']) => {
       const tex = scene.textures.createCanvas(key, w, h)!;
@@ -45,18 +47,28 @@ export class RimLight {
     };
 
     // things in the ground art (on the lawn; those on raised ground go with the terrain below)
-    const up = parts.upright, W = up.w, H = up.h;
-    const isUp = (x: number, y: number) => up.isSet(x, y);
-    const groundRim = new Uint8ClampedArray(W * H);
-    const solidGround: Solid = (x, y) => isUp(x, y);
-    add('rim-ground', W, H, 0, 0, -99989, (out) => {
-      this.rimInto(groundRim, W, H, solidGround, solidGround);
-      for (let y = 0; y < H; y++)
-        for (let x = 0; x < W; x++) {
-          const v = groundRim[y * W + x];
-          if (v && levelAt(Math.floor(x / TILE), Math.floor(y / TILE)) === 0) out[(y * W + x) * 4 + 3] = v;
-        }
-    });
+    // (in pieces of CHUNK tiles square, each only as big as what stands up in it)
+    const W = WORLD_W, H = WORLD_H, isUp = parts.upright;
+    const groundRim = (x: number, y: number) => {
+      const [a, b] = this.d1, [c, d] = this.d2;
+      return !isUp(x, y) ? 0 : !isUp(x + a, y + b) ? OUTER : !isUp(x + c, y + d) ? INNER : 0;
+    };
+    for (let cy = 0; cy < MAP_H; cy += CHUNK)
+      for (let cx = 0; cx < MAP_W; cx += CHUNK) {
+        let x0 = MAP_W, y0 = MAP_H, x1 = -1, y1 = -1;
+        for (let ty = cy; ty < Math.min(MAP_H, cy + CHUNK); ty++)
+          for (let tx = cx; tx < Math.min(MAP_W, cx + CHUNK); tx++)
+            if (levelAt(tx, ty) === 0 && hasUpright(tx, ty)) { x0 = Math.min(x0, tx); y0 = Math.min(y0, ty); x1 = Math.max(x1, tx); y1 = Math.max(y1, ty); }
+        if (x1 < 0) continue;
+        const ox = x0 * TILE, oy = y0 * TILE, w = (x1 - x0 + 1) * TILE, h = (y1 - y0 + 1) * TILE;
+        add(`rim-ground-${cx}-${cy}`, w, h, ox, oy, -99989, (out) => {
+          for (let y = 0; y < h; y++)
+            for (let x = 0; x < w; x++) {
+              const v = groundRim(ox + x, oy + y);
+              if (v && levelAt(Math.floor((ox + x) / TILE), Math.floor((oy + y) / TILE)) === 0) out[(y * w + x) * 4 + 3] = v;
+            }
+        });
+      }
 
     // terrain: which level shows at each screen pixel, to find the edges of plateaus as drawn
     const OFF = 3 * LEVEL; // pieces can be lifted above the top of the map
@@ -82,7 +94,7 @@ export class RimLight {
             const sx = t.x + x, sy = t.y + y;
             let v = levelOnScreen(sx + a, sy + b) < t.level ? OUTER : levelOnScreen(sx + c, sy + d) < t.level ? INNER : 0;
             // bushes, rocks and hedges up on the plateau
-            if (!t.stairs && y < TILE) v = Math.max(v, groundRim[(sy + t.level * LEVEL) * W + sx] ?? 0);
+            if (!t.stairs && y < TILE) v = Math.max(v, groundRim(sx, sy + t.level * LEVEL));
             out[(y * r.w + x) * 4 + 3] = v;
           }
       });

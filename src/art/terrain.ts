@@ -2,7 +2,7 @@
 // drawn shifted up by its height, with an earthy cliff face hanging below
 // wherever the ground in front is lower. Stairs bridge one level on south faces.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { LAWN, applySeason } from './tiles.ts';
+import { LAWN, applySeason, buildGroundRegion } from './tiles.ts';
 import { dab } from './paint.ts';
 import { LEVEL, MAP_H, MAP_W, TILE, levelAt, tileAt } from '../world/map.ts';
 import { isStairs } from '../world/legend.ts';
@@ -87,7 +87,7 @@ function stairs(r: Raster, tx: number, ty: number): void {
     }
 }
 
-export function buildTerrain(ground: Raster): TerrainPiece[] {
+export function buildTerrain(): TerrainPiece[] {
   const out: TerrainPiece[] = [];
   for (let ty = 0; ty < MAP_H; ty++) {
     const levels = new Set<number>();
@@ -100,12 +100,14 @@ export function buildTerrain(ground: Raster): TerrainPiece[] {
       const maxFace = Math.max(...cols.map(faceH));
       const r = new Raster((x1 - x0 + 1) * TILE, TILE + maxFace);
       const on = new Set(cols);
+      // the ground of the row under the plateau, to lift up
+      const ground = buildGroundRegion(x0, ty, x1 - x0 + 1, 1, 0);
       for (const tx of cols) {
         const ox = (tx - x0) * TILE;
         // the top: this tile's ground art, lifted up
         for (let y = 0; y < TILE; y++)
           for (let x = 0; x < TILE; x++) {
-            const i = ((ty * TILE + y) * ground.w + tx * TILE + x) * 4;
+            const i = (y * ground.w + (tx - x0) * TILE + x) * 4;
             r.set(ox + x, y, raised([ground.data[i], ground.data[i + 1], ground.data[i + 2]], e));
           }
         // rims: a sunlit lip on the far edge, darker grass where it drops to the sides

@@ -5,6 +5,8 @@ import type { Prop } from '../art/trees.ts';
 import type { CatView } from './CatView.ts';
 import type { LivePlant } from './Meadow.ts';
 import { cullerFor } from './Culler.ts';
+import { toCanvas } from './textures.ts';
+import type { Mask } from '../art/raster.ts';
 
 type Box = { x: number; y: number; w: number; h: number };
 let count = 0;
@@ -33,7 +35,7 @@ export class PondReflection {
     scene: Phaser.Scene,
     box: Box,
     opts: {
-      waterMask: HTMLCanvasElement;
+      waterMask: Mask;
       catSheets: HTMLCanvasElement[];
       floraSheets: HTMLCanvasElement[];
       props: { canvas: HTMLCanvasElement; p: Prop }[];
@@ -49,10 +51,7 @@ export class PondReflection {
     this.raw = raw.getContext('2d')!;
     this.tex = scene.textures.createCanvas(key, w, h)!;
     this.out = this.tex.getContext();
-    this.mask = document.createElement('canvas');
-    this.mask.width = w;
-    this.mask.height = h;
-    this.mask.getContext('2d')!.drawImage(opts.waterMask, x, y, w, h, 0, 0, w, h);
+    this.mask = toCanvas(opts.waterMask.crop(x, y, w, h));
     cullerFor(scene).add(scene.add.image(x, y, key).setOrigin(0).setDepth(-99990).setAlpha(0.65));
     this.catTex = scene.textures.createCanvas(`${key}-cats`, w, h)!;
     cullerFor(scene).add(scene.add.image(x, y, `${key}-cats`).setOrigin(0).setDepth(-99989.9).setAlpha(0.65));

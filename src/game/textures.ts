@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Raster } from '../art/raster.ts';
 import { buildCatSheet, buildEyeSheet, COATS, CAT, framePos } from '../art/cat.ts';
-import { buildGrounds, buildWaterMask } from '../art/tiles.ts';
+import { buildWaterMask } from '../art/tiles.ts';
 import { buildProps } from '../art/trees.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
@@ -41,9 +41,7 @@ const tex = scene.textures;
     catFrames(tex.addCanvas(`cat-${c}`, canvas)!, canvas);
     return canvas;
   });
-  const grounds = buildGrounds();
-  grounds.forEach((g, i) => tex.addCanvas(`ground-${i}`, toCanvas(g)));
-  const terrain = buildTerrain(grounds[0]).map((t, i) => {
+  const terrain = buildTerrain().map((t, i) => {
     tex.addCanvas(`terrain-${i}`, toCanvas(t.raster));
     return t;
   });
@@ -105,6 +103,6 @@ const tex = scene.textures;
   const drop = new Raster(1, 1);
   drop.set(0, 0, [232, 244, 255]);
   tex.addCanvas('drop', toCanvas(drop));
-  return { cats, props, flora, terrain, water: buildWaterMask(grounds[0], grounds[1]) };
+  return { cats, props, flora, terrain, water: buildWaterMask() };
 }
 

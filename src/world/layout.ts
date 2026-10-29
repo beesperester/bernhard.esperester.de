@@ -1,16 +1,16 @@
-// The part of the park that is new in every garden. The landscape is fixed
-// (garden.ts: the water, the paths and bridges, the terraces and their stairs,
-// the landmark follies); the first cat into an empty garden picks a seed, and
-// from that seed this lays out the rest on the open ground: lawns and
+// What grows in the park. The first cat into an empty garden picks a seed;
+// from it park.ts lays out the landscape (garden.ts: the water, the paths and
+// bridges, the hills and their stairs, the landmark follies), and this lays
+// out the rest on its open ground: lawns and
 // meadows, flower beds and their box hedges, the maze, the tree house, the
 // themed zones (themes.ts: a funfair, say), the trees, bushes and rocks, and
 // the furniture. Every cat that joins is handed
 // the seed (net.ts) and lays out the same garden; when the last cat leaves,
 // the garden is gone, and the next one is a new one.
 //
-// Trees grow thickest where the real city has its parks and woods, and
-// outside the Ring (ZONES), so Berlin still looks like Berlin. Nothing grows
-// or stands right beside the Ring's railway (track.ts): the trains run there.
+// Trees grow thickest in the woods (ZONES), and hardly at all out on the
+// open meadows. Nothing grows or stands right beside the railway (track.ts):
+// the trains run there.
 
 import { hash2 } from '../art/raster.ts';
 import { BASE, ELEV, LANDMARK_SPOTS, ZONES } from './garden.ts';
@@ -33,8 +33,8 @@ export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
 
 /** How many of each piece a garden gets, in the order they are placed. */
 const WANT: [FurnitureKind, number][] = [
-  ['picnic', 3], ['blanket', 3], ['bistro', 3], ['birdbath', 5], ['bench', 14],
-  ['bed', 3], ['pump', 3], ['hotel', 3], ['catnip', 4], ['barrow', 3], ['box', 4],
+  ['picnic', 8], ['blanket', 8], ['bistro', 6], ['birdbath', 12], ['bench', 40],
+  ['bed', 6], ['pump', 6], ['hotel', 8], ['catnip', 10], ['barrow', 6], ['box', 10],
 ];
 
 const MAZE_W = 17, MAZE_H = 13;
@@ -155,7 +155,7 @@ export function layOut(seed: number): Layout {
     for (let x = 1; x < W - 1; x++) {
       if (!open(x, y)) continue;
       const n = noise(x, y, 7, 3);
-      if (zone(x, y) === 'o' ? n > 0.3 : n > (zone(x, y) === 'g' ? 0.6 : 0.68)) T[y][x] = ',';
+      if (zone(x, y) === 'o' ? n > 0.35 : n > (zone(x, y) === 'g' ? 0.6 : 0.64)) T[y][x] = ',';
     }
   for (let y = 2; y < H - 3; y++)
     for (let x = 2; x < W - 3; x++) {
@@ -173,28 +173,35 @@ export function layOut(seed: number): Layout {
       if (row >= 0) for (let i = -1; i <= w; i++) if ('.,'.includes(at(x + i, row)) && E[row][x + i] === E[y][x]) T[row][x + i] = '#';
     }
 
-  // trees: thick in the parks and woods and outside the Ring, a few along the streets; some pines
+  // trees: thick in the woods, here and there in the parkland, few out on the meadows; some pines
   const trees: Pt[] = [];
+  /** Trees by their tile, to keep the next one off them. */
+  const treeAt = new Set<number>();
+  const crowded = (x: number, y: number) => {
+    for (let j = -3; j <= 3; j++) for (let i = -4; i <= 4; i++) if (treeAt.has((y + j) * W + x + i)) return true;
+    return false;
+  };
   for (const [x, y] of order) {
     if (!'.,'.includes(at(x, y))) continue;
     // room round the trunk: nothing but grass beside it, and not at a terrace edge or the foot of stairs
     if ([[1, 0], [-1, 0], [0, 1], [0, -1], [0, 2]].some(([dx, dy]) => !'.,f'.includes(at(x + dx, y + dy)) || E[y + dy]?.[x + dx] !== E[y][x])) continue;
     if (E[y - 1][x] !== E[y][x] || at(x, y + 1) === 'S') continue;
     const z = zone(x, y);
-    const p = z === 'g' ? 0.3 : z === 'o' ? 0.16 : 0.025 + 0.2 * Math.max(0, noise(x, y, 9, 7) - 0.6) * 4;
+    const p = z === 'g' ? 0.32 : z === 'o' ? 0.015 : 0.03 + 0.2 * Math.max(0, noise(x, y, 9, 7) - 0.6) * 4;
     if (hash(x, y, 62) > p) continue;
-    if (trees.some(([tx, ty]) => Math.abs(tx - x) < 5 && Math.abs(ty - y) < 4)) continue;
+    if (crowded(x, y)) continue;
     if (LANDMARK_SPOTS.some((s) => x >= s.tx - 3 && x < s.tx + LANDMARK_SIZE[s.kind][0] + 3 && y >= s.ty - 1 && y < s.ty + LANDMARK_SIZE[s.kind][1] + 4)) continue;
     if (nearest([x, y], (hx, hy) => at(hx, hy) === 'H', 4)) continue;
     const pine = hash(x, y, 63) < (z === 'o' ? 0.45 : z === 'g' ? 0.3 : 0.15) || noise(x, y, 12, 64) > 0.78;
     T[y][x] = pine ? 'P' : 'T';
     trees.push([x, y]);
+    treeAt.add(y * W + x);
   }
 
   // bushes and rocks, here and there on the lawns
   for (let y = 2; y < H - 2; y++)
     for (let x = 2; x < W - 2; x++) {
-      if (!open(x, y) || trees.some(([tx, ty]) => Math.abs(tx - x) <= 1 && Math.abs(ty - y) <= 1)) continue;
+      if (!open(x, y) || [-1, 0, 1].some((j) => [-1, 0, 1].some((i) => treeAt.has((y + j) * W + x + i)))) continue;
       if (![[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dy]) => '.,f'.includes(at(x + dx, y + dy)))) continue;
       const h = hash(x, y, 71);
       if (h < 0.012) T[y][x] = 'b';

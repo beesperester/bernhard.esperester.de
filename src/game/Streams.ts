@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Raster, type RGB } from '../art/raster.ts';
+import { Raster, type Bits, type RGB } from '../art/raster.ts';
 import { toCanvas } from './textures.ts';
 import { STREAMS, along, type Stream } from '../world/streams.ts';
 import { seasonAt } from '../world/season.ts';
@@ -28,12 +28,12 @@ interface Drifter { id: number; t0: number; speed: number; side: number; texture
 export class Streams {
   private readonly glints: Pool;
   private readonly drifting: Pool;
-  private readonly water: Raster;
+  private readonly water: Bits;
   private readonly slots = new Map<string, Drifter | null>();
   /** Each stream's glints: where along it they start, which side of the channel, and how they twinkle and drift. */
   private readonly glintsOf: { start: number; side: number; phase: number; rate: number }[][];
 
-  constructor(scene: Phaser.Scene, water: Raster) {
+  constructor(scene: Phaser.Scene, water: Bits) {
     this.water = water;
     const glint = (w: number, h: number) => {
       const r = new Raster(w, h);

@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import { CAT, framePos } from '../art/cat.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
-import type { Raster } from '../art/raster.ts';
 import type { CatView } from './CatView.ts';
 import { LEVEL, TILE, WORLD_H, WORLD_W, casterHeight, elevAt, levelAt } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
@@ -15,6 +14,8 @@ import { cullerFor } from './Culler.ts';
 //    are projected onto the ground along the sun's direction, each pixel as far
 //    as it is high.
 // After sunset these fade into soft round shadows under everything.
+// The park is big, so all this is only worked out in a window round the
+// camera, cast anew when the camera has wandered too near its edge.
 
 const RAD = Math.PI / 180;
 /** Long evening shadows are capped at this sun height, so they stay on screen. */
@@ -30,6 +31,12 @@ const CAT_DEPTH = 2;
 /** Room around a cat's shadow for the longest one. */
 const CAT_REACH = Math.ceil(CAT * Math.tan((90 - MIN_EL) * RAD)) + 2;
 const CELL = CAT + 2 * CAT_REACH;
+/** The window shadows are cast in reaches this far (px) beyond the view... */
+const WINDOW_MARGIN = 256;
+/** ...and is moved once the view has come within this of its edge. */
+const WINDOW_SLACK = 112;
+/** At most this long (ms) a frame spends casting the next window. */
+const BUDGET_MS = 5;
 
 /** Something whose outline casts a shadow: a sprite (or part of a sheet) and where its foot is. */
 export interface Caster {
@@ -50,21 +57,40 @@ export interface Caster {
   depth: number | 'round';
 }
 
-interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; t: TerrainPiece }
+interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; t: TerrainPiece; drawn: boolean }
+
+/** A stretch of the ground shadows are worked out over (world px), and all that is worked out for it. */
+interface Win {
+  ox: number; oy: number; W: number; H: number;
+  /** Height of the surface at every ground pixel (terrain plus whatever stands there). */
+  height: Float32Array;
+  /** Where a shadow falls: the ground, or the top of something drawn standing there (not the bare edges of its tile). */
+  floor: Float32Array;
+  level: Uint8Array;
+  /** Swept: the highest a sunward obstacle reaches above each pixel, minus the ray's rise. */
+  sky: Float32Array;
+  /** Projected outlines: level + 1 of the ground they fall on, 0 where none. */
+  outlines: Uint8Array;
+  /** Final: 1 where the ground is in shade. */
+  shade: Uint8Array;
+  /** Unit ground vector away from the sun, scaled per px of height; and which sun it was cast for. */
+  s: [number, number];
+  key: string;
+}
+
+const emptyWin = (): Win => ({
+  ox: 0, oy: 0, W: 0, H: 0, height: new Float32Array(0), floor: new Float32Array(0), level: new Uint8Array(0),
+  sky: new Float32Array(0), outlines: new Uint8Array(0), shade: new Uint8Array(0), s: [0, 0], key: '',
+});
 
 export class Shadows {
   private readonly scene: Phaser.Scene;
-  /** Height of the surface at every ground pixel (terrain plus whatever stands there). */
-  private readonly height: Float32Array;
-  /** Where a shadow falls: the ground, or the top of something drawn standing there (not the bare edges of its tile). */
-  private readonly floor: Float32Array;
-  private readonly level: Uint8Array;
-  /** Swept: the highest a sunward obstacle reaches above each pixel, minus the ray's rise. */
-  private readonly sky: Float32Array;
-  /** Projected outlines: level + 1 of the ground they fall on, 0 where none. */
-  private readonly outlines: Uint8Array;
-  /** Final: 1 where the ground is in shade. */
-  private readonly shade: Uint8Array;
+  /** The window shown, and the one the next is cast in (they take turns, so the arrays are reused). */
+  private win = emptyWin();
+  private spare = emptyWin();
+  /** A cast under way, a little each frame (the old shadows stay up meanwhile). */
+  private job: Generator<void, void> | null = null;
+  private readonly upright: (x: number, y: number) => boolean;
   private readonly ground: Phaser.Textures.CanvasTexture;
   private readonly groundImg: Phaser.GameObjects.Image;
   private readonly overlays: Overlay[] = [];
@@ -75,31 +101,13 @@ export class Shadows {
   private readonly catFrames = new Map<number, ImageData>();
   private readonly cats = new Map<CatView, { tex: Phaser.Textures.CanvasTexture; img: Phaser.GameObjects.Image; frame: number; key: string }>();
   private readonly blobs: Phaser.GameObjects.Image[] = [];
-  private key = '';
   private catCount = 0;
-  /** Unit ground vector away from the sun, scaled per px of height. */
-  private s: [number, number] = [0, 0];
   /** 0 at night, 1 in full sun: how strong cast shadows are (soft ones take over as it fades). */
   strength = 0;
 
-  constructor(scene: Phaser.Scene, opts: { terrain: TerrainPiece[]; casters: Caster[]; blobs: { x: number; y: number; w: number; h: number; depth: number }[]; catSheet: HTMLCanvasElement; upright: Raster }) {
+  constructor(scene: Phaser.Scene, opts: { terrain: TerrainPiece[]; casters: Caster[]; blobs: { x: number; y: number; w: number; h: number; depth: number }[]; catSheet: HTMLCanvasElement; upright: (x: number, y: number) => boolean }) {
     this.scene = scene;
-    const W = WORLD_W, H = WORLD_H, n = W * H;
-    this.height = new Float32Array(n);
-    this.floor = new Float32Array(n);
-    this.level = new Uint8Array(n);
-    this.sky = new Float32Array(n);
-    this.outlines = new Uint8Array(n);
-    this.shade = new Uint8Array(n);
-    for (let y = 0; y < H; y++)
-      for (let x = 0; x < W; x++) {
-        const l = levelAt(Math.floor(x / TILE), Math.floor(y / TILE));
-        this.level[y * W + x] = l;
-        const h = l * LEVEL + casterHeight(x, y);
-        this.height[y * W + x] = h;
-        // a rock is round but blocks the sun over its whole tile: the lawn round it still takes its shadow
-        this.floor[y * W + x] = opts.upright.isSet(x, y) ? h : l * LEVEL;
-      }
+    this.upright = opts.upright;
     this.casters = opts.casters.map((c) => {
       const ctx = scratch(c.w, c.h);
       ctx.clearRect(0, 0, c.w, c.h);
@@ -110,12 +118,12 @@ export class Shadows {
       return { ...c, alpha };
     });
 
-    this.ground = scene.textures.createCanvas('sun-shadows', W, H)!;
+    this.ground = scene.textures.createCanvas('sun-shadows', 1, 1)!;
     this.groundImg = scene.add.image(0, 0, 'sun-shadows').setOrigin(0).setDepth(-99993).setVisible(false);
     for (const [i, t] of opts.terrain.entries()) {
       if (t.stairs) continue;
       const tex = scene.textures.createCanvas(`sun-shadows-${i}`, t.raster.w, TILE)!;
-      this.overlays.push({ t, tex, img: cullerFor(scene).add(scene.add.image(t.x, t.y, `sun-shadows-${i}`).setOrigin(0).setDepth(t.depth + 0.001).setVisible(false)) });
+      this.overlays.push({ t, tex, drawn: false, img: cullerFor(scene).add(scene.add.image(t.x, t.y, `sun-shadows-${i}`).setOrigin(0).setDepth(t.depth + 0.001).setVisible(false)) });
     }
 
     // the cats' outlines (all coats share them)
@@ -143,22 +151,27 @@ export class Shadows {
 
   /** How shaded the ground under (x, y) is right now, 0..1, for darkening cats standing there. */
   shadeAt(x: number, y: number): number {
-    const px = Math.round(x), py = Math.round(y);
-    if (px < 0 || py < 0 || px >= WORLD_W || py >= WORLD_H) return 0;
-    return this.shade[py * WORLD_W + px] * this.strength;
+    const w = this.win, px = Math.round(x) - w.ox, py = Math.round(y) - w.oy;
+    if (px < 0 || py < 0 || px >= w.W || py >= w.H) return 0;
+    return w.shade[py * w.W + px] * this.strength;
   }
 
-  /** `overcast` (0..1): rain clouds soften the shadows away. */
-  update(light: Light, cats: CatView[], overcast = 0): void {
+  /** `overcast` (0..1): rain clouds soften the shadows away. `view`: the part of the world on screen. */
+  update(light: Light, cats: CatView[], overcast: number, view: Phaser.Geom.Rectangle): void {
     const el = light.elevation;
     this.strength = Math.max(0, Math.min(1, el / 10)) * (1 - overcast * 0.85);
     const sun = this.strength > 0.01;
     if (sun) {
       const key = `${Math.round(light.azimuth / AZ_STEP)}:${Math.round(Math.min(el, 70) / EL_STEP)}`;
-      if (key !== this.key) {
-        this.key = key;
-        this.cast(light.azimuth, Math.max(MIN_EL, Math.min(el, 70)));
+      const w = this.win, s = WINDOW_SLACK;
+      const inside = view.x - s >= w.ox && view.y - s >= w.oy && view.right + s <= w.ox + w.W && view.bottom + s <= w.oy + w.H;
+      if (!this.job && (key !== w.key || !inside)) {
+        this.job = this.recast(view, light.azimuth, Math.max(MIN_EL, Math.min(el, 70)), key);
+        // (the first time, there's nothing to show meanwhile)
+        if (!w.key) while (!this.job.next().done);
       }
+      const start = performance.now();
+      while (this.job && performance.now() - start < BUDGET_MS) if (this.job.next().done) this.job = null;
     }
     const a = ALPHA * this.strength;
     this.groundImg.setVisible(sun).setAlpha(a);
@@ -170,52 +183,108 @@ export class Shadows {
 
   // ---------------------------------------------------------------- casting
 
-  private cast(azimuth: number, elevation: number): void {
-    const W = WORLD_W, H = WORLD_H;
+  /** Cast the shadows anew in a window round `view`, a slice at a time, then show them. */
+  private *recast(view: Phaser.Geom.Rectangle, azimuth: number, elevation: number, key: string): Generator<void, void> {
+    const w = this.spare;
+    yield* this.place(w, view);
     const A = azimuth * RAD, rise = Math.tan(elevation * RAD);
     // towards the sun on the ground (x right, y down the screen), and the shadow per px of height
     const gx = Math.sin(A), gy = -Math.cos(A);
-    this.s = [-gx / rise, -gy / rise];
-    this.sweep(gx, gy, rise);
-    this.project();
-    const { floor, sky, outlines, level, shade } = this;
+    w.s = [-gx / rise, -gy / rise];
+    w.key = key;
+    yield* this.sweep(w, gx, gy, rise);
+    yield* this.project(w);
+    const { W, H, ox, oy, floor, sky, outlines, level, shade } = w;
     for (let i = 0; i < shade.length; i++) shade[i] = sky[i] > floor[i] + 0.5 || outlines[i] === level[i] + 1 ? 1 : 0;
+    yield;
 
     // the lawn...
     const img = new ImageData(W, H);
     const d = img.data;
     for (let i = 0; i < shade.length; i++)
       if (shade[i] && level[i] === 0) { d[i * 4] = COLOUR[0]; d[i * 4 + 1] = COLOUR[1]; d[i * 4 + 2] = COLOUR[2]; d[i * 4 + 3] = 255; }
-    this.ground.getContext().putImageData(img, 0, 0);
-    this.ground.refresh();
-    // ...and the tops of the plateaus, which are drawn lifted
-    for (const { t, tex } of this.overlays) {
-      const o = new ImageData(t.raster.w, TILE);
-      const lift = t.level * LEVEL;
+    yield;
+    // ...and the tops of the plateaus, which are drawn lifted (those in the window, and those to be wiped)
+    const tops: [Overlay, ImageData][] = [];
+    for (const o of this.overlays) {
+      const { t } = o, lift = t.level * LEVEL;
+      if (t.x + t.raster.w <= ox || t.x >= ox + W || t.y + lift + TILE <= oy || t.y + lift >= oy + H) {
+        if (o.drawn) tops.push([o, new ImageData(t.raster.w, TILE)]);
+        continue;
+      }
+      const top = new ImageData(t.raster.w, TILE);
       for (let y = 0; y < TILE; y++)
         for (let x = 0; x < t.raster.w; x++) {
           if (!t.raster.isSet(x, y)) continue;
-          const wx = t.x + x, wy = t.y + y + lift;
+          const wx = t.x + x - ox, wy = t.y + y + lift - oy;
           if (wx < 0 || wy < 0 || wx >= W || wy >= H) continue;
           const i = wy * W + wx;
           if (!shade[i] || level[i] !== t.level) continue;
           const k = (y * t.raster.w + x) * 4;
-          o.data[k] = COLOUR[0]; o.data[k + 1] = COLOUR[1]; o.data[k + 2] = COLOUR[2]; o.data[k + 3] = 255;
+          top.data[k] = COLOUR[0]; top.data[k + 1] = COLOUR[1]; top.data[k + 2] = COLOUR[2]; top.data[k + 3] = 255;
         }
-      tex.getContext().putImageData(o, 0, 0);
-      tex.refresh();
+      tops.push([o, top]);
+      if (tops.length % 16 === 0) yield;
     }
+
+    // show them all at once
+    if (this.ground.width !== W || this.ground.height !== H) {
+      this.ground.setSize(W, H);
+      this.groundImg.setTexture('sun-shadows');
+    }
+    this.ground.getContext().putImageData(img, 0, 0);
+    this.ground.refresh();
+    this.groundImg.setPosition(ox, oy);
+    for (const [o, top] of tops) {
+      o.tex.getContext().putImageData(top, 0, 0);
+      o.tex.refresh();
+      o.drawn = top.data.some((v) => v > 0);
+    }
+    this.spare = this.win;
+    this.win = w;
     this.catFrames.clear();
+  }
+
+  /** Put window `w` round `view`, and read the height of everything in it. */
+  private *place(w: Win, view: Phaser.Geom.Rectangle): Generator<void, void> {
+    const M = WINDOW_MARGIN;
+    const x0 = Math.max(0, Math.floor((view.x - M) / TILE) * TILE), y0 = Math.max(0, Math.floor((view.y - M) / TILE) * TILE);
+    const x1 = Math.min(WORLD_W, Math.ceil((view.right + M) / TILE) * TILE), y1 = Math.min(WORLD_H, Math.ceil((view.bottom + M) / TILE) * TILE);
+    const W = x1 - x0, H = y1 - y0, n = W * H;
+    w.ox = x0;
+    w.oy = y0;
+    if (W !== w.W || H !== w.H) {
+      w.W = W;
+      w.H = H;
+      w.height = new Float32Array(n);
+      w.floor = new Float32Array(n);
+      w.level = new Uint8Array(n);
+      w.sky = new Float32Array(n);
+      w.outlines = new Uint8Array(n);
+      w.shade = new Uint8Array(n);
+    }
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const wx = x0 + x, wy = y0 + y;
+        const l = levelAt(Math.floor(wx / TILE), Math.floor(wy / TILE));
+        w.level[y * W + x] = l;
+        const h = l * LEVEL + casterHeight(wx, wy);
+        w.height[y * W + x] = h;
+        // a rock is round but blocks the sun over its whole tile: the lawn round it still takes its shadow
+        w.floor[y * W + x] = this.upright(wx, wy) ? h : l * LEVEL;
+      }
+      if (y % 64 === 63) yield;
+    }
   }
 
   /**
    * For every pixel, how high the tallest obstacle between it and the sun
    * reaches above the ray: a pixel is in shade where that is above its own
    * height. Each pixel only needs its neighbour one step towards the sun, so
-   * one pass from the sunny edge of the map does it.
+   * one pass from the sunny edge of the window does it.
    */
-  private sweep(gx: number, gy: number, rise: number): void {
-    const W = WORLD_W, H = WORLD_H, { height, sky } = this;
+  private *sweep(w: Win, gx: number, gy: number, rise: number): Generator<void, void> {
+    const { W, H, height, sky } = w;
     const alongX = Math.abs(gx) >= Math.abs(gy);
     // one step: a whole pixel along the main axis, a fraction along the other
     const main = alongX ? Math.sign(gx) : Math.sign(gy);
@@ -234,10 +303,11 @@ export class Shadows {
         const f = k + side, k0 = Math.floor(f), u = f - k0;
         const a = k0 >= 0 && k0 < across ? top(at(prev, k0)) : -1e9;
         const b = k0 + 1 >= 0 && k0 + 1 < across ? top(at(prev, k0 + 1)) : -1e9;
-        // off the map counts as nothing in the way
+        // off the window counts as nothing in the way
         const v = u < 1e-6 || b === -1e9 ? a : a === -1e9 ? b : a + (b - a) * u;
         sky[i] = v - drop;
       }
+      if (n % 96 === 95) yield;
     }
   }
 
@@ -249,22 +319,30 @@ export class Shadows {
    * tree's shadow runs on up a slope, or down off a plateau, instead of
    * stopping at the edge.)
    */
-  private project(): void {
-    const W = WORLD_W, H = WORLD_H, out = this.outlines, level = this.level;
+  private *project(w: Win): Generator<void, void> {
+    const { W, H, ox, oy } = w, out = w.outlines, level = w.level;
     out.fill(0);
-    const [sx, sy] = this.s;
+    const [sx, sy] = w.s;
     const steps = Math.ceil(Math.hypot(sx, sy)) + 1;
     let levels = 0;
     for (let i = 0; i < level.length; i++) if (level[i] > levels) levels = level[i];
     /** Shade the ground at level l at (px, py), if that's where the ground there is. */
     const mark = (px: number, py: number, l: number) => {
+      px -= ox;
+      py -= oy;
       if (px < 0 || py < 0 || px >= W || py >= H) return;
       const i = py * W + px;
       if (level[i] === l) out[i] = l + 1;
     };
+    const per = Math.hypot(sx, sy);
+    let done = 0;
     for (const c of this.casters) {
+      // (only those whose shadow can reach the window)
+      const reach = (c.h + c.lift) * per + 4 + (c.depth === 'round' ? c.w : c.depth);
+      if (c.x + c.w + reach < ox || c.x - reach > ox + W || Math.max(c.y + c.h, c.ground) + reach < oy || c.y - reach > oy + H) continue;
+      if (++done % 24 === 0) yield;
       const foot = c.y + c.h - 1; // screen y of the bottom row
-      if (c.depth === 'round') { this.projectRound(c, steps, levels, mark); continue; }
+      if (c.depth === 'round') { this.projectRound(c, w.s, steps, levels, mark); continue; }
       const deep = c.depth;
       for (let y = 0; y < c.h; y++)
         for (let x = 0; x < c.w; x++) {
@@ -289,8 +367,7 @@ export class Shadows {
    * taken as a disc lying level at that height (a slice through the crown),
    * and its shadow is that disc, moved along the sun's rays down to the ground.
    */
-  private projectRound(c: Caster & { alpha: Uint8Array }, steps: number, levels: number, mark: (px: number, py: number, l: number) => void): void {
-    const [sx, sy] = this.s;
+  private projectRound(c: Caster & { alpha: Uint8Array }, [sx, sy]: [number, number], steps: number, levels: number, mark: (px: number, py: number, l: number) => void): void {
     const foot = c.y + c.h - 1;
     for (let y = 0; y < c.h; y++) {
       const h0 = Math.min(c.cap, foot - (c.y + y));
@@ -324,7 +401,7 @@ export class Shadows {
     let img = this.catFrames.get(frame);
     if (img) return img;
     img = new ImageData(CELL, CELL);
-    const [sx, sy] = this.s;
+    const [sx, sy] = this.win.s;
     const steps = Math.ceil(Math.hypot(sx, sy)) + 1;
     const c = CELL / 2, [x0, y0] = framePos(frame), w = this.catSheetW;
     for (let y = 0; y < CAT; y++)
@@ -356,15 +433,15 @@ export class Shadows {
       }
       s.img.setVisible(sun);
       if (!sun) continue;
-      if (s.frame !== cat.frame || s.key !== this.key) {
+      if (s.frame !== cat.frame || s.key !== this.win.key) {
         s.frame = cat.frame;
-        s.key = this.key;
+        s.key = this.win.key;
         s.tex.getContext().putImageData(this.catFrame(cat.frame), 0, 0);
         s.tex.refresh();
       }
       // a jumping cat's shadow slides away from it; on a ledge it lies on the ledge
       const elev = elevAt(cat.x, cat.y), up = cat.z - elev;
-      const [sx, sy] = this.s;
+      const [sx, sy] = this.win.s;
       s.img.setPosition(Math.round(cat.x + sx * up), Math.round(cat.y + sy * up - elev)).setAlpha(alpha)
         .setDepth(elev > 0 ? Math.floor(cat.y / TILE) * TILE + 0.0015 : -99992);
     }

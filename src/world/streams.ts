@@ -3,8 +3,8 @@
 // other: downhill on the screen, from the end higher up the map to the one
 // further down (the big lake at the bottom). Nothing has to be marked on the
 // map: any run of water one tile wide is a stream, and wider water is a pond.
-// The rivers and canals ('~') run the way the real ones do: the generator
-// takes their lines from OpenStreetMap (RIVERS in garden.ts).
+// The river ('~') runs the way the park generator dug it, in at one edge of
+// the park, through the big lake and out at another (RIVERS in garden.ts).
 // Running water never freezes: in winter the ponds ice over and the streams keep flowing.
 import { MAP_H, MAP_W, TILE, isNarrow, tileAt } from './map.ts';
 import { RIVERS } from './garden.ts';

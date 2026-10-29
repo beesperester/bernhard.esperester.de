@@ -1,7 +1,7 @@
 import { Act, Prey, SWIPE_AT_MS, pawAt } from '../state.ts';
 import { canLure } from '../growth.ts';
 import type { CatView } from '../CatView.ts';
-import type { Raster } from '../../art/raster.ts';
+import type { Bits } from '../../art/raster.ts';
 import { lightAt } from '../../world/sky.ts';
 import type { Effects } from './Effects.ts';
 import { Pool, clamp01, hash2, lerp, remember, seedRng, smooth, strHash, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
@@ -49,7 +49,7 @@ interface Lure {
 
 export class Fish implements Fauna {
   readonly catches = [Prey.Fish] as const;
-  private readonly water: Raster;
+  private readonly water: Bits;
   private readonly fx: Effects;
   private readonly isCaught: (id: number) => boolean;
   /** Spots well out in the water, and spots near the bank. */

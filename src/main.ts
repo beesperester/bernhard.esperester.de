@@ -10,7 +10,7 @@ import { Chain } from './net/ledger.ts';
 import { idbChainStore, useChain } from './net/chainStore.ts';
 import { latestBeacon } from './net/beacon.ts';
 import { startStamping } from './net/stamping.ts';
-import { Net, useNet } from './net/net.ts';
+import { Net, loadTrack, useNet } from './net/net.ts';
 import { plant } from './world/seed.ts';
 import '@fontsource/pixelify-sans/latin-400.css';
 import '@fontsource/pixelify-sans/latin-ext-400.css';
@@ -49,7 +49,7 @@ await new Promise((r) => {
   setTimeout(r, 100);
 });
 // (only now: everything that asks about the map needs the seed)
-const { GardenScene } = await import('./game/GardenScene.ts');
+const [{ GardenScene }] = await Promise.all([import('./game/GardenScene.ts'), loadTrack()]);
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',

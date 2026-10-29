@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { STREAMS, along, findStreams } from './streams.ts';
-import { TILE, tileAt } from './map.ts';
+import { TILE, WORLD_H, WORLD_W, tileAt } from './map.ts';
 import { isWaterway } from './legend.ts';
 
 const mapOf = (rows: string[]) => (tx: number, ty: number) => rows[ty]?.[tx] ?? 'F';
@@ -62,9 +62,11 @@ describe('streams', () => {
       }
   });
 
-  it('in the garden, the longest river runs west, like the Spree', () => {
-    const long = STREAMS.filter((s) => s.river).reduce((a, b) => (b.length > a.length ? b : a));
-    expect(long.length).toBeGreaterThan(TILE * 40);
-    expect(along(long, long.length).x).toBeLessThan(along(long, 0).x);
+  it('in the park, the river comes in at one edge and leaves at another', () => {
+    const rivers = STREAMS.filter((s) => s.river);
+    expect(rivers.reduce((n, s) => n + s.length, 0)).toBeGreaterThan(TILE * 40);
+    const edge = (p: { x: number; y: number }) => Math.min(p.x, p.y, WORLD_W - p.x, WORLD_H - p.y) < TILE * 4;
+    const ends = rivers.flatMap((s) => [along(s, 0), along(s, s.length)]).filter(edge);
+    expect(ends.length).toBeGreaterThanOrEqual(2);
   });
 });

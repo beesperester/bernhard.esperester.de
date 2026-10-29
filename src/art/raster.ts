@@ -8,6 +8,42 @@ export function hex(h: string): RGB {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+/** One bit of a picture per pixel (a byte each): where the water is, say. Asked like a raster's alpha. */
+/** Anything that says, pixel by pixel, whether it is set. */
+export interface Bits { readonly w: number; readonly h: number; isSet(x: number, y: number): boolean }
+
+export class Mask implements Bits {
+  readonly data: Uint8Array;
+  readonly w: number;
+  readonly h: number;
+
+  constructor(w: number, h: number) {
+    this.w = w;
+    this.h = h;
+    this.data = new Uint8Array(w * h);
+  }
+
+  set(x: number, y: number): void {
+    if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.data[y * this.w + x] = 1;
+  }
+
+  isSet(x: number, y: number): boolean {
+    return x >= 0 && y >= 0 && x < this.w && y < this.h && this.data[y * this.w + x] === 1;
+  }
+
+  /** The part in box (x, y, w, h), looked at as if it were all there is. */
+  window(x: number, y: number, w: number, h: number): Bits {
+    return { w, h, isSet: (i, j) => i >= 0 && j >= 0 && i < w && j < h && this.isSet(x + i, y + j) };
+  }
+
+  /** The part in box (x, y, w, h) as a raster: white where set. */
+  crop(x: number, y: number, w: number, h: number): Raster {
+    const r = new Raster(w, h);
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (this.isSet(x + i, y + j)) r.set(i, j, [255, 255, 255]);
+    return r;
+  }
+}
+
 export class Raster {
   readonly data: Uint8ClampedArray<ArrayBuffer>;
   readonly w: number;

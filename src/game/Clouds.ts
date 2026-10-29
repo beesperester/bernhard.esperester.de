@@ -5,6 +5,8 @@ import { TILE, WORLD_H, WORLD_W } from '../world/map.ts';
 
 /** About one cloud per 200 tiles of park. */
 const COUNT = Math.round((WORLD_W * WORLD_H) / (TILE * TILE * 200));
+/** They come in this many shapes (one picture each), which the clouds share. */
+const SHAPES = 24;
 /** Drift in world px per second, roughly with the wind (towards the lower right). */
 const VX = 5;
 const VY = 1.6;
@@ -21,12 +23,17 @@ export class Clouds {
   private readonly clouds: { img: Phaser.GameObjects.Image; shape: CloudShape; ox: number; oy: number }[] = [];
 
   constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement) {
-    for (let i = 0; i < COUNT; i++) {
+    const shapes: CloudShape[] = [];
+    for (let i = 0; i < SHAPES; i++) {
       const w = 150 + ((i * 53) % 70), h = 80 + ((i * 31) % 34);
-      const shape = buildCloud(i + 1, w, h);
-      scene.textures.addCanvas(`cloud-${i}`, toCanvas(shape.raster));
+      shapes.push(buildCloud(i + 1, w, h));
+      scene.textures.addCanvas(`cloud-${i}`, toCanvas(shapes[i].raster));
+    }
+    for (let i = 0; i < COUNT; i++) {
+      // (neighbours along the drift look different)
+      const k = (i * 7) % SHAPES, shape = shapes[k];
       this.clouds.push({
-        img: scene.add.image(0, 0, `cloud-${i}`).setOrigin(0).setDepth(90000),
+        img: scene.add.image(0, 0, `cloud-${k}`).setOrigin(0).setDepth(90000),
         shape,
         // spread evenly along the drift so the gaps between clouds stay generous
         ox: (i / COUNT) * FIELD_W + (i % 2) * 90,

@@ -1,8 +1,7 @@
 // Famous places of Berlin, as follies in the park: weathered stone monuments
-// standing where the real ones are, some whole, some fallen into ruin with
-// their stones scattered about, and some a cat can climb, ledge by ledge
-// (tools/berlin/generate.ts places them, garden.ts lists where they ended up,
-// art/landmarks.ts draws them).
+// about the park, some whole, some fallen into ruin with their stones
+// scattered about, and some a cat can climb, ledge by ledge (world/park.ts
+// places them, garden.ts lists where they ended up, art/landmarks.ts draws them).
 //
 // Each one is built from a few simple shapes (blocks, columns, balls and
 // domes) in px from the top-left of its tiles, with heights. The same shapes

@@ -4,7 +4,6 @@
 import { joinRoom, selfId, type Room } from 'trystero';
 import type { Prey, CatMsg } from '../game/state.ts';
 import { sanitizeCat, sanitizeCatch, sanitizeCoaster, sanitizeSeed, sanitizeShake, sanitizeTrain, sanitizeVote, sanitizeWorld, type CoasterMsg, type TrainMsg, type VoteMsg, type WorldMsg } from './protocol.ts';
-import { NOTCHES, SPEEDS, TRACK_LENGTH } from '../game/train.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 import { newSeed, older, type WorldSeed } from '../world/seed.ts';
 import { MAX_ZONES } from '../world/themes.ts';
@@ -113,7 +112,12 @@ export interface NetEvents {
   onCoaster: (peerId: string, msg: CoasterMsg) => void;
 }
 
-const trainOf = (d: unknown) => sanitizeTrain(d, TRACK_LENGTH, NOTCHES, SPEEDS[NOTCHES]);
+// the track is laid out from the garden's seed: till that's known (loadTrack), word of the train is ignored
+let train: typeof import('../game/train.ts') | null = null;
+export async function loadTrack(): Promise<void> {
+  train = await import('../game/train.ts');
+}
+const trainOf = (d: unknown) => (train ? sanitizeTrain(d, train.TRACK_LENGTH, train.NOTCHES, train.SPEEDS[train.NOTCHES]) : null);
 
 /** This visit's connection id (what our signed scoreboard entry is bound to). */
 export const PEER = selfId;

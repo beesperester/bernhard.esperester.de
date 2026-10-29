@@ -1,9 +1,9 @@
 import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { COATS, CAT } from '../art/cat.ts';
-import { buildUprightMask } from '../art/tiles.ts';
+import { uprightAt } from '../art/tiles.ts';
+import { Ground } from './Ground.ts';
 import { buildProps, type Prop } from '../art/trees.ts';
-import type { Raster } from '../art/raster.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
 import { HOUSES, TREES, standingOn, surfaceAt } from '../world/trees.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, COASTERS, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
@@ -169,6 +169,7 @@ export class GardenScene extends Phaser.Scene {
   private landmarks!: Landmarks;
   private puddles!: Puddles;
   private waterSurface!: WaterSurface;
+  private ground!: Ground;
   private lighting!: Lighting;
   private readonly dash = new Dash();
   private furniture!: Furniture;
@@ -220,11 +221,9 @@ export class GardenScene extends Phaser.Scene {
   create(): void {
     const canvases = makeTextures(this);
 
-    const grounds = [0, 1].map((p) => this.add.image(0, 0, `ground-${p}`).setOrigin(0).setDepth(-100000));
-    grounds[1].setVisible(false);
+    this.ground = new Ground(this);
     // raised ground: each plateau row lifted by its height, sorted like everything else by ground y
     canvases.terrain.forEach((t, i) => cullerFor(this).add(this.add.image(t.x, t.y, `terrain-${i}`).setOrigin(0).setDepth(t.depth)));
-    this.time.addEvent({ delay: 700, loop: true, callback: () => grounds.forEach((g) => g.setVisible(!g.visible)) });
 
     const props = buildProps();
     this.trees = new Trees(this, props, canvases.props);
@@ -246,7 +245,7 @@ export class GardenScene extends Phaser.Scene {
     this.meadow = new Meadow(this);
     const water = canvases.water;
     const reflect = {
-      waterMask: toCanvas(water),
+      waterMask: water,
       catSheets: canvases.cats,
       floraSheets: canvases.flora,
       props: props.map((p, i) => ({ p, canvas: canvases.props[i] })),
@@ -262,7 +261,7 @@ export class GardenScene extends Phaser.Scene {
     // time of day: tint, sunlit rims, lanterns, and stars and moon in the water
     this.daylight = new Daylight(this, Date.now());
     // which pixels of the ground art stand up from it: for sunlit rims, and for where shadows can't fall
-    const upright = buildUprightMask();
+    const upright = uprightAt;
     this.rims = new RimLight(this, {
       trees: [...reflect.props, ...standing], upright, terrain: canvases.terrain,
       catSheet: canvases.cats[0], catSize: CAT,
@@ -278,7 +277,7 @@ export class GardenScene extends Phaser.Scene {
     this.shadows = this.makeShadows(props, canvases, furniture, upright);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
-    this.lighting = new Lighting(this, reflect.props, this.trees, canvases.terrain);
+    this.lighting = new Lighting(this, reflect.props, this.trees, canvases.terrain, this.ground);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
     catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
@@ -474,7 +473,7 @@ export class GardenScene extends Phaser.Scene {
   }
 
   /** Who casts what shadow: trees, lanterns and furniture by their outlines, and soft blobs under everything for the night. */
-  private makeShadows(props: Prop[], canvases: ReturnType<typeof makeTextures>, furniture: Furniture, upright: Raster): Shadows {
+  private makeShadows(props: Prop[], canvases: ReturnType<typeof makeTextures>, furniture: Furniture, upright: (x: number, y: number) => boolean): Shadows {
     const casters: Caster[] = [];
     const blobs: { x: number; y: number; w: number; h: number; depth: number }[] = [];
     props.forEach((p, i) => {
@@ -607,6 +606,7 @@ export class GardenScene extends Phaser.Scene {
     // only your own cat shows through the trees; the others are simply behind them
     // only animate plants and redraw reflections that are on screen
     const view = this.cameras.main.worldView;
+    this.ground.update(view, time);
     this.trees.update([this.me], view);
     this.catSounds.update(cats, time);
     cullerFor(this).update(view);
@@ -630,7 +630,7 @@ export class GardenScene extends Phaser.Scene {
     // under rain clouds the sun's rims, shadows and rays fade
     const overcast = Math.min(1, rainfall(gt) * 1.4);
     this.rims.update(overcast ? { ...light, rim: light.rim * (1 - overcast * 0.85) } : light);
-    this.shadows.update(light, cats, overcast);
+    this.shadows.update(light, cats, overcast, view);
     catLight.soft = 0.06 + 0.2 * (1 - this.shadows.strength);
     catLight.rim = this.rims.strength;
     catLight.rimColour = this.rims.colour;

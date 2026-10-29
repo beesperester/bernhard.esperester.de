@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { mulberry32, type Raster } from '../../art/raster.ts';
+import { mulberry32, type Bits } from '../../art/raster.ts';
 import type { Prop } from '../../art/trees.ts';
 import type { Prey } from '../state.ts';
 import type { CatView } from '../CatView.ts';
@@ -27,7 +27,7 @@ export interface FaunaContext {
   /** Flower heads bees and butterflies visit. */
   flowers: Pt[];
   /** Pixel mask of open water. */
-  water: Raster;
+  water: Bits;
   /** The box around all the ponds. */
   pond: { x: number; y: number; w: number; h: number };
   /** Has a cat already caught this one? (Caught prey never comes back.) */

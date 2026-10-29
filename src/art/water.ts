@@ -4,7 +4,7 @@
 // swallows it a few px out from the bank) and on the angle the surface is
 // seen at (Fresnel: the steeper the slope of a wave towards the eye, the more
 // it mirrors). All of it is plain numbers here; game/WaterSurface.ts draws it.
-import { Raster, hex, hash2, type RGB } from './raster.ts';
+import { Raster, hex, hash2, type Bits, type RGB } from './raster.ts';
 import { bayer, noise } from './tiles.ts';
 
 const SAND = hex('#a99c6c'), PEBBLE = hex('#cdbf92'), PEBBLE_DARK = hex('#857953');
@@ -16,7 +16,7 @@ const WEED = hex('#4f7d3a'), WEED_LIGHT = hex('#6f9a48'), WEED_DARK = hex('#3358
  * `max`). Not water: 0. `floating(x, y)` says what lies on the water rather
  * than being bank (lily pads, bridges): the depth carries on under it.
  */
-export function shoreDistance(mask: Raster, max = 60, floating: (x: number, y: number) => boolean = () => false): Uint8Array {
+export function shoreDistance(mask: Bits, max = 60, floating: (x: number, y: number) => boolean = () => false): Uint8Array {
   const { w, h } = mask;
   const wet = (x: number, y: number) => mask.isSet(x, y) || floating(x, y);
   const dist = new Uint8Array(w * h);
@@ -41,13 +41,14 @@ export function shoreDistance(mask: Raster, max = 60, floating: (x: number, y: n
 /** How much of the bed shows through at this distance from the bank (1 clear .. near 0 murky). */
 export const clarity = (dist: number) => Math.max(0.07, 0.72 * Math.exp(-dist / 10));
 
-/** The bed under all the water: a picture the size of `mask`, set only where there is water. */
-export function buildBed(mask: Raster, dist: Uint8Array): Raster {
+/** The bed under the water: a picture the size of `mask`, set only where there is water; `mask` starts at world px (ox, oy). */
+export function buildBed(mask: Bits, dist: Uint8Array, ox = 0, oy = 0): Raster {
   const r = new Raster(mask.w, mask.h);
-  for (let y = 0; y < mask.h; y++)
-    for (let x = 0; x < mask.w; x++) {
-      const d = dist[y * mask.w + x];
-      if (!d || !mask.isSet(x, y)) continue;
+  for (let my = 0; my < mask.h; my++)
+    for (let mx = 0; mx < mask.w; mx++) {
+      const d = dist[my * mask.w + mx];
+      if (!d || !mask.isSet(mx, my)) continue;
+      const x = mx + ox, y = my + oy;
       const deep = Math.min(1, d / 16), b = bayer(x, y);
       // sand at the bank, going over into silt and mud
       let c: RGB = deep + (b - 0.5) * 0.35 < 0.3 ? SAND : deep + (b - 0.5) * 0.35 < 0.7 ? SILT : MUD;
@@ -59,7 +60,7 @@ export function buildBed(mask: Raster, dist: Uint8Array): Raster {
         const strand = noise(x / 2.2, y / 7, 2105);
         c = strand > 0.62 ? WEED_LIGHT : strand < 0.3 ? WEED_DARK : WEED;
       }
-      r.set(x, y, c);
+      r.set(mx, my, c);
     }
   return r;
 }
