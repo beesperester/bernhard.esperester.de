@@ -7,8 +7,8 @@
 import { PLATFORM, seatHeightNear } from './coaster.ts';
 import { hash2 } from '../art/raster.ts';
 import { SEASON } from './season.ts';
-import { ELEV, LANDMARK_SPOTS, SPAWN } from './garden.ts';
-import { FURNITURE_SIZE, layOut, trunkHalfOf, type FurnitureKind } from './layout.ts';
+import { CLEARINGS, ELEV, LANDMARK_SPOTS, SPAWN } from './garden.ts';
+import { FURNITURE_SIZE, layOut, trunkHalfOf, type Biome, type FurnitureKind } from './layout.ts';
 import { worldSeed } from './seed.ts';
 import { trackside } from './track.ts';
 import { TILE, MAP_W, MAP_H, WORLD_W, WORLD_H } from './size.ts';
@@ -22,7 +22,7 @@ export const LEVEL = 16;
 export { WALL };
 
 /** This garden: the fixed park with what grew from its seed. */
-const { rows: ROWS, furniture: FURNITURE, zones: THEMED_ZONES } = layOut(worldSeed().seed);
+const { rows: ROWS, furniture: FURNITURE, zones: THEMED_ZONES, biomes: BIOMES } = layOut(worldSeed().seed);
 for (const [i, r] of ROWS.entries()) if (r.length !== MAP_W) throw new Error(`map row ${i} is ${r.length} wide`);
 if (ELEV.length !== MAP_H || ELEV.some((r) => r.length !== MAP_W)) throw new Error('elevation map size mismatch');
 
@@ -274,6 +274,20 @@ for (const [tx, ty] of treeTiles()) {
 // `ty` is its top-left tile; layout.ts places them); all can be jumped onto.
 
 export { FURNITURE, FURNITURE_SIZE, THEMED_ZONES, type FurnitureKind };
+
+/** The tiles of the clearings in the woods (ty * MAP_W + tx). */
+const CLEARING_TILES = new Set<number>();
+for (const c of CLEARINGS)
+  for (let j = -c.r; j <= c.r; j++) for (let i = -c.r; i <= c.r; i++) if (Math.hypot(i, j * 1.15) <= c.r) CLEARING_TILES.add((c.ty + j) * MAP_W + c.tx + i);
+
+/** Whether tile (tx, ty) is in one of the clearings in the woods (soft grass and wildflowers, fireflies at night). */
+export const inClearing = (tx: number, ty: number): boolean => CLEARING_TILES.has(ty * MAP_W + tx);
+
+/** What the woods are on tile (tx, ty) (layout.ts), or null out of the woods. */
+export function biomeAt(tx: number, ty: number): Biome | null {
+  const c = BIOMES[ty]?.[tx];
+  return c === 'p' ? 'pine' : c === 'l' ? 'leafy' : c === 'm' ? 'mixed' : null;
+}
 
 export { LANDMARK_SPOTS };
 

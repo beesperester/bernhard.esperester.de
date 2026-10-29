@@ -6,4 +6,4 @@
 import { generatePark } from './park.ts';
 import { worldSeed } from './seed.ts';
 
-export const { BASE, ELEV, ZONES, LANDMARK_SPOTS, RIVERS, TRACK, SPAWN } = generatePark(worldSeed().seed);
+export const { BASE, ELEV, ZONES, LANDMARK_SPOTS, RIVERS, TRACK, SPAWN, CLEARINGS } = generatePark(worldSeed().seed);

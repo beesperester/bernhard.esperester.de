@@ -1,7 +1,7 @@
 // Swaying plants: each kind is drawn in 5 lean frames (-2..2) so the wind
 // (and passing cats) can bend them.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { TILE, MAP_W, MAP_H, tileAt, furnished } from '../world/map.ts';
+import { TILE, MAP_W, MAP_H, tileAt, furnished, inClearing } from '../world/map.ts';
 import { SEASON } from '../world/season.ts';
 import { drabFor } from './tiles.ts';
 import { groundOf, isPond } from '../world/legend.ts';
@@ -118,7 +118,14 @@ export function placeFlora(): Plant[] {
       const ground = groundOf(tileAt(tx, ty));
       if (furnished(tx, ty)) continue;
       const h = hash2(tx, ty, 100);
-      if (ground === 'tall') {
+      if (ground === 'lawn' && inClearing(tx, ty)) {
+        // a clearing: grass and wildflowers, two or three to a tile
+        at(0, tx, ty, 0);
+        if (h < 0.6) at(0, tx, ty, 1);
+        at(flowerKind(tx, ty), tx, ty, 2);
+        if (h < 0.7) at(flowerKind(tx + 7, ty), tx, ty, 3);
+        if (h < 0.3) at(flowerKind(tx, ty + 7), tx, ty, 4);
+      } else if (ground === 'tall') {
         for (let k = 0; k < 6; k++) at(1, tx, ty, k);
         at(0, tx, ty, 6);
         if (h < 0.2) at(flowerKind(tx, ty), tx, ty, 7);

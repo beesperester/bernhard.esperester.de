@@ -17,6 +17,7 @@
 //  - RIVERS: the lines the running water ('~') flows along, in world px.
 //  - TRACK: the railway's loop, by the tiles it turns a corner in.
 //  - SPAWN: where cats arrive: the paths in this box.
+//  - CLEARINGS: secret clearings deep in the woods, where no path goes.
 // `npm test` checks the result for a good few seeds: everything walkable
 // reachable from the spawn, straight bridges, no specks of water, and so on.
 
@@ -34,7 +35,14 @@ export interface Park {
   RIVERS: number[][];
   TRACK: number[];
   SPAWN: { x0: number; y0: number; x1: number; y1: number };
+  CLEARINGS: Clearing[];
 }
+
+/** A clearing in the woods: round (r tiles) about its middle tile, with a big old tree or a standing stone there. */
+export interface Clearing { tx: number; ty: number; r: number; heart: 'tree' | 'stone' }
+
+/** The most clearings a park has, how far apart they are (tiles), and how much wood stands round one (tiles). */
+const CLEARINGS_MOST = 10, CLEARING_APART = 28, CLEARING_WALL = 3;
 
 const W = MAP_W, H = MAP_H;
 const SIDES: Pt[] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
@@ -229,6 +237,29 @@ export function generatePark(seed: number): Park {
   // ---- the paths ----
   const forest = (x: number, y: number) => ZONES[y][x] === 'g';
   const land0 = (x: number, y: number) => x > 3 && y > 3 && x < W - 4 && y < H - 4 && T[y][x] === '.' && E[y][x] === 0 && !rail[idx(x, y)];
+
+  // ---- the secret clearings: deep in the woods, away from the water, and kept clear of the paths ----
+  const inWood = bfsDistance((x, y) => !inside(x, y) || !forest(x, y));
+  const CLEARINGS: Clearing[] = [];
+  /** The clearings and the wood round them: no path goes in. */
+  const secret = new Uint8Array(W * H);
+  {
+    const spots: Pt[] = [];
+    for (let y = 8; y < H - 8; y++) for (let x = 8; x < W - 8; x++) if (inWood[idx(x, y)] >= 7 && distToWet[idx(x, y)] >= 9) spots.push([x, y]);
+    spots.sort((a, b) => hash(a[0], a[1], 91) - hash(b[0], b[1], 91));
+    for (const [x, y] of spots) {
+      if (CLEARINGS.length >= CLEARINGS_MOST) break;
+      const r = 4 + Math.floor(hash(x, y, 92) * 3);
+      if (inWood[idx(x, y)] < r + CLEARING_WALL || distToWet[idx(x, y)] < r + CLEARING_WALL + 2) continue;
+      if (CLEARINGS.some((c) => Math.hypot(c.tx - x, c.ty - y) < CLEARING_APART)) continue;
+      let ok = true;
+      for (let j = -r; j <= r && ok; j++) for (let i = -r; i <= r && ok; i++) if (T[y + j][x + i] !== '.' || E[y + j][x + i] !== 0 || near(rail, 2, x + i, y + j)) ok = false;
+      if (!ok) continue;
+      CLEARINGS.push({ tx: x, ty: y, r, heart: hash(x, y, 93) < 0.55 ? 'tree' : 'stone' });
+      const R = r + CLEARING_WALL;
+      for (let j = -R; j <= R; j++) for (let i = -R; i <= R; i++) if (i * i + j * j <= R * R && inside(x + i, y + j)) secret[idx(x + i, y + j)] = 1;
+    }
+  }
   // where they start from: the middle of the park...
   const centre: Pt = [W >> 1, H >> 1];
   const hub = nearestTile(centre, (x, y) => land0(x, y) && !forest(x, y) && distToWet[idx(x, y)] > 3) ?? centre;
@@ -270,7 +301,7 @@ export function generatePark(seed: number): Park {
   const pathCost = (level: number) => (x: number, y: number, d: number, prev: number, fx: number, fy: number) => {
     if (x < 2 || y < 2 || x > W - 3 || y > H - 3) return Infinity;
     const ch = T[y][x];
-    if (E[y][x] !== level || isBlock(ch)) return Infinity;
+    if (E[y][x] !== level || isBlock(ch) || secret[idx(x, y)]) return Infinity;
     const onWater = isWater(ch), fromWater = isWater(T[fy][fx]);
     if (d >= 4) {
       // a diagonal step: by way of both tiles beside it, all of them land
@@ -308,7 +339,7 @@ export function generatePark(seed: number): Park {
   /** Lay the path along `route`: two tiles wide where `wide` (not over the water). */
   const lay = (route: Pt[], wide: boolean) => {
     const put = (x: number, y: number) => {
-      if (at(x, y) === '.' && rail[idx(x, y)] !== 1) T[y][x] = 'p';
+      if (at(x, y) === '.' && rail[idx(x, y)] !== 1 && !secret[idx(x, y)]) T[y][x] = 'p';
     };
     route.forEach(([x, y], i) => {
       const ch = T[y][x];
@@ -417,7 +448,7 @@ export function generatePark(seed: number): Park {
   for (const kind of FOLLIES) {
     const [w, h] = LANDMARK_SIZE[kind];
     const spot = order.find(([x, y]) => {
-      for (let j = -1; j <= h; j++) for (let i = -1; i <= w; i++) if (at(x + i, y + j) !== '.' || E[y + j][x + i] !== E[y][x] || rail[idx(x + i, y + j)]) return false;
+      for (let j = -1; j <= h; j++) for (let i = -1; i <= w; i++) if (at(x + i, y + j) !== '.' || E[y + j][x + i] !== E[y][x] || rail[idx(x + i, y + j)] || secret[idx(x + i, y + j)]) return false;
       // a path just in front of it
       let path = false;
       for (let i = 0; i < w; i++) for (let j = h + 1; j <= h + 2; j++) if (at(x + i, y + j) === 'p') path = true;
@@ -435,6 +466,7 @@ export function generatePark(seed: number): Park {
     RIVERS,
     TRACK: track.flat(),
     SPAWN,
+    CLEARINGS,
   };
 
   // ---------------------------------------------------------------- helpers (they see T, E and the rest)

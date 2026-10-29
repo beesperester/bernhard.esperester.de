@@ -9,11 +9,14 @@
 // the garden is gone, and the next one is a new one.
 //
 // Trees grow thickest in the woods (ZONES), and hardly at all out on the
-// open meadows. Nothing grows or stands right beside the railway (track.ts):
+// open meadows. The woods are pine, leafy or mixed by a slow field over the
+// park (a wood can turn from one to the other), and deep in some of them lie
+// the secret clearings (park.ts): open, flowery, walled round by trees, with
+// a big old tree (or a standing stone) in the middle. Nothing grows or stands right beside the railway (track.ts):
 // the trains run there.
 
 import { hash2 } from '../art/raster.ts';
-import { BASE, ELEV, LANDMARK_SPOTS, ZONES } from './garden.ts';
+import { BASE, CLEARINGS, ELEV, LANDMARK_SPOTS, ZONES } from './garden.ts';
 import { LANDMARK_SIZE } from './landmarks.ts';
 import { trackside } from './track.ts';
 import { PIECE_SIZE, carveZones, furnishZone, type ThemedZone, type ZonePiece } from './themes.ts';
@@ -46,7 +49,14 @@ export interface Layout {
   furniture: { kind: FurnitureKind; tx: number; ty: number }[];
   /** The themed zones (a funfair, say): their tiles are laid with their own floor in `rows`. */
   zones: ThemedZone[];
+  /** What the woods are, one character per tile: 'p' pine, 'l' leafy, 'm' mixed; '.' out of the woods. */
+  biomes: string[];
 }
+
+export type Biome = 'pine' | 'leafy' | 'mixed';
+const BIOME_CHAR: Record<Biome, string> = { pine: 'p', leafy: 'l', mixed: 'm' };
+/** A pine's share of the trees in each sort of wood (and out in the parkland). */
+const PINES: Record<Biome | 'park', number> = { pine: 0.94, leafy: 0.03, mixed: 0.45, park: 0.15 };
 
 /** The garden that grows from `seed`. */
 export function layOut(seed: number): Layout {
@@ -62,6 +72,13 @@ export function layOut(seed: number): Layout {
   };
 
   const T = BASE.map((r) => [...r]);
+  // the woods' sorts: a slow field (a wood turns pine on one side, leafy on the other, mixed between)
+  const biomes = ZONES.map((r, y) => [...r].map((z, x) => {
+    if (z !== 'g') return '.';
+    const b = noise(x, y, 30, 81) * 0.75 + noise(x, y, 9, 82) * 0.25;
+    return BIOME_CHAR[b < 0.42 ? 'pine' : b > 0.58 ? 'leafy' : 'mixed'];
+  }));
+  const biomeOf = (x: number, y: number): Biome | 'park' => ({ p: 'pine', l: 'leafy', m: 'mixed' } as const)[biomes[y]?.[x] as 'p'] ?? 'park';
   const E = ELEV.map((r) => [...r].map(Number));
   const inMap = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H;
   const at = (x: number, y: number) => (inMap(x, y) ? T[y][x] : 'F');
@@ -99,15 +116,30 @@ export function layOut(seed: number): Layout {
     const [w, h] = LANDMARK_SIZE[l.kind];
     for (let y = l.ty; y < l.ty + h; y++) for (let x = l.tx; x < l.tx + w; x++) if (T[y][x] === '.') T[y][x] = 'L';
   }
+  // the clearings are kept open (lawn again at the end, flowery: art/flora.ts), the wood round them thick
+  const ring = new Map<number, number>();
+  for (const c of CLEARINGS) {
+    const R = c.r + 3;
+    for (let j = -R; j <= R; j++)
+      for (let i = -R; i <= R; i++) {
+        const x = c.tx + i, y = c.ty + j, d = Math.hypot(i, j * 1.15);
+        if (!inMap(x, y) || T[y][x] !== '.') continue;
+        if (d <= c.r) T[y][x] = 'C';
+        else if (d <= R) ring.set(y * W + x, 1);
+      }
+  }
   // and the lawn beside the railway is kept clear for the trains (plain lawn again at the end; cats walk there)
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (T[y][x] === '.' && trackside(x, y)) T[y][x] = 'K';
 
   // the maze, somewhere in the parks: a hedge labyrinth with the fountain in the middle
+  /** Its box, and two tiles round it (no tree grows there: it would stand in its ways or its doors). */
+  let maze: [number, number, number, number] | null = null;
   {
     const fits = ([x, y]: Pt) => flatFree(x, y, MAZE_W, MAZE_H, 1);
     const spot = order.find((p) => zone(p[0] + 8, p[1] + 6) === 'g' && fits(p)) ?? order.find(fits);
     if (spot) {
       const [mx, my] = spot;
+      maze = [mx - 2, my - 2, mx + MAZE_W + 2, my + MAZE_H + 2];
       fillRect(mx, my, MAZE_W, MAZE_H, 'm');
       const cw = (MAZE_W - 1) / 2, ch = (MAZE_H - 1) / 2;
       const seen = new Set<number>([0]);
@@ -178,8 +210,8 @@ export function layOut(seed: number): Layout {
   /** Trees by their tile, to keep the next one off them. */
   const treeAt = new Map<number, number>();
   // (each tree keeps room round it as big as it grows, the next tree's room besides: across more than in depth)
-  const crowded = (x: number, y: number) => {
-    const r = TREE_ROOM[treeSizeAt(x, y)], R = r + TREE_ROOM[2];
+  const crowded = (x: number, y: number, wood: boolean) => {
+    const r = (wood ? WOOD_ROOM : TREE_ROOM)[treeSizeAt(x, y)], R = r + TREE_ROOM[2];
     for (let j = -R; j <= R; j++)
       for (let i = -R; i <= R; i++) {
         const other = treeAt.get((y + j) * W + x + i);
@@ -187,21 +219,30 @@ export function layOut(seed: number): Layout {
       }
     return false;
   };
+  // the big old tree in the middle of a clearing (or its standing stone: furniture)
+  for (const c of CLEARINGS) {
+    if (c.heart !== 'tree') continue;
+    CHAMPIONS.add(c.ty * 4096 + c.tx);
+    T[c.ty][c.tx] = biomeOf(c.tx, c.ty) === 'pine' ? 'P' : 'T';
+    trees.push([c.tx, c.ty]);
+    treeAt.set(c.ty * W + c.tx, TREE_ROOM[2]);
+  }
   for (const [x, y] of order) {
     if (!'.,'.includes(at(x, y))) continue;
     // room round the trunk: nothing but grass beside it, and not at a terrace edge or the foot of stairs
     if ([[1, 0], [-1, 0], [0, 1], [0, -1], [0, 2]].some(([dx, dy]) => !'.,f'.includes(at(x + dx, y + dy)) || E[y + dy]?.[x + dx] !== E[y][x])) continue;
     if (E[y - 1][x] !== E[y][x] || at(x, y + 1) === 'S') continue;
-    const z = zone(x, y);
-    const p = z === 'g' ? 0.32 : z === 'o' ? 0.015 : 0.03 + 0.2 * Math.max(0, noise(x, y, 9, 7) - 0.6) * 4;
+    if (maze && x >= maze[0] && x < maze[2] && y >= maze[1] && y < maze[3]) continue;
+    const z = zone(x, y), wall = ring.has(y * W + x);
+    const p = wall ? 0.8 : z === 'g' ? 0.55 : z === 'o' ? 0.015 : 0.03 + 0.2 * Math.max(0, noise(x, y, 9, 7) - 0.6) * 4;
     if (hash(x, y, 62) > p) continue;
-    if (crowded(x, y)) continue;
+    if (crowded(x, y, z === 'g' || wall)) continue;
     if (LANDMARK_SPOTS.some((s) => x >= s.tx - 3 && x < s.tx + LANDMARK_SIZE[s.kind][0] + 3 && y >= s.ty - 1 && y < s.ty + LANDMARK_SIZE[s.kind][1] + 4)) continue;
     if (nearest([x, y], (hx, hy) => at(hx, hy) === 'H', 4)) continue;
-    const pine = hash(x, y, 63) < (z === 'o' ? 0.45 : z === 'g' ? 0.3 : 0.15) || noise(x, y, 12, 64) > 0.78;
+    const pine = z === 'g' ? hash(x, y, 63) < PINES[biomeOf(x, y)] : hash(x, y, 63) < (z === 'o' ? 0.45 : PINES.park) || noise(x, y, 12, 64) > 0.78;
     T[y][x] = pine ? 'P' : 'T';
     trees.push([x, y]);
-    treeAt.set(y * W + x, TREE_ROOM[treeSizeAt(x, y)]);
+    treeAt.set(y * W + x, (z === 'g' || wall ? WOOD_ROOM : TREE_ROOM)[treeSizeAt(x, y)]);
   }
 
   // bushes and rocks, here and there on the lawns
@@ -233,12 +274,13 @@ export function layOut(seed: number): Layout {
   }
 
   connect(T, E);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (T[y][x] === 'L' || T[y][x] === 'K') T[y][x] = '.';
-  return { rows: T.map((r) => r.join('')), furniture, zones };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (T[y][x] === 'L' || T[y][x] === 'K' || T[y][x] === 'C') T[y][x] = '.';
+  return { rows: T.map((r) => r.join('')), furniture, zones, biomes: biomes.map((r) => r.join('')) };
 }
 
 /** How big the tree on tile (tx, ty) grows: 0 small (most of them), 1 medium, 2 one of the few really big old ones. */
 export function treeSizeAt(tx: number, ty: number): 0 | 1 | 2 {
+  if (CHAMPIONS.has(ty * 4096 + tx)) return 2;
   const u = hash2(tx, ty, 58);
   return u < 0.55 ? 0 : u < 0.88 ? 1 : 2;
 }
@@ -247,14 +289,20 @@ export function treeSizeAt(tx: number, ty: number): 0 | 1 | 2 {
 export function trunkHalfOf(ch: string, tx: number, ty: number): number {
   if (ch === 'H') return 16;
   const size = treeSizeAt(tx, ty), u = hash2(tx, ty, 59);
+  if (CHAMPIONS.has(ty * 4096 + tx)) return ch === 'P' ? 12 : 16;
   return ch === 'P' ? [5, 7, 10][size] + Math.floor(u * 2) : [5, 8, 13][size] + Math.floor(u * (size === 2 ? 4 : 3));
 }
 
 /** Whether the park has its tree house (left out while the trees are drawn anew). */
 const TREE_HOUSE = false;
 
-/** Room a tree of each size keeps round it (tiles). */
+/** Room a tree of each size keeps round it (tiles)... */
 const TREE_ROOM = [2, 3, 5];
+/** ...and in the woods, where they stand thick. */
+const WOOD_ROOM = [1, 2, 4];
+
+/** The big old trees in the middle of the clearings, by tile (ty * 4096 + tx). */
+const CHAMPIONS = new Set<number>();
 
 /** Trunks this stout (half-width, px) stand into the tiles either side of their own. */
 const FAT = 11;

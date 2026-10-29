@@ -3,7 +3,7 @@ import { Prey } from '../state.ts';
 import { Wary, type Senses } from './Wary.ts';
 import type { CatView } from '../CatView.ts';
 import { DEPTH } from '../Daylight.ts';
-import { MAP_H, MAP_W, TILE, elevAt, levelAt, tileAt } from '../../world/map.ts';
+import { MAP_H, MAP_W, TILE, elevAt, inClearing, levelAt, tileAt } from '../../world/map.ts';
 import { lightAt } from '../../world/sky.ts';
 import { inSeason, rainfall } from '../../world/season.ts';
 import { Pool, seedRng, hash2, lerp, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
@@ -61,8 +61,8 @@ export class NightLife implements Fauna {
     for (let ty = 1; ty < MAP_H - 1; ty++)
       for (let tx = 1; tx < MAP_W - 1; tx++) {
         const ch = tileAt(tx, ty);
-        // fireflies like long grass and flowers, and the edges of the ponds
-        if (isMeadow(ch) || (groundOf(ch) === 'lawn' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => water(tx + dx, ty + dy))))
+        // fireflies like long grass and flowers, the clearings in the woods, and the edges of the ponds
+        if (isMeadow(ch) || inClearing(tx, ty) || (groundOf(ch) === 'lawn' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => water(tx + dx, ty + dy))))
           this.grass.push([tx * TILE + 8, ty * TILE + 8]);
         // frogs: out on a lily pad, climbing up from the open water beside it...
         if (isLilyPad(ch)) {
