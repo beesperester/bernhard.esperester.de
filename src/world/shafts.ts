@@ -1,60 +1,67 @@
-// Where rays of light come down through the trees: from up in a leafy crown,
-// a few to a tree (not every tree has any), each its own width and length
-// (none reaches lower than the tree's foot). game/Shafts.ts draws them,
-// slanting down away from the sun (or the moon) just as the trees' shadows
-// fall, from behind the crown they come through.
-// Laid out from the garden's seed.
+// Where rays of light come down through the trees: each stands on a spot
+// on the ground somewhere among them (one here and there, not everywhere)
+// and goes up from it towards the sun (or the moon) till it leaves the
+// screen. game/Shafts.ts draws them, in the world at the depth of that spot,
+// so they come down between the trees: in front of those behind it, behind
+// those in front. Some reach right down to the ground; most fade out a
+// little above it. Laid out from the garden's seed.
 import { hash2 } from '../art/raster.ts';
 import { worldSeed } from './seed.ts';
+import { WORLD_H, WORLD_W } from './size.ts';
 import { TREES } from './trees.ts';
 
 export interface Shaft {
-  /** The tree it comes through. */
-  tree: number;
-  /** Where in the crown it starts: the crown's middle across (world px) and half its width at that height (on the
-   * side the ray slants to, `side` of the way from its middle to its edge: well inside the leaves), and the ground
-   * line under that (the tree's foot)... */
+  /** The spot on the ground it stands on (world px). */
   x: number;
-  half: number;
-  side: number;
   y: number;
-  /** ...and how high above that ground (px). */
-  h: number;
   /** How wide it is (px). */
   w: number;
-  /** How far down it reaches: this much of the way to the tree's foot (0..1). */
-  reach: number;
+  /** How high above the ground it fades out (px; 0: it reaches the ground). */
+  lift: number;
   /** For its own slow breathing and shimmer (0..1). */
   phase: number;
 }
 
-/** The most rays through one tree... */
-const MOST = 3;
-/** ...and the share of trees that have any. */
-const SOME = 0.6;
+/** One spot tried in every cell this big (px)... */
+const CELL = 112;
+/** ...kept this often... */
+const SOME = 0.55;
+/** ...if a tree stands within this far of it (px): rays come through leaves. */
+const NEAR = 72;
+/** The share of rays that reach the ground. */
+const GROUNDED = 0.3;
 
 function layOutShafts(): Shaft[] {
   const seed = worldSeed().seed, out: Shaft[] = [];
-  TREES.forEach((t, tree) => {
-    // (through broad leaves: a pine's needles are too dense)
-    if (t.shape === 'pine' || hash2(tree, 1, seed + 2101) > SOME) return;
-    const c = t.crown[0], base = c.base ?? c.z - c.rz;
-    const n = 1 + Math.floor(hash2(tree, 2, seed + 2102) * MOST);
-    for (let k = 0; k < n; k++) {
-      const r = (j: number) => hash2(tree, k * 8 + j, seed + 2103);
-      // up in the top of the crown, inside its sides
-      const top = c.z + c.rz;
-      const h = t.elev + base + (top - base) * (0.6 + r(2) * 0.3);
-      const half = c.rx * Math.sqrt(Math.max(0, 1 - ((h - t.elev - c.z) / c.rz) ** 2));
-      out.push({ tree, x: Math.round(t.x + c.x), half, side: 0.15 + r(1) * 0.45, y: t.y, h: Math.round(h), w: 3 + Math.round(r(3) * 5), reach: 0.55 + r(5) * 0.45, phase: r(4) });
+  // the leafy trees, by cell, to find those near a spot
+  const byCell = new Map<number, { x: number; y: number }[]>();
+  for (const t of TREES) {
+    if (t.shape === 'pine') continue;
+    const k = Math.floor(t.y / CELL) * 4096 + Math.floor(t.x / CELL);
+    const list = byCell.get(k);
+    if (list) list.push(t);
+    else byCell.set(k, [t]);
+  }
+  const nearTree = (x: number, y: number) => {
+    for (let cy = Math.floor((y - NEAR) / CELL); cy <= Math.floor((y + NEAR) / CELL); cy++)
+      for (let cx = Math.floor((x - NEAR) / CELL); cx <= Math.floor((x + NEAR) / CELL); cx++)
+        for (const t of byCell.get(cy * 4096 + cx) ?? []) if ((t.x - x) ** 2 + (t.y - y) ** 2 < NEAR * NEAR) return true;
+    return false;
+  };
+  for (let j = 0; j * CELL < WORLD_H; j++)
+    for (let i = 0; i * CELL < WORLD_W; i++) {
+      const r = (k: number) => hash2(i, j * 8 + k, seed + 2111);
+      if (r(0) > SOME) continue;
+      const x = Math.round((i + 0.1 + r(1) * 0.8) * CELL), y = Math.round((j + 0.1 + r(2) * 0.8) * CELL);
+      if (!nearTree(x, y)) continue;
+      out.push({ x, y, w: 5 + Math.round(r(3) * 9), lift: r(4) < GROUNDED ? 0 : 8 + Math.round(r(5) * 40), phase: r(6) });
     }
-  });
   return out;
 }
 
 export const SHAFTS: Shaft[] = layOutShafts();
 
-/** The rays by 256 px cell of the ground they start over, to find those near the view. */
+/** The rays by 256 px cell of the ground they stand on, to find those near the view. */
 export const SHAFT_CELL = 256;
 export const SHAFTS_BY_CELL = new Map<number, number[]>();
 SHAFTS.forEach((s, i) => {

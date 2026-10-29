@@ -3,26 +3,17 @@ import { SHAFTS, SHAFTS_BY_CELL } from './shafts.ts';
 import { TREES } from './trees.ts';
 
 describe('rays of light', () => {
-  it('come down from the tops of the leafy crowns, a few to a tree', () => {
-    expect(SHAFTS.length).toBeGreaterThan(TREES.length * 0.4);
-    const per = new Map<number, number>();
+  it('stand here and there on the ground among leafy trees', () => {
+    expect(SHAFTS.length).toBeGreaterThan(50);
     for (const s of SHAFTS) {
-      const t = TREES[s.tree], c = t.crown[0];
-      expect(t.shape).not.toBe('pine');
-      // (inside its crown: across, and between its underside and its top)
-      expect(Math.abs(s.x - (t.x + c.x))).toBeLessThanOrEqual(1);
-      // (starting well inside the leaves at its height, not out by the crown's edge)
-      expect(s.side).toBeGreaterThan(0);
-      expect(s.side).toBeLessThanOrEqual(0.6);
-      expect(s.half).toBeLessThanOrEqual(c.rx);
-      expect(s.h).toBeGreaterThan(t.elev + (c.base ?? c.z - c.rz));
-      expect(s.h).toBeLessThan(t.elev + c.z + c.rz);
-      expect(s.w).toBeGreaterThanOrEqual(3);
-      expect(s.reach).toBeGreaterThan(0.5);
-      expect(s.reach).toBeLessThanOrEqual(1);
-      per.set(s.tree, (per.get(s.tree) ?? 0) + 1);
+      expect(TREES.some((t) => t.shape !== 'pine' && Math.hypot(t.x - s.x, t.y - s.y) < 72)).toBe(true);
+      expect(s.w).toBeGreaterThanOrEqual(5);
+      expect(s.lift).toBeGreaterThanOrEqual(0);
     }
-    expect(Math.max(...per.values())).toBeLessThanOrEqual(3);
+    // (some reach the ground, most don't)
+    const grounded = SHAFTS.filter((s) => s.lift === 0).length / SHAFTS.length;
+    expect(grounded).toBeGreaterThan(0.15);
+    expect(grounded).toBeLessThan(0.5);
     expect([...SHAFTS_BY_CELL.values()].reduce((a, l) => a + l.length, 0)).toBe(SHAFTS.length);
   });
 });
