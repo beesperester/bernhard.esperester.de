@@ -1,39 +1,47 @@
 import type Phaser from 'phaser';
-import type { Hole } from './Trees.ts';
+import { FADE_GLSL, type Opening } from '../art/fade.ts';
 import { defineShader, shade } from './gpu.ts';
 
-// The hole round your cat in the trees in front of it, cut on the GPU: a
-// shader over a tree's picture (and its rim) leaves out what lies in the
-// hole, dithered at its edge the same way the world's other dithers are.
-// Moving the hole is then a few numbers a frame, not a picture cut and sent
-// anew.
+// The hole round your cat in the trees in front of it, cut on the GPU (the
+// rule is art/fade.ts'): a shader over a tree's picture (and its rim) leaves
+// out what lies in the hole, a puff of leaves at a time where the tree's puff
+// map says which puff a pixel is in, and thins the rest of the tree with a
+// dither. Moving the hole is then a few numbers a frame, not a picture cut
+// and sent anew.
 
-const HOLE = defineShader('FilterHole', `
-/** The hole: its middle in the world, how wide, and how much of it is clear before the dither. */
-uniform vec4 uHole;
-
+const CUT = defineShader('FilterTreeCut', `
+uniform sampler2D uPuffs;
+/** 1 if the picture has a puff map in uPuffs. */
+uniform float uPuffed;
+${FADE_GLSL}
 void main() {
   vec4 c = texture2D(uMainSampler, outTexCoord);
   vec2 w = worldPx();
-  float r = uHole.z, d = distance(w, uHole.xy);
-  if (d < r && (d < r * uHole.w || bayer(w) < (r - d) / (r * (1.0 - uHole.w)))) c = vec4(0.0);
-  gl_FragColor = c;
+  vec4 puff = uPuffed > 0.5 ? texture2D(uPuffs, (w - uOrigin + 0.5) / uSize) : vec4(0.0);
+  gl_FragColor = shows(w, puff) ? c : vec4(0.0);
 }
 `);
 
-const holes = new WeakMap<Phaser.GameObjects.Image, { uHole: number[] }>();
+/** A cut through a tree: the hole (null: none), how thin the rest of it is (0..1), and the texture of its puff map, if any. */
+export interface Cut { hole: Opening | null; rest: number; puffs: string | null }
 
-/** Cut `hole` (null: none) out of picture img, clear out to `clear` of it and dithered beyond. */
-export function holeIn(img: Phaser.GameObjects.Image, hole: Hole | null, clear: number): void {
-  if (!hole) {
-    shade(img, HOLE, null);
+const cuts = new WeakMap<Phaser.GameObjects.Image, { uHole: number[]; uRest: number; uPuffed: number }>();
+
+/** Cut picture img as `cut` says (null: not at all). */
+export function cutIn(img: Phaser.GameObjects.Image, cut: Cut | null): void {
+  if (!cut || (!cut.hole && cut.rest <= 0)) {
+    shade(img, CUT, null);
     return;
   }
-  let u = holes.get(img);
-  if (!u) holes.set(img, (u = { uHole: [0, 0, 0, 0] }));
-  u.uHole[0] = hole.x;
-  u.uHole[1] = hole.y;
-  u.uHole[2] = hole.r;
-  u.uHole[3] = clear;
-  shade(img, HOLE, u);
+  let u = cuts.get(img);
+  if (!u) cuts.set(img, (u = { uHole: [0, 0, 0, 1], uRest: 0, uPuffed: 0 }));
+  const h = cut.hole;
+  u.uHole[0] = h?.x ?? 0;
+  u.uHole[1] = h?.y ?? 0;
+  u.uHole[2] = h?.r ?? 0;
+  u.uHole[3] = h?.up ?? 1;
+  u.uRest = cut.rest;
+  u.uPuffed = cut.puffs ? 1 : 0;
+  // (a picture without a puff map still needs something bound there)
+  shade(img, CUT, u, { uPuffs: cut.puffs ?? '__DEFAULT' });
 }

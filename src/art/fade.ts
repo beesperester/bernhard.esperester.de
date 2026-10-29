@@ -5,7 +5,8 @@
 // puffs nearer your cat first and, among those as near, in no particular
 // order, so the hole's edge is the leaves' own and it opens in a ragged,
 // staggered way. Over the tree you stand behind, the hole reaches on up to its
-// top if little of the tree is left above it, so no scraps of it hang there.
+// top if little of the tree is left above it; and the rest of that tree is
+// dithered thin (`rest`), so nothing of it stands solid in front of your cat.
 //
 // The game cuts the hole on the GPU (game/HoleFilter.ts, FADE_GLSL below); the
 // same in TypeScript (keeps()) answers what's seen where, and draws the sheet.
@@ -72,9 +73,15 @@ export function keeps(o: Opening, x: number, y: number, puffs: Puffs | null, i: 
   return bayer(x, y) >= (o.r - d) / (o.r * (1 - CLEAR));
 }
 
+/** Whether the pixel shows at all: through the hole (keeps()), and through the dither thinning the rest of the tree (0..1). */
+export function shows(o: Opening, rest: number, x: number, y: number, puffs: Puffs | null, i: number): boolean {
+  return keeps(o, x, y, puffs, i) && bayer(x, y) >= rest;
+}
+
 /**
- * The same for the GPU: keeps(w, puff) with the hole in uniforms uHole (x, y, r, up). `puff` is the
- * pixel's puff map texel (0..1 as sampled). Needs COMMON's bayer (game/gpu.ts).
+ * The same for the GPU: keeps(w, puff) with the hole in uniforms uHole (x, y, r, up), and shows(w, puff)
+ * with the rest's dither in uRest. `puff` is the pixel's puff map texel (0..1 as sampled). Needs
+ * COMMON's bayer (game/gpu.ts).
  */
 export const FADE_GLSL = `
 uniform vec4 uHole;
@@ -102,5 +109,9 @@ bool keeps(vec2 w, vec4 puff) {
   if (d >= r) return true;
   if (d < r * ${CLEAR.toFixed(4)}) return false;
   return bayer(w) >= (r - d) / (r * ${(1 - CLEAR).toFixed(4)});
+}
+uniform float uRest;
+bool shows(vec2 w, vec4 puff) {
+  return keeps(w, puff) && bayer(w) >= uRest;
 }
 `;

@@ -6,8 +6,8 @@ import { LEVEL, MAP_H, MAP_W, TILE, WORLD_H, WORLD_W, levelAt } from '../world/m
 import { hasUpright } from '../art/tiles.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
-import { CLEAR, type Hole, type TreeWatcher } from './Trees.ts';
-import { holeIn } from './HoleFilter.ts';
+import type { TreeWatcher } from './Trees.ts';
+import { cutIn, type Cut } from './HoleFilter.ts';
 
 /** The sun's direction is rounded to one of this many, so rims are only redrawn now and then. */
 const DIRECTIONS = 16;
@@ -23,7 +23,7 @@ interface Overlay {
   img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; w: number; h: number; rim: (out: Uint8ClampedArray) => void;
   /** Where it stands in the world, and the hole round your cat cut in it (a tree's, with the tree). */
   x: number; y: number;
-  hole: Hole | null;
+  cut: Cut | null;
 }
 
 /**
@@ -132,7 +132,7 @@ export class RimLight implements TreeWatcher {
     // (blended normally, a little stronger, rather than added: a sprite blended differently from those either
     // side of it in depth ends the GPU's batch, and the rims are everywhere; it reads the same)
     const img = cullerFor(this.scene).add(this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth).setVisible(false));
-    return { img, tex, w, h, rim, x, y, hole: null };
+    return { img, tex, w, h, rim, x, y, cut: null };
   }
 
   /** A rim round the outline of a picture standing at (x, y). */
@@ -166,12 +166,12 @@ export class RimLight implements TreeWatcher {
     this.scene.textures.remove(o.tex);
   }
 
-  /** The hole round your cat has been cut in a tree: and in its rim. */
-  holed(i: number, hole: Hole | null): void {
+  /** A tree has been cut round your cat: and its rim (it lies over the tree's picture, so the tree's puff map fits it). */
+  holed(i: number, cut: Cut | null): void {
     const o = this.trees.get(i);
-    if (!o || (!hole && !o.hole)) return;
-    o.hole = hole;
-    holeIn(o.img, hole, CLEAR);
+    if (!o || (!cut && !o.cut)) return;
+    o.cut = cut;
+    cutIn(o.img, cut);
   }
 
   private paint(o: Overlay): void {

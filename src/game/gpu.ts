@@ -32,8 +32,9 @@ vec2 worldPx() { return uOrigin + floor(vec2(outTexCoord.x, 1.0 - outTexCoord.y)
 class Shaded extends Phaser.Filters.Controller {
   /** The picture's own size and place... */
   readonly own: Uniforms;
-  /** ...and the numbers given. */
+  /** ...and the numbers given, and the pictures (sampler name: texture key). */
   uniforms: Uniforms = {};
+  samplers: Record<string, string> = {};
 
   constructor(camera: Phaser.Cameras.Scene2D.Camera, node: string, own: Uniforms) {
     super(camera, node);
@@ -68,17 +69,25 @@ function node(name: string, source: string) {
       super(name, manager, undefined, source);
     }
 
+    setupTextures(controller: Shaded, textures: Phaser.Renderer.WebGL.Wrappers.WebGLTextureWrapper[]): void {
+      let unit = 1;
+      for (const k in controller.samplers) textures[unit++] = controller.camera.scene.sys.textures.getFrame(controller.samplers[k]).glTexture!;
+    }
+
     setupUniforms(controller: Shaded): void {
       for (const u of [controller.own, controller.uniforms]) for (const k in u) this.programManager.setUniform(k, u[k]);
+      let unit = 1;
+      for (const k in controller.samplers) this.programManager.setUniform(k, unit++);
     }
   };
 }
 
 /**
  * Run shader `name` over picture img (null uniforms: stop). `uniforms` is kept, not copied: the same
- * object can be shared by many pictures and changed in place each frame.
+ * object can be shared by many pictures and changed in place each frame. `samplers` gives the shader
+ * more pictures: a sampler2D's name and the key of the texture it samples.
  */
-export function shade(img: Phaser.GameObjects.Image, name: string, uniforms: Uniforms | null): void {
+export function shade(img: Phaser.GameObjects.Image, name: string, uniforms: Uniforms | null, samplers: Record<string, string> = {}): void {
   let c = filters.get(img)?.get(name);
   if (!uniforms) {
     if (c) c.active = false;
@@ -102,4 +111,5 @@ export function shade(img: Phaser.GameObjects.Image, name: string, uniforms: Uni
   }
   c.active = true;
   c.uniforms = uniforms;
+  c.samplers = samplers;
 }
