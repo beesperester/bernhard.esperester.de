@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
-import { paintedMaps, relightProp, treeOutline, type LitPixels, type Prop, type Puffs } from '../art/trees.ts';
+import { paintedMaps, treeOutline, type LitPixels, type Prop, type Puffs } from '../art/trees.ts';
 import { Raster } from '../art/raster.ts';
-import { sunLight, type ScreenLight } from '../art/lighting.ts';
 import { TREES, treeHolding } from '../world/trees.ts';
 import type { CatView } from './CatView.ts';
 import { toCanvas } from './textures.ts';
@@ -240,13 +239,12 @@ export class Trees {
       if (!this.painter.free) break;
       if (this.live.has(i) || this.asked.has(i)) continue;
       this.asked.add(i);
-      const lit = { ...sunLight };
       void this.painter.tree(i).then((p) => {
         this.asked.delete(i);
         // (unless the camera has gone on, far enough that it would be let go)
         const [x0, y0, x1, y1] = box(i), v = this.view;
         if (x1 < v.x - KEEP || x0 > v.right + KEEP || y1 < v.y - KEEP || y0 > v.bottom + KEEP) return;
-        this.make(i, p, lit);
+        this.make(i, p);
       });
     }
     for (const i of this.live.keys()) {
@@ -303,10 +301,8 @@ export class Trees {
     t[which] = null;
   }
 
-  /** Show tree i, drawn in light `lit`. */
-  private make(i: number, p: Prop, lit: ScreenLight): void {
-    // (in the light as it is now: it may have moved on while the tree was being drawn)
-    if (lit.x !== sunLight.x || lit.y !== sunLight.y || lit.k !== sunLight.k) relightProp(p, sunLight);
+  /** Show tree i. */
+  private make(i: number, p: Prop): void {
     const base = this.pic(`tree-${i}`, p.raster, p.lit, p.x, p.y, p.depthY);
     const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.front.lit, p.x, p.y, p.depthY + FRONT) : null;
     const puffs = this.puffMap(`tree-puffs-${i}`, p.puffs, p.raster), frontPuffs = p.front ? this.puffMap(`tree-front-puffs-${i}`, p.front.puffs, p.front.raster) : null;

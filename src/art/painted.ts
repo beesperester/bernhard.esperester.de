@@ -13,7 +13,7 @@
 import type { RGB } from './raster.ts';
 
 /** What a ramp is of: it is shaded differently (the leaves by their normals, bark round its trunk). */
-export const Kind = { Leaf: 0, Bark: 1, Moss: 2 } as const;
+export const Kind = { Leaf: 0, Bark: 1, Moss: 2, Blob: 3 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
 /** A ramp has up to this many tones (its last slot holds its kind)... */
@@ -58,5 +58,18 @@ export const fromByte = (b: number, range: number): number => (b / 255 - 0.5) * 
 
 /** How far the numbers kept in each channel go either way: normals, the place in a crown, the texture. */
 export const N_RANGE = 1, C_RANGE = 2, J_RANGE = 2;
-/** In the normal map's alpha: 0 unshaded; else 1 + speck (0..1) * SPECK, plus RIM_BIT on a puff's rim. */
-export const SPECK = 126, RIM_BIT = 128;
+/**
+ * In the normal map's alpha: 0 nothing standing (empty, or the flat ground); PLAIN for something
+ * standing but not shaded, in its own colours; else shaded: 1 + speck (0..1) * SPECK on a leaf,
+ * plus RIM_BIT on a puff's rim, 1 for anything else.
+ */
+export const SPECK = 125, RIM_BIT = 128, PLAIN = 255;
+
+/** Pictures encoded against another thread's ramps (`theirs`, its rows: the painter's), moved onto this thread's, in place. */
+export function adoptRamps(mains: Uint8ClampedArray[], normal: Uint8Array, theirs: Ramps['rows']): void {
+  const to = theirs.map((t) => ramps.row(t.tones, t.kind));
+  for (let o = 0; o < normal.length; o += 4) {
+    const f = normal[o + 3];
+    if (f !== 0 && f !== PLAIN) for (const m of mains) m[o] = to[m[o]];
+  }
+}

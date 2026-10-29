@@ -3,15 +3,12 @@ import { catFrames } from './textures.ts';
 import type { Prop } from '../art/trees.ts';
 import { paintLight } from './Painted.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
-import { LEVEL, MAP_H, MAP_W, TILE, WORLD_H, WORLD_W, levelAt } from '../world/map.ts';
-import { hasUpright } from '../art/tiles.ts';
+import { LEVEL, TILE, WORLD_H, WORLD_W } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 
 /** The sun's direction is rounded to one of this many, so rims are only redrawn now and then. */
 const DIRECTIONS = 16;
-/** The rims of what stands up in the ground are drawn in pieces this many tiles square. */
-const CHUNK = 8;
 /** Brightness of the outer rim pixel and of the one inside it. */
 const OUTER = 255, INNER = 110;
 /** Rims are blended over what's under them, not added: this much stronger, to light it as much. */
@@ -21,11 +18,12 @@ type Solid = (x: number, y: number) => boolean;
 interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; w: number; h: number; rim: (out: Uint8ClampedArray) => void }
 
 /**
- * Sunlit rims on everything standing up (cats, trees, bushes, rocks, hedges,
- * fences, cliffs, stairs): the edge pixels on the side facing the sun light up,
- * so you can tell where the sun is. Each object gets an additive overlay whose
+ * Sunlit rims on everything standing up (cats, furniture, cliffs, stairs): the
+ * edge pixels on the side facing the sun light up, so you can tell where the
+ * sun is. Each object gets an additive overlay whose
  * texture is redrawn whenever the sun moves to another of the 16 directions.
- * (The trees light their own rims, on the GPU: Painted.ts is told the light.)
+ * (The trees, and the bushes, rocks and hedges in the ground, light their own
+ * rims on the GPU: Painted.ts is told the light.)
  */
 export class RimLight {
   private readonly scene: Phaser.Scene;
@@ -50,29 +48,12 @@ export class RimLight {
       this.overlays.push(this.overlay(key, w, h, x, y, depth, rim));
     };
 
-    // things in the ground art (on the lawn; those on raised ground go with the terrain below)
-    // (in pieces of CHUNK tiles square, each only as big as what stands up in it)
+    // (things in the ground art on the lawn light their own rims, on the GPU: Ground.ts; those on raised ground go with the terrain below)
     const W = WORLD_W, H = WORLD_H, isUp = parts.upright;
     const groundRim = (x: number, y: number) => {
       const [a, b] = this.d1, [c, d] = this.d2;
       return !isUp(x, y) ? 0 : !isUp(x + a, y + b) ? OUTER : !isUp(x + c, y + d) ? INNER : 0;
     };
-    for (let cy = 0; cy < MAP_H; cy += CHUNK)
-      for (let cx = 0; cx < MAP_W; cx += CHUNK) {
-        let x0 = MAP_W, y0 = MAP_H, x1 = -1, y1 = -1;
-        for (let ty = cy; ty < Math.min(MAP_H, cy + CHUNK); ty++)
-          for (let tx = cx; tx < Math.min(MAP_W, cx + CHUNK); tx++)
-            if (levelAt(tx, ty) === 0 && hasUpright(tx, ty)) { x0 = Math.min(x0, tx); y0 = Math.min(y0, ty); x1 = Math.max(x1, tx); y1 = Math.max(y1, ty); }
-        if (x1 < 0) continue;
-        const ox = x0 * TILE, oy = y0 * TILE, w = (x1 - x0 + 1) * TILE, h = (y1 - y0 + 1) * TILE;
-        add(`rim-ground-${cx}-${cy}`, w, h, ox, oy, -99989, (out) => {
-          for (let y = 0; y < h; y++)
-            for (let x = 0; x < w; x++) {
-              const v = groundRim(ox + x, oy + y);
-              if (v && levelAt(Math.floor((ox + x) / TILE), Math.floor((oy + y) / TILE)) === 0) out[(y * w + x) * 4 + 3] = v;
-            }
-        });
-      }
 
     // terrain: which level shows at each screen pixel, to find the edges of plateaus as drawn
     const OFF = 3 * LEVEL; // pieces can be lifted above the top of the map

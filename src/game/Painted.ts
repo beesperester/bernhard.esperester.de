@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { RAMP_ROWS, RAMP_W, ramps } from '../art/painted.ts';
+import { PLAIN, RAMP_ROWS, RAMP_W, SPECK, ramps } from '../art/painted.ts';
 
 // The engine's painted shading (art/painted.ts says what the pictures hold):
 // pictures drawn with it are batched as Phaser batches any image, with their
@@ -34,16 +34,16 @@ float byteOf(float c) { return floor(c * 255.0 + 0.5); }
 /** art/painted.ts' fromByte. */
 float unbyte(float c, float range) { return (byteOf(c) / 255.0 - 0.5) * 2.0 * range; }
 vec4 rampAt(float row, float t) { return texture2D(uRamps, vec2((t + 0.5) / RAMP_W, (row + 0.5) / RAMP_ROWS)); }
-/** Whether the picture shows at this many px (x right, y down) from texCoord. */
+/** Whether something stands at this many px (x right, y down) from texCoord. */
 float solidAt(vec2 texCoord, vec2 d) {
   vec2 uv = texCoord + vec2(d.x, -d.y) / getTexRes();
-  return uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ? 0.0 : step(0.5, texture2D(uMainSampler[0], uv).a);
+  return uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ? 0.0 : step(0.5 / 255.0, texture2D(uNormSampler, uv).a);
 }
 vec4 painted(vec4 c, vec2 texCoord) {
   if (c.a < 0.5) return c;
   vec4 n = texture2D(uNormSampler, texCoord);
   float flags = byteOf(n.a);
-  if (flags > 0.5) {
+  if (flags > 0.5 && flags < ${PLAIN}.0) {
     float row = byteOf(c.r), kind = byteOf(rampAt(row, RAMP_W - 1.0).r), tone;
     vec2 L = uSun.xy;
     float k = uSun.z;
@@ -51,7 +51,7 @@ vec4 painted(vec4 c, vec2 texCoord) {
       // leaves (art/trees.ts' shade())
       float nx = unbyte(n.r, 1.0), ny = unbyte(n.g, 1.0), jit = unbyte(n.b, 2.0);
       bool rim = flags >= 128.0;
-      float speck = (flags - (rim ? 128.0 : 0.0) - 1.0) / 126.0;
+      float speck = (flags - (rim ? 128.0 : 0.0) - 1.0) / ${SPECK}.0;
       float facing = nx * L.x + ny * L.y;
       if (rim && facing < 0.15) tone = 3.0;
       else {
@@ -60,6 +60,10 @@ vec4 painted(vec4 c, vec2 texCoord) {
         if ((speck < 0.07 || (speck < 0.16 && ny < -0.25)) && tone > 0.0) tone -= 1.0;
         else if (speck > 0.95 && tone < 3.0) tone += 1.0;
       }
+    } else if (kind > 2.5) {
+      // a bush or a rock in the ground, round, in dabs; drawn a tone lighter or darker here and there (art/tiles.ts' litBlob())
+      float v = (unbyte(n.r, 1.0) * L.x + unbyte(n.g, 1.0) * L.y) * k + unbyte(c.b, 2.0);
+      tone = clamp((v > 0.35 ? 0.0 : v > -0.25 ? 1.0 : 2.0) + byteOf(c.g) - 2.0, 0.0, 2.0);
     } else {
       // bark, round across its trunk and rough; or the moss on it
       float u = (unbyte(n.r, 1.0) + 1.0) * 0.5, g = unbyte(n.g, 1.0), v = (u - 0.5) * 2.0 * L.x * k + g;
@@ -68,8 +72,8 @@ vec4 painted(vec4 c, vec2 texCoord) {
     }
     c = vec4(rampAt(row, tone).rgb, 1.0);
   }
-  // the sunlit rim: where the next pixel or the one after towards the sun is empty
-  if (uRim.a > 0.0) {
+  // the sunlit rim on what stands: where the next pixel or the one after towards the sun is empty
+  if (uRim.a > 0.0 && n.a > 0.0) {
     float r = solidAt(texCoord, uRimDir.xy) < 0.5 ? ${OUTER.toFixed(4)} : solidAt(texCoord, uRimDir.zw) < 0.5 ? ${INNER.toFixed(4)} : 0.0;
     c.rgb = mix(c.rgb, uRim.rgb, r * min(1.0, uRim.a * ${BOOST.toFixed(2)}));
   }

@@ -1,14 +1,17 @@
 import Phaser from 'phaser';
-import { buildGroundRegion, ripplesIn } from '../art/tiles.ts';
+import { ripplesIn } from '../art/tiles.ts';
+import { adoptRamps } from '../art/painted.ts';
 import { MAP_H, MAP_W, TILE } from '../world/map.ts';
-import type { Painter } from './Painter.ts';
+import type { GroundMaps, Painter } from './Painter.ts';
+import { addPainted, paint } from './Painted.ts';
 
 // The ground of the park: the lawns, paths, water, flower beds and all that is
 // drawn into them. The park is far too big to keep as one picture, so it is
 // drawn in square pieces, only round where the camera is, nearest first, by
 // the painter off the main thread (Painter.ts); the ones far away are
 // forgotten again. Where a piece has water in it, it is drawn twice, its
-// ripples in two phases that take turns.
+// ripples in two phases that take turns. The bushes and rocks in it are
+// shaded on the GPU (Painted.ts), in the light as it is each frame.
 
 /** A piece is this many tiles square. */
 const CHUNK = 16;
@@ -59,24 +62,6 @@ export class Ground {
     }
   }
 
-  /** Redraw the given tiles where their piece is drawn (the sun has moved: bushes and rocks are lit anew). Pieces drawn later get the new light anyway. */
-  redrawTiles(tiles: [number, number][]): void {
-    for (const p of this.pieces.values()) {
-      const x0 = p.cx * CHUNK, y0 = p.cy * CHUNK;
-      const mine = tiles.filter(([tx, ty]) => tx >= x0 && tx < x0 + CHUNK && ty >= y0 && ty < y0 + CHUNK);
-      if (!mine.length) continue;
-      p.keys.forEach((key, phase) => {
-        const tex = this.scene.textures.get(key) as Phaser.Textures.CanvasTexture;
-        const g = tex.getContext();
-        for (const [tx, ty] of mine) {
-          const t = buildGroundRegion(tx, ty, 1, 1, phase);
-          g.putImageData(new ImageData(t.data, TILE, TILE), (tx - x0) * TILE, (ty - y0) * TILE);
-        }
-        tex.refresh();
-      });
-    }
-  }
-
   /** Whether every piece in `view` is drawn. */
   ready(view: Phaser.Geom.Rectangle): boolean {
     // (around() leaves out the drawn pieces and those asked for: the view is drawn once nothing's left but none are waiting)
@@ -102,26 +87,25 @@ export class Ground {
     const k = cy * 1000 + cx;
     const tx0 = cx * CHUNK, ty0 = cy * CHUNK, tw = Math.min(CHUNK, MAP_W - tx0), th = Math.min(CHUNK, MAP_H - ty0);
     this.asked.add(k);
-    void this.painter.ground(tx0, ty0, tw, th, ripplesIn(tx0, ty0, tw, th) ? [0, 1] : [0]).then((layers) => {
+    void this.painter.ground(tx0, ty0, tw, th, ripplesIn(tx0, ty0, tw, th) ? [0, 1] : [0]).then((maps) => {
       this.asked.delete(k);
       // (unless the camera has gone on, far enough that it would be let go)
       const v = this.view, dx = Math.max(0, Math.abs(v.centerX - (cx + 0.5) * PX) - PX / 2 - v.width / 2), dy = Math.max(0, Math.abs(v.centerY - (cy + 0.5) * PX) - PX / 2 - v.height / 2);
       if (Math.max(dx, dy) > KEEP) return;
-      this.make(cx, cy, layers);
+      this.make(cx, cy, maps);
     });
   }
 
-  private make(cx: number, cy: number, layers: { w: number; h: number; data: Uint8ClampedArray<ArrayBuffer> }[]): void {
+  private make(cx: number, cy: number, { layers, normal, ramps }: GroundMaps): void {
     const k = cy * 1000 + cx, tx0 = cx * CHUNK, ty0 = cy * CHUNK;
     const id = this.gen++;
+    adoptRamps(layers.map((l) => l.data), normal, ramps);
     const keys = layers.map((l, phase) => {
       const key = `ground-${id}-${phase}`;
-      const tex = this.scene.textures.createCanvas(key, l.w, l.h)!;
-      tex.getContext().putImageData(new ImageData(l.data, l.w, l.h), 0, 0);
-      tex.refresh();
+      addPainted(this.scene, key, l.data, normal, l.w, l.h);
       return key;
     });
-    const imgs = keys.map((key, i) => this.scene.add.image(tx0 * TILE, ty0 * TILE, key).setOrigin(0).setDepth(-100000).setVisible(keys.length === 1 || i === this.phase));
+    const imgs = keys.map((key, i) => paint(this.scene.add.image(tx0 * TILE, ty0 * TILE, key)).setOrigin(0).setDepth(-100000).setVisible(keys.length === 1 || i === this.phase));
     this.pieces.set(k, { cx, cy, imgs, keys });
   }
 

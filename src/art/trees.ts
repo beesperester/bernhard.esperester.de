@@ -9,7 +9,7 @@ import { DEFAULT_LIGHT, type ScreenLight } from './lighting.ts';
 import { SNOW, bayer } from './tiles.ts';
 import { cooler, dab, patch, noise } from './paint.ts';
 import { puff, PUFF_SHAPES, PUFF_SIZES } from './leaves.ts';
-import { C_RANGE, J_RANGE, Kind, N_RANGE, RIM_BIT, SPECK, ramps, toByte } from './painted.ts';
+import { C_RANGE, J_RANGE, Kind, N_RANGE, PLAIN, RIM_BIT, SPECK, ramps, toByte } from './painted.ts';
 import { TREES, limbAt, limbThick, type Blob, type Limb, type Perch, type TreePlan } from '../world/trees.ts';
 
 export interface Prop {
@@ -326,6 +326,8 @@ const BARK_RAMP: RGB[] = [BARK_SHINE, ...BARK, BARK_CRACK];
  */
 export function paintedMaps(raster: Raster, lit?: LitPixels): { main: Uint8ClampedArray; normal: Uint8Array } {
   const main = new Uint8ClampedArray(raster.data), normal = new Uint8Array(raster.data.length);
+  // (all of it stands: what isn't shaded keeps its colours)
+  for (let o = 3; o < main.length; o += 4) if (main[o]) normal[o] = PLAIN;
   if (!lit) return { main, normal };
   const bark = ramps.row(BARK_RAMP, Kind.Bark), moss = ramps.row(MOSS, Kind.Moss);
   const rows = lit.pals.map((p) => ramps.row(p, Kind.Leaf));

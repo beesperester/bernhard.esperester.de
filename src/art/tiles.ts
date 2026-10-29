@@ -5,6 +5,7 @@ import { DEFAULT_LIGHT, sunLight, type ScreenLight } from './lighting.ts';
 import { LEGEND, isPath, isStairs, isWaterway } from '../world/legend.ts';
 import { trackPoints } from '../world/track.ts';
 import { dab, noise, patch, ramp, tone } from './paint.ts';
+import { J_RANGE, Kind, N_RANGE, PLAIN, ramps, toByte } from './painted.ts';
 
 /** The lawn, painted: deep teal shadows to warm yellow-green lights. */
 export const LAWN = ramp(7, '#2a4c3e', '#44744a', '#66944e', '#96b462');
@@ -366,6 +367,12 @@ const BUSH = [
  * specks and patches are kept as an offset from how the default light would
  * shade it, so under that light it looks exactly as drawn.
  */
+/** While a piece of ground is drawn for the GPU: the bushes' and rocks' pixels as litBlob shades them, to be shaded there again. */
+interface BlobPx { i: number; colour: RGB; row: number; off: number; j: number; nx: number; ny: number }
+let blobs: BlobPx[] | null = null;
+/** The blobs of the last piece drawn to `keep` them: those still as drawn after the season, at their place in it. */
+let lastBlobs: BlobPx[] = [];
+
 function litBlob(r: Raster, ox: number, oy: number, art: string[], fixed: Record<string, RGB>, tones: string, ramp: RGB[], tx: number, ty: number): void {
   r.paint(art, ox, oy, fixed);
   let x0 = 99, y0 = 99, x1 = -1, y1 = -1;
@@ -384,8 +391,9 @@ function litBlob(r: Raster, ox: number, oy: number, art: string[], fixed: Record
     const nx = (x + 0.5 - mx) / rx, ny = (y + 0.5 - my) / ry;
     // (in dabs, like the leaves on the trees)
     const j = dab(tx * TILE + x, ty * TILE + y, 13) * 0.6;
-    const tone = Math.max(0, Math.min(2, shade(nx, ny, sunLight, j) + drawn - shade(nx, ny, DEFAULT_LIGHT)));
+    const off = drawn - shade(nx, ny, DEFAULT_LIGHT), tone = Math.max(0, Math.min(2, shade(nx, ny, sunLight, j) + off));
     r.set(ox + x, oy + y, ramp[tone]);
+    blobs?.push({ i: (oy + y) * r.w + ox + x, colour: ramp[tone], row: ramps.row(ramp, Kind.Blob), off, j, nx, ny });
   }));
 }
 
@@ -486,8 +494,10 @@ function drawTile(r: Raster, ox: number, oy: number, tx: number, ty: number, pha
  * ripples (still while frozen). The park is far too big to draw at once; it is drawn a piece at a
  * time, round where the cats are (game/Ground.ts).
  */
-export function buildGroundRegion(tx0: number, ty0: number, tw: number, th: number, phase: number, season: Season = SEASON): Raster {
+export function buildGroundRegion(tx0: number, ty0: number, tw: number, th: number, phase: number, season: Season = SEASON, keep = false): Raster {
   const wide = new Raster((tw + 1) * TILE, th * TILE);
+  const recording = blobs;
+  blobs = keep ? recording : null;
   for (let ty = ty0; ty < ty0 + th; ty++)
     for (let tx = tx0 - 1; tx < tx0 + tw; tx++) drawTile(wide, (tx - tx0 + 1) * TILE, (ty - ty0) * TILE, tx, ty, season.frozen && !isChannel(tx, ty) ? 0 : phase);
   const ox = (tx0 - 1) * TILE, oy = ty0 * TILE;
@@ -496,7 +506,47 @@ export function buildGroundRegion(tx0: number, ty0: number, tw: number, th: numb
   scatterLitter(wide, season, ox, oy);
   const out = new Raster(tw * TILE, th * TILE);
   for (let y = 0; y < out.h; y++) out.data.set(wide.data.subarray((y * wide.w + TILE) * 4, (y * wide.w + wide.w) * 4), y * out.w * 4);
+  if (keep && blobs) {
+    // (those the season left as they were, in this piece rather than the column to its left)
+    const d = wide.data;
+    lastBlobs = blobs.filter((b) => b.i % wide.w >= TILE && d[b.i * 4] === b.colour[0] && d[b.i * 4 + 1] === b.colour[1] && d[b.i * 4 + 2] === b.colour[2])
+      .map((b) => ({ ...b, i: Math.floor(b.i / wide.w) * out.w + (b.i % wide.w) - TILE }));
+  }
+  blobs = recording;
   return out;
+}
+
+/**
+ * A part of the ground as the GPU draws it (art/painted.ts, game/Painted.ts): buildGroundRegion's
+ * picture for each ripple phase, the bushes and rocks in it holding their ramps and shading numbers
+ * (unless the season has painted over them: snow, say), and its normal map, which also marks
+ * everything standing up from the ground (for its sunlit rim).
+ */
+export function buildGroundMaps(tx0: number, ty0: number, tw: number, th: number, phases: number[], season: Season = SEASON): { layers: Raster[]; normal: Uint8Array } {
+  const W = tw * TILE, H = th * TILE, normal = new Uint8Array(W * H * 4);
+  blobs = [];
+  let layers: Raster[];
+  try {
+    layers = phases.map((phase, k) => (k === 0 ? buildGroundRegion(tx0, ty0, tw, th, phase, season, true) : buildGroundRegion(tx0, ty0, tw, th, phase, season)));
+  } finally {
+    blobs = null;
+  }
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) if (uprightAt(tx0 * TILE + x, ty0 * TILE + y)) normal[(y * W + x) * 4 + 3] = PLAIN;
+  for (const b of lastBlobs) {
+    const o = b.i * 4;
+    normal[o] = toByte(b.nx, N_RANGE);
+    normal[o + 1] = toByte(b.ny, N_RANGE);
+    normal[o + 2] = 0;
+    normal[o + 3] = 1;
+    for (const l of layers) {
+      l.data[o] = b.row;
+      l.data[o + 1] = b.off + 2;
+      l.data[o + 2] = toByte(b.j, J_RANGE);
+    }
+  }
+  lastBlobs = [];
+  return { layers, normal };
 }
 
 /** One tile of the ground, finished exactly as in the whole park. */

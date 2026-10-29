@@ -1,19 +1,22 @@
 import { propFrom, type Prop, type PropParts } from '../art/trees.ts';
 import { sunLight } from '../art/lighting.ts';
 import { worldSeed } from '../world/seed.ts';
+import type { Ramps } from '../art/painted.ts';
 import type { PaintRequest } from './painter.worker.ts';
 
 // Asks the painter (painter.worker.ts) for trees and pieces of ground, a few
 // at a time, and hands them over as they come back.
 
 type Pixels = { w: number; h: number; data: Uint8ClampedArray<ArrayBuffer> };
+/** A piece of ground as the GPU draws it: a picture per ripple phase, its normal map, and the painter's ramps they name. */
+export type GroundMaps = { layers: Pixels[]; normal: Uint8Array; ramps: Ramps['rows'] };
 
 /** At most this many asked for and not back yet: the nearest are asked for first, and the view moves on. */
 const IN_FLIGHT = 3;
 
 export class Painter {
   private readonly worker = new Worker(new URL('./painter.worker.ts', import.meta.url), { type: 'module', name: location.search });
-  private readonly waiting = new Map<number, (data: { parts?: PropParts; layers?: Pixels[] }) => void>();
+  private readonly waiting = new Map<number, (data: { parts?: PropParts } & Partial<GroundMaps>) => void>();
   private next = 0;
 
   constructor() {
@@ -40,10 +43,10 @@ export class Painter {
   }
 
   /** The ground of tiles (tx0, ty0) to (tx0 + tw, ty0 + th), once for each ripple phase. */
-  ground(tx0: number, ty0: number, tw: number, th: number, phases: number[]): Promise<Pixels[]> {
+  ground(tx0: number, ty0: number, tw: number, th: number, phases: number[]): Promise<GroundMaps> {
     const id = this.next++;
     return new Promise((done) => {
-      this.waiting.set(id, (d) => done(d.layers!));
+      this.waiting.set(id, (d) => done(d as GroundMaps));
       this.send({ kind: 'ground', id, tx0, ty0, tw, th, phases, sun: { ...sunLight } });
     });
   }
