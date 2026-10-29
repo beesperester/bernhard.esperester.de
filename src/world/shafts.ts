@@ -11,10 +11,11 @@ import { TREES } from './trees.ts';
 export interface Shaft {
   /** The tree it comes through. */
   tree: number;
-  /** Where in the crown it starts: the crown's middle across (world px) and half its width (on the side the ray
-   * slants to, `side` of the way from its middle to its edge), and the ground line under that (the tree's foot)... */
+  /** Where in the crown it starts: the crown's middle across (world px) and half its width at that height (on the
+   * side the ray slants to, `side` of the way from its middle to its edge: well inside the leaves), and the ground
+   * line under that (the tree's foot)... */
   x: number;
-  rx: number;
+  half: number;
   side: number;
   y: number;
   /** ...and how high above that ground (px). */
@@ -44,7 +45,8 @@ function layOutShafts(): Shaft[] {
       // up in the top of the crown, inside its sides
       const top = c.z + c.rz;
       const h = t.elev + base + (top - base) * (0.6 + r(2) * 0.3);
-      out.push({ tree, x: Math.round(t.x + c.x), rx: c.rx, side: 0.3 + r(1) * 0.5, y: t.y, h: Math.round(h), w: 3 + Math.round(r(3) * 5), reach: 0.55 + r(5) * 0.45, phase: r(4) });
+      const half = c.rx * Math.sqrt(Math.max(0, 1 - ((h - t.elev - c.z) / c.rz) ** 2));
+      out.push({ tree, x: Math.round(t.x + c.x), half, side: 0.15 + r(1) * 0.45, y: t.y, h: Math.round(h), w: 3 + Math.round(r(3) * 5), reach: 0.55 + r(5) * 0.45, phase: r(4) });
     }
   });
   return out;

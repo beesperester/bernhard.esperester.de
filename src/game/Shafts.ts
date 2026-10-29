@@ -53,8 +53,8 @@ void main() {
   float I = 0.0;
   if (t > 0.0 && t < 1.0) {
     float hw = uWidth * 0.5 * mix(0.8, 1.3, t), e = abs(s) / hw;
-    // fading in out of the leaves, and out (dithered) towards its end
-    float along = smoothstep(0.0, 0.08, t) * (1.0 - smoothstep(0.7, 1.0, t));
+    // fading in slowly as it comes out of the leaves, and out (dithered) towards its end
+    float along = smoothstep(0.0, 0.35, t) * (1.0 - smoothstep(0.7, 1.0, t));
     if (e < 1.0) {
       // shimmering: brighter streaks drifting slowly across and down it, and the whole of it breathing
       float streak = 0.5 + 0.5 * vnoise(vec2(s * 0.4 + uTime * 0.12, d * 0.03 - uTime * 0.05 + uSeed), 3.0);
@@ -164,7 +164,7 @@ export class Shafts {
     // (flat on the screen: per px down, this far across, away from the light; it ends `reach` of the way down to the tree's foot)
     const dx = Math.max(-SLANT, Math.min(SLANT, this.slant));
     // (from the side of the crown it slants to, so it soon comes out of the leaves)
-    const tx = s.x + (dx < 0 ? -1 : 1) * s.rx * s.side, ty = s.y - s.h, root = s.y - TREES[s.tree].elev;
+    const tx = s.x + (dx < 0 ? -1 : 1) * s.half * s.side, ty = s.y - s.h, root = s.y - TREES[s.tree].elev;
     const k = (root - ty) * s.reach, fx = tx + dx * k, fy = ty + k;
     d.u.top = [tx, ty];
     d.u.foot = [fx, fy];

@@ -11,8 +11,10 @@ describe('rays of light', () => {
       expect(t.shape).not.toBe('pine');
       // (inside its crown: across, and between its underside and its top)
       expect(Math.abs(s.x - (t.x + c.x))).toBeLessThanOrEqual(1);
+      // (starting well inside the leaves at its height, not out by the crown's edge)
       expect(s.side).toBeGreaterThan(0);
-      expect(s.side).toBeLessThan(0.9);
+      expect(s.side).toBeLessThanOrEqual(0.6);
+      expect(s.half).toBeLessThanOrEqual(c.rx);
       expect(s.h).toBeGreaterThan(t.elev + (c.base ?? c.z - c.rz));
       expect(s.h).toBeLessThan(t.elev + c.z + c.rz);
       expect(s.w).toBeGreaterThanOrEqual(3);
