@@ -8,6 +8,7 @@ import { noise } from '../art/paint.ts';
 import { MAP_H, MAP_W, TILE, isChannel, tileAt } from './map.ts';
 import { isPond } from './legend.ts';
 import { worldSeed } from './seed.ts';
+import { SEASON } from './season.ts';
 
 export interface Lily {
   /** The middle of its pad (world px). */
@@ -57,3 +58,8 @@ function layOutLilies(): Lily[] {
 }
 
 export const LILIES: Lily[] = layOutLilies();
+
+/** The lilies are out from spring to late autumn (days of the year), in flower all that time (they are magic)... */
+const OUT_FROM = 100, OUT_TO = 325;
+/** ...and not while the ponds are frozen. */
+export const liliesOut = (): boolean => !SEASON.frozen && SEASON.day >= OUT_FROM && SEASON.day <= OUT_TO;

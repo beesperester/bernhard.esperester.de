@@ -70,7 +70,7 @@ export function generatePark(seed: number): Park {
   const E: number[][] = Array.from({ length: H }, () => new Array<number>(W).fill(0));
   const inside = (x: number, y: number) => x > 0 && y > 0 && x < W - 1 && y < H - 1;
   const at = (x: number, y: number) => (x >= 0 && y >= 0 && x < W && y < H ? T[y][x] : 'F');
-  const wet = (x: number, y: number) => '~wlBR'.includes(at(x, y));
+  const wet = (x: number, y: number) => '~wBR'.includes(at(x, y));
   const idx = (x: number, y: number) => y * W + x;
 
   // ---- the railway: a loop round the park, kept in from the fence, with a few bays pushed in ----
@@ -598,7 +598,7 @@ function tidyWater(T: string[][]): void {
 
 /** Land left with water on three sides (in the crook of a stream, say): reeds; on all four: a rock. */
 function tidySlivers(T: string[][]): void {
-  const wetAt = (x: number, y: number) => '~wlBR'.includes(T[y]?.[x] ?? 'F');
+  const wetAt = (x: number, y: number) => '~wBR'.includes(T[y]?.[x] ?? 'F');
   for (let y = 2; y < H - 2; y++)
     for (let x = 2; x < W - 2; x++) {
       if (T[y][x] !== '.') continue;

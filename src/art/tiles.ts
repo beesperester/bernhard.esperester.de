@@ -191,20 +191,6 @@ function water(r: Raster, ox: number, oy: number, tx: number, ty: number, phase:
   if (s && e) corner(ox + 15, oy + 15, -1, -1);
 }
 
-const LILY = [
-  '................',
-  '................',
-  '................',
-  '.....oooo.......',
-  '...oollllo......',
-  '..olllldlo......',
-  '..ollllp.lo.....',
-  '..olll.pp.o.....',
-  '..olldllllo.....',
-  '...ollllloo.....',
-  '....ooooo.......',
-];
-
 function hedge(r: Raster, ox: number, oy: number, tx: number, ty: number, tall = false): void {
   // maze hedges are a deeper green with a taller front face so they read as walls
   const [top, lit, face, line] = tall ? [C.h2, C.h0, C.m0, C.h3] : [C.h0, C.h1, C.h2, C.h3];
@@ -464,12 +450,6 @@ export const TILE_ART: Record<string, { ground?: Painter; upright?: Painter }> =
   Z: { ground: (r, ox, oy, tx, ty) => path(r, ox, oy, tx, ty) },
   w: { ground: water },
   '~': { ground: water },
-  l: {
-    ground: (r, ox, oy, tx, ty, phase) => {
-      water(r, ox, oy, tx, ty, phase);
-      r.paint(LILY, ox + 1, oy + 2, { o: C.h3, l: C.h1, d: C.h0, p: FLOWERS[3] });
-    },
-  },
   B: { ground: bridge },
   R: { ground: railBridge },
   '#': { upright: (r, ox, oy, tx, ty) => hedge(r, ox, oy, tx, ty) },
@@ -687,7 +667,7 @@ function shadeUnderCliffs(r: Raster, ox = 0, oy = 0): void {
 }
 
 /**
- * Where the water shows open (not the banks, the lily pads or a bridge's boards; and not a frozen pond)
+ * Where the water shows open (not the banks or a bridge's boards; and not a frozen pond)
  * over the whole park: each wet tile drawn on its own, and its open-water pixels marked.
  */
 export function buildWaterMask(season: Season = SEASON): Mask {

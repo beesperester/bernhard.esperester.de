@@ -32,8 +32,6 @@ export interface TileKind {
   span?: number;
   /** Running water: a river or a canal. It flows (world/streams.ts) and never freezes. */
   running?: boolean;
-  /** A lily pad floating on the pond (frogs sit on them). */
-  lily?: boolean;
   /** Casts a soft round shadow at night (bushes and rocks drawn in the ground art). */
   nightBlob?: boolean;
 }
@@ -49,7 +47,6 @@ export const LEGEND: Record<string, TileKind> = {
   R: { name: 'railway bridge', water: 'bridged', path: true },
   w: { name: 'water', water: 'open' },
   '~': { name: 'river', water: 'open', running: true },
-  l: { name: 'lily pad', water: 'open', lily: true },
   '#': { name: 'low hedge', height: 8 },
   // taller than a jump, so the labyrinth can't be hopped over
   m: { name: 'maze hedge', height: 20 },
@@ -68,11 +65,8 @@ const kindOf = (ch: string): TileKind | undefined => LEGEND[ch];
 
 /** Pond water, frozen or not (not the water under a bridge). */
 export const isPond = (ch: string) => kindOf(ch)?.water === 'open';
-/** Pond water with nothing on it (no lily pad). */
-export const isOpenWater = (ch: string) => isPond(ch) && !kindOf(ch)?.lily;
 /** A river or a canal (see TileKind.running). */
 export const isRunning = (ch: string) => !!kindOf(ch)?.running;
-export const isLilyPad = (ch: string) => !!kindOf(ch)?.lily;
 export const isBridge = (ch: string) => kindOf(ch)?.water === 'bridged';
 /** Any water, bridged or not: where reflections and ripples go. */
 export const isWaterway = (ch: string) => kindOf(ch)?.water !== undefined;

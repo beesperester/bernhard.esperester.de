@@ -8,7 +8,8 @@ import { lightAt } from '../../world/sky.ts';
 import { inSeason, rainfall } from '../../world/season.ts';
 import { Pool, seedRng, hash2, lerp, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
 import type { Effects } from './Effects.ts';
-import { groundOf, isLawnOrTall, isLilyPad, isMeadow, isOpenWater, isPond } from '../../world/legend.ts';
+import { groundOf, isLawnOrTall, isMeadow, isPond } from '../../world/legend.ts';
+import { LILIES, liliesOut } from '../../world/lilies.ts';
 
 // Fireflies drifting over the grass and frogs sitting at the water's edge,
 // after dark (and the frogs in the rain, too). Deterministic like the rest of the fauna: whether something
@@ -64,19 +65,20 @@ export class NightLife implements Fauna {
         // fireflies like long grass and flowers, the clearings in the woods, and the edges of the ponds
         if (isMeadow(ch) || inClearing(tx, ty) || (groundOf(ch) === 'lawn' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => water(tx + dx, ty + dy))))
           this.grass.push([tx * TILE + 8, ty * TILE + 8]);
-        // frogs: out on a lily pad, climbing up from the open water beside it...
-        if (isLilyPad(ch)) {
-          const side = ([[0, 1], [1, 0], [-1, 0], [0, -1]] as const).find(([dx, dy]) => isOpenWater(tileAt(tx + dx, ty + dy)));
-          const cx = tx * TILE + 7, cy = ty * TILE + 11;
-          if (side) this.pads.push({ at: [cx, cy], water: [cx + side[0] * 11, cy + side[1] * 8], lily: true });
-        }
-        // ...or on the lawn right at the water, facing it
+        // frogs: on the lawn right at the water, facing it (or out on a lily pad: below)
         if (!isLawnOrTall(ch) || levelAt(tx, ty) !== 0) continue;
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
-          if (isOpenWater(tileAt(tx + dx, ty + dy))) {
+          if (isPond(tileAt(tx + dx, ty + dy))) {
             const cx = tx * TILE + 8 + dx * 5, cy = ty * TILE + 10 + dy * 4;
             this.shore.push({ at: [cx, cy], water: [cx + dx * 10, cy + dy * 9], lily: false });
           }
+      }
+    // out on a lily pad without a flower, climbing up from the water beside it
+    if (liliesOut())
+      for (const [k, l] of LILIES.entries()) {
+        if (l.flower >= 0) continue;
+        const side = k % 2 ? 1 : -1;
+        this.pads.push({ at: [l.x, l.y + 2], water: [l.x + side * 11, l.y + 5], lily: true });
       }
   }
 

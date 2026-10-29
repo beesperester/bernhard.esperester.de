@@ -1,8 +1,7 @@
 import Phaser from 'phaser';
 import type { Raster } from '../art/raster.ts';
 import { buildFlower, buildPad } from '../art/lilies.ts';
-import { FLOWERS, LILIES, PADS } from '../world/lilies.ts';
-import { SEASON } from '../world/season.ts';
+import { FLOWERS, LILIES, PADS, liliesOut } from '../world/lilies.ts';
 import { lampsOn, type Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 import type { Glow, Glows } from './Glows.ts';
@@ -11,8 +10,6 @@ import type { Glow, Glows } from './Glows.ts';
 const PAD_DEPTH = -99981;
 /** ...and the flowers on the pads. */
 const FLOWER_DEPTH = -99980.5;
-/** The lilies are out from spring to late autumn (days of the year), in flower all that time: they are magic. */
-const PADS_FROM = 100, PADS_TO = 325;
 /** How bright the flowers glow at night, breathing slowly. */
 const GLOW = 0.6;
 
@@ -26,8 +23,7 @@ export class Lilies {
   private lit = -1;
 
   constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement, glows: Glows) {
-    const day = SEASON.day;
-    if (SEASON.frozen || day < PADS_FROM || day > PADS_TO) return;
+    if (!liliesOut()) return;
     for (let i = 0; i < PADS; i++) scene.textures.addCanvas(`lily-pad-${i}`, toCanvas(buildPad(i)));
     for (let i = 0; i < FLOWERS; i++) scene.textures.addCanvas(`lily-flower-${i}`, toCanvas(buildFlower(i)));
     const culler = cullerFor(scene);

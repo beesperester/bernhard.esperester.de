@@ -113,7 +113,7 @@ describe('the map', () => {
   });
 
   it('has no specks of water or slivers of land', () => {
-    const wet = (x: number, y: number) => '~wlBR'.includes(tileAt(x, y));
+    const wet = (x: number, y: number) => '~wBR'.includes(tileAt(x, y));
     for (let y = 2; y < MAP_H - 2; y++)
       for (let x = 2; x < MAP_W - 2; x++) {
         const n = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => wet(x + dx, y + dy)).length;

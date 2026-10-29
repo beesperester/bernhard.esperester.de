@@ -14,7 +14,7 @@ const WEED = hex('#4f7d3a'), WEED_LIGHT = hex('#6f9a48'), WEED_DARK = hex('#3358
 /**
  * How far each water pixel is from the bank (px, counting no further than
  * `max`). Not water: 0. `floating(x, y)` says what lies on the water rather
- * than being bank (lily pads, bridges): the depth carries on under it.
+ * than being bank (bridges): the depth carries on under it.
  */
 export function shoreDistance(mask: Bits, max = 60, floating: (x: number, y: number) => boolean = () => false): Uint8Array {
   const { w, h } = mask;

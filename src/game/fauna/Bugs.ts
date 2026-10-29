@@ -7,7 +7,7 @@ import { MAP_H, MAP_W, TILE, aroundFurniture, elevAt, furnished, levelAt, tileAt
 import { lightAt } from '../../world/sky.ts';
 import { inSeason } from '../../world/season.ts';
 import { Pool, seedRng, hash2, lerp, smooth, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
-import { isOpenGround, isOpenWater, isPond } from '../../world/legend.ts';
+import { isOpenGround, isPond } from '../../world/legend.ts';
 
 // Beetles crawling about the lawns and paths (they can't fly: scare one and it
 // skitters off into the grass), and dragonflies darting about over the ponds
@@ -65,7 +65,7 @@ export class Bugs implements Fauna {
     for (let ty = 1; ty < MAP_H - 1; ty++)
       for (let tx = 1; tx < MAP_W - 1; tx++) {
         if (walkable(tx, ty, levelAt(tx, ty)) && hash2(tx, ty, 970) < 0.35) this.ground.push([tx * TILE + 8, ty * TILE + 10]);
-        if (isOpenWater(tileAt(tx, ty)) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !water(tx + dx, ty + dy)))
+        if (isPond(tileAt(tx, ty)) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !water(tx + dx, ty + dy)))
           this.hovers.push([tx * TILE + 8, ty * TILE + 8]);
       }
     this.near = this.hovers.map(([x, y], i) => this.hovers.flatMap(([x2, y2], j) => (j !== i && Math.hypot(x2 - x, y2 - y) < 64 ? [j] : [])));

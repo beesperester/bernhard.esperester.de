@@ -13,7 +13,7 @@
 import { hash2 } from '../art/raster.ts';
 import { worldSeed } from './seed.ts';
 import { FURNITURE, LEVEL, MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileAt } from './map.ts';
-import { LEGEND, groundOf, isLawnOrTall, isOpenWater, isPath } from './legend.ts';
+import { LEGEND, groundOf, isLawnOrTall, isPath, isPond } from './legend.ts';
 import { TREES, zAt } from './trees.ts';
 import { Food } from './food.ts';
 import { ZONE_FLOOR } from './themes.ts';
@@ -109,7 +109,7 @@ export function planFinds(seed: number): FindSlot[] {
       const ch = tileAt(tx, ty);
       // (not in a themed zone: that's its own)
       if ((!isLawnOrTall(ch) && !isPath(ch)) || ch === ZONE_FLOOR || LEGEND[ch]?.water || furnished(tx, ty)) continue;
-      const side = ([[0, 1], [0, -1], [1, 0], [-1, 0]] as const).find(([dx, dy]) => isOpenWater(tileAt(tx + dx, ty + dy)) && levelAt(tx + dx, ty + dy) === levelAt(tx, ty));
+      const side = ([[0, 1], [0, -1], [1, 0], [-1, 0]] as const).find(([dx, dy]) => isPond(tileAt(tx + dx, ty + dy)) && levelAt(tx + dx, ty + dy) === levelAt(tx, ty));
       if (side) banks.push([tx, ty, side[0], side[1]]);
     }
   const buckets: Spot[] = [];

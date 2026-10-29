@@ -4,7 +4,7 @@ import { buildBed, clarity, shoreDistance, EYE, F0, FRESNEL_POW, SLOPE, WAVES, t
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 import { TILE, tileAt } from '../world/map.ts';
-import { isBridge, isLilyPad } from '../world/legend.ts';
+import { isBridge } from '../world/legend.ts';
 import { defineShader, shade, type Uniforms } from './gpu.ts';
 
 // The open water, drawn in two layers. Underneath, the bed: sand, pebbles,
@@ -108,10 +108,10 @@ export class WaterSurface {
       const wx = Math.max(0, box.x - MAX_DEPTH), wy = Math.max(0, box.y - MAX_DEPTH);
       const ww = Math.min(mask.w, box.x + box.w + MAX_DEPTH) - wx, wh = Math.min(mask.h, box.y + box.h + MAX_DEPTH) - wy;
       const around = mask.window(wx, wy, ww, wh);
-      // lily pads and bridges float on the water: it's as deep under them as round them
+      // bridges stand over the water: it's as deep under them as round them
       const dist = shoreDistance(around, MAX_DEPTH, (x, y) => {
         const ch = tileAt(Math.floor((x + wx) / TILE), Math.floor((y + wy) / TILE));
-        return isLilyPad(ch) || isBridge(ch);
+        return isBridge(ch);
       });
       const bed = buildBed(around, dist, wx, wy);
       const bedKey = `water-bed-${n}`;
