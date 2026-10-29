@@ -669,7 +669,7 @@ export class GardenScene extends Phaser.Scene {
     this.ambient.update(gt, dt, cats, view);
     this.weather.update(gt, time, dt, cats, view, light);
     this.streams.update(gt, light.night, view);
-    this.landmarks.update(time, this.cameras.main.zoom);
+    this.landmarks.update(time, this.cameras.main.zoom, this.me.x, this.me.y);
     this.puddles.update(gt, time, dt, cats, view);
     this.furniture.update(time, cats, this.ambient.fx, view);
     this.clouds.update(gt);

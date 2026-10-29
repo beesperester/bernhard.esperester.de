@@ -406,9 +406,9 @@ const SOLIDS: [number, number, number, number, number, number][] = [
 
 /** Screen boxes of furniture and follies tall enough to hide a cat, and the ground y of their front. */
 export const COVERS: { x0: number; y0: number; x1: number; y1: number; front: number; low?: boolean }[] = [
-  // (not the gate: a cat walking through it is seen through the arches)
+  // (not the colonnade: a cat walking through it is seen between the columns)
   // part by part (a cat up on one is drawn in front of it, so only hides behind it from the ground)
-  ...LANDMARK_SPOTS.filter((l) => l.kind !== 'gate').flatMap((l) => LANDMARK_COVERS[l.kind].map(([x0, y0, x1, y1, front]) => {
+  ...LANDMARK_SPOTS.filter((l) => l.kind !== 'colonnade').flatMap((l) => LANDMARK_COVERS[l.kind].map(([x0, y0, x1, y1, front]) => {
     const ox = l.tx * TILE, oy = l.ty * TILE;
     return { x0: ox + x0, y0: oy + y0, x1: ox + x1, y1: oy + y1, front: oy + front, low: true };
   })),

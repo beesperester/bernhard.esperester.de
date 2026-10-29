@@ -49,7 +49,7 @@ const SIDES: Pt[] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 /** The four sides, then the four diagonals: the ways a path can go. */
 const DIRS: Pt[] = [...SIDES, [1, 1], [-1, 1], [-1, -1], [1, -1]];
 const AROUND: Pt[] = [...SIDES, [1, 1], [-1, 1], [1, -1], [-1, -1]];
-const FOLLIES: LandmarkKind[] = ['tvtower', 'gate', 'reichstag', 'victory', 'dom', 'rathaus', 'church', 'wall', 'checkpoint', 'oberbaum', 'schloss'];
+const FOLLIES: LandmarkKind[] = ['pavilion', 'teahouse', 'lookout', 'catstatue', 'rotunda', 'tower', 'colonnade', 'terrace', 'obelisk', 'urn'];
 
 /** The park that grows from `seed`. */
 export function generatePark(seed: number): Park {

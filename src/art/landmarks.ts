@@ -1,13 +1,15 @@
-// The landmark follies: weathered garden monuments of famous places in
-// Berlin. Each is drawn from the shapes it is built of (world/landmarks.ts),
-// seen from the front and above like the rest of the park: a block shows its
-// top and its front, a column its round top and its shaded side. Moss grows
-// on the tops, ivy down some fronts, and broken things have jagged tops.
+// The follies: weathered stone monuments, statues and tea-garden pavilions.
+// Each is drawn from the shapes it is built of (world/landmarks.ts), seen
+// from the front and above like the rest of the park: a block shows its top
+// and its front, a column its round top and its shaded side, a roof its
+// tiled slopes. Moss grows on the tops, ivy down some fronts, and broken
+// things have jagged tops. A roof is drawn on its own (it hangs over a cat
+// up on the folly).
 import { Raster, hex, hash2, type RGB } from './raster.ts';
 import { dab, paintOver } from './paint.ts';
 import { snowCap } from './furniture.ts';
 import { SEASON, type Season } from '../world/season.ts';
-import { LANDMARK_SHAPES, LANDMARK_SPRITE, ROUND, type LandmarkKind, type Material, type Shape } from '../world/landmarks.ts';
+import { LANDMARK_SHAPES, LANDMARK_SPRITE, LOOKOUT_LANTERNS, ROUND, type LandmarkKind, type Material, type Shape } from '../world/landmarks.ts';
 
 /** Outline, shadow side, front, lit top, highlight. */
 type Tone = { o: RGB; d: RGB; b: RGB; l: RGB; s: RGB };
@@ -16,18 +18,17 @@ const tone = (o: string, d: string, b: string, l: string, s: string): Tone => ({
 const TONES: Record<Material, Tone> = {
   stone: tone('#2e2c36', '#827e84', '#a29e9e', '#c2beb6', '#dedad0'),
   dark: tone('#1e1c1e', '#4a4448', '#5e585a', '#78706e', '#958c86'),
-  brick: tone('#3a1a14', '#7e3a2c', '#9c4a36', '#b45e46', '#cc7c60'),
   bronze: tone('#1a3a30', '#3e7c66', '#5a9a80', '#7cbaa0', '#a8d8c0'),
   gold: tone('#4a3410', '#a07a2a', '#c49a3a', '#dcb850', '#f0d880'),
-  white: tone('#3e3e48', '#b0aeb0', '#d2d0ca', '#e8e6de', '#f8f6ee'),
-  paint: tone('#3a3a3a', '#8c8c88', '#a8a8a2', '#c4c4be', '#dcdcd6'),
-  iron: tone('#141418', '#2a2a30', '#3c3c44', '#56565e', '#74747c'),
-  ochre: tone('#4a3418', '#b08440', '#cca056', '#e0bc72', '#f0d494'),
+  paper: tone('#3a3024', '#c8bca0', '#e2d8bc', '#f0e8d0', '#faf4e2'),
+  lacquer: tone('#2a0e0e', '#6a1e1a', '#922c22', '#b4402c', '#d0624a'),
+  wood: tone('#24160e', '#5a3a22', '#7a5432', '#9a6e42', '#ba8e5a'),
+  tile: tone('#16202a', '#384c5c', '#4e6676', '#6e8a98', '#a2bcc4'),
 };
 const MOSS = [hex('#4c7a34'), hex('#6a9640'), hex('#8ab050')];
+/** A lantern's window. */
+const LAMP = hex('#f4cc78');
 const IVY = [hex('#2e5a26'), hex('#3e7430'), hex('#5a9438')];
-/** Faded murals on the wall's slabs. */
-const MURAL = [hex('#d88890'), hex('#e8cc78'), hex('#88b8d8'), hex('#98c890'), hex('#b8a0d0'), hex('#e8a878')];
 
 /** What the canvas holds at a pixel: how far forward on the ground it is (bigger is nearer the viewer). */
 class Canvas {
@@ -53,9 +54,10 @@ const broken = (s: Shape, x: number, seed: number) =>
 
 /** Stone courses on a front face: joints every few px, staggered. */
 function joint(mat: Material, x: number, y: number): boolean {
-  if (mat === 'brick') return y % 2 === 1 || (x + (y % 4 < 2 ? 0 : 2)) % 4 === 0 && y % 2 === 0;
   if (mat === 'stone' || mat === 'dark') return y % 4 === 3 || (x + (y % 8 < 4 ? 0 : 4)) % 8 === 0;
-  if (mat === 'white') return x % 3 === 0;
+  // (paper screens in a wooden lattice; planks)
+  if (mat === 'paper') return x % 5 === 0 || y % 5 === 0;
+  if (mat === 'wood') return y % 3 === 2;
   return false;
 }
 
@@ -70,7 +72,7 @@ function drawShape(c: Canvas, s: Shape, ox: number, oy: number, seed: number): v
       // the top face, lit, its back edge catching the light
       for (let y = y0; y < y1; y++) {
         let col = y === y0 ? t.s : left ? t.s : t.l;
-        if (s.mat !== 'paint' && s.mat !== 'white' && hash2(x, y + top, seed + 961) < 0.08) col = t.b;
+        if (s.mat !== 'paper' && hash2(x, y + top, seed + 961) < 0.08) col = t.b;
         c.put(x + ox, y - top + oy, y, col);
       }
       // the front face, darker towards the bottom
@@ -78,8 +80,7 @@ function drawShape(c: Canvas, s: Shape, ox: number, oy: number, seed: number): v
         const fy = y1 - 1 - z;
         const k = z - z0;
         let col = left ? t.l : right ? t.d : t.b;
-        if (joint(s.mat, x - x0, top - 1 - z)) col = t.d;
-        if (s.mat === 'paint') col = mural(x, z, seed, t);
+        if (joint(s.mat, x - x0, top - 1 - z)) col = s.mat === 'paper' ? TONES.wood.b : t.d;
         if (k < 2 && dab(x, fy, seed) < 0) col = t.d;
         c.put(x + ox, fy + oy, y1 - 0.5, col);
       }
@@ -100,10 +101,13 @@ function drawShape(c: Canvas, s: Shape, ox: number, oy: number, seed: number): v
         const v = u + dab(x, z, seed) * 0.25;
         let col = v < 0.25 ? t.l : v < 0.4 ? t.s : v < 0.65 ? t.l : v < 0.85 ? t.b : t.d;
         if ((s.mat === 'stone' || s.mat === 'dark') && (top - 1 - z) % 6 === 5) col = t.b;
-        if (s.mat === 'brick' && (top - 1 - z) % 2 === 1) col = t.d;
         c.put(x + ox, cy + Math.floor(h) - z + oy, cy + h, col);
       }
     }
+    return;
+  }
+  if ('roof' in s) {
+    drawRoof(c, s, ox, oy);
     return;
   }
   // a ball or a dome: a disc, shaded from the upper left (a dome only its upper half)
@@ -127,16 +131,39 @@ function drawShape(c: Canvas, s: Shape, ox: number, oy: number, seed: number): v
     }
 }
 
-/** Faded paintings on the wall: each slab its own, in soft stripes and blobs. */
-function mural(x: number, z: number, seed: number, t: Tone): RGB {
-  const slab = Math.floor(x / 10);
-  if (x % 10 === 0) return t.d;
-  const a = MURAL[Math.floor(hash2(slab, 1, seed + 970) * MURAL.length)], b = MURAL[Math.floor(hash2(slab, 2, seed + 970) * MURAL.length)];
-  const style = Math.floor(hash2(slab, 3, seed + 970) * 3);
-  if (z > 19) return t.l;
-  if (style === 0) return Math.floor((z + x) / 3) % 2 ? a : b;
-  if (style === 1) return hash2(Math.floor(x / 3), Math.floor(z / 3), slab + 971) < 0.4 ? b : a;
-  return z < 9 ? b : a;
+/**
+ * A hipped roof, as a height over the ground: low at the eaves, sweeping up
+ * steeper and steeper to the ridge, its corners turned up. Each ground point
+ * is drawn lifted by its height, nearer ones over farther (so the near slope
+ * hides the far one), the gaps a steep slope leaves filled down to the last.
+ * Its tiles run in rows down every slope; its ridge and hips catch the light.
+ */
+function drawRoof(c: Canvas, s: Shape & { roof: [number, number, number, number]; curl: number }, ox: number, oy: number): void {
+  const t = TONES[s.mat], [x0, y0, x1, y1] = s.roof, [eave, peak] = s.z;
+  const reach = Math.min(x1 - x0, y1 - y0) / 2;
+  const height = (x: number, y: number) => {
+    const dx = Math.min(x - x0 + 0.5, x1 - 0.5 - x), dy = Math.min(y - y0 + 0.5, y1 - 0.5 - y);
+    const u = Math.max(0, Math.min(1, Math.min(dx, dy) / reach));
+    const turn = Math.max(0, 1 - dx / 11) * Math.max(0, 1 - dy / 11);
+    return eave + (peak - eave) * u ** 1.6 + s.curl * turn * turn;
+  };
+  for (let x = x0; x < x1; x++) {
+    let last = -Infinity;
+    for (let y = y0; y < y1; y++) {
+      const h = height(x, y), sy = Math.round(y - h);
+      const gx = height(x + 1, y) - height(x - 1, y), gy = height(x, y + 1) - height(x, y - 1);
+      const dx = Math.min(x - x0, x1 - 1 - x), dy = Math.min(y - y0, y1 - 1 - y);
+      let col: RGB;
+      if (Math.abs(gx) > Math.abs(gy)) col = gx > 0 ? (y % 3 === 0 ? t.b : t.l) : y % 3 === 0 ? t.o : t.d;
+      else col = gy < 0 ? (x % 3 === 0 ? t.d : t.b) : t.l;
+      // (the ridge, and the hips running down from it, lighter)
+      if (h > peak - 1.5 || Math.abs(Math.abs(gx) - Math.abs(gy)) < 0.25 && h > eave + 3) col = t.s;
+      if (Math.min(dx, dy) === 0) col = t.d;
+      const from = Number.isFinite(last) && sy > last + 1 ? last + 1 : sy;
+      for (let py = from; py <= sy; py++) c.put(x + ox, py + oy, y, col);
+      last = sy;
+    }
+  }
 }
 
 /** Moss on the tops, at the feet, and ivy hanging down some fronts. */
@@ -172,69 +199,61 @@ function outline(r: Raster, c: RGB): void {
   for (const [x, y] of edge) r.set(x, y, c);
 }
 
-/** Little touches a shape can't make: a clock face, a sign on its post. */
+/** Little touches a shape can't make: a cat's ears and face, the tip of a needle, the lanterns' light. */
 function details(kind: LandmarkKind, r: Raster, ox: number, oy: number): void {
   const at = (x: number, y: number, z: number) => [x + ox, y - z + oy] as const;
-  if (kind === 'rathaus') {
-    // the clock, on the tower's front
-    const [cx, cy] = at(22, 27, 48);
-    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (dx * dx + dy * dy <= 10) r.set(cx + dx, cy + dy, dx * dx + dy * dy > 6 ? TONES.stone.d : TONES.white.s);
-    r.set(cx, cy - 1, TONES.iron.o);
-    r.set(cx, cy - 2, TONES.iron.o);
-    r.set(cx + 1, cy, TONES.iron.o);
+  const B = TONES.bronze;
+  if (kind === 'catstatue') {
+    // ears on its head, two slit eyes and a nose, and its tail curled round its feet
+    const [hx, hy] = at(16, 20, 30);
+    for (const side of [-1, 1])
+      for (let k = 0; k < 5; k++)
+        for (let w = 0; w <= (4 - k) >> 1; w++) r.set(hx + side * (3 + w), hy - 5 - k, k === 0 || w === 0 ? (side < 0 ? B.l : B.b) : B.s);
+    for (const ex of [-3, 2]) { r.set(hx + ex, hy, B.o); r.set(hx + ex + 1, hy, B.o); }
+    r.set(hx, hy + 2, B.d);
+    const [tx, ty] = at(23, 27, 13);
+    for (let k = 0; k < 7; k++) r.set(tx - k, ty + Math.round(Math.sin(k * 0.5)), k % 3 ? B.b : B.l);
   }
-  if (kind === 'checkpoint') {
-    // the sign on its post: a white board with a line of letters
-    const [sx, sy] = at(8, 6, 32);
-    r.rect(sx, sy, 16, 6, TONES.white.s);
-    for (let x = 2; x < 14; x++) if (x % 3) r.set(sx + x, sy + 2, TONES.iron.o);
-    // a window in the hut
-    const [wx, wy] = at(11, 12, 14);
-    r.rect(wx, wy, 10, 4, TONES.iron.b);
-    r.rect(wx, wy, 3, 1, TONES.paint.l);
+  if (kind === 'obelisk') {
+    // its pointed tip
+    const [px, py] = at(12, 25, 60);
+    for (let k = 0; k < 6; k++) for (let i = k; i < 8 - k; i++) r.set(px + i, py - 5 - k, i < 4 ? TONES.stone.s : TONES.stone.d);
   }
-  if (kind === 'tvtower') {
-    // the band of windows round the ball
-    const [bx, by] = at(16, 22, 54);
-    for (let dx = -8; dx <= 8; dx++) r.set(bx + dx, by, dx % 2 ? TONES.iron.b : TONES.iron.l);
+  if (kind === 'urn') {
+    // its handles
+    const [ux, uy] = at(16, 22, 30);
+    for (const side of [-1, 1]) for (let k = -2; k <= 2; k++) r.set(ux + side * (8 + (Math.abs(k) < 2 ? 1 : 0)), uy + k, B.d);
   }
-  if (kind === 'schloss') {
-    // tall white-framed windows along every front, and the doorway in the middle
-    const windows = (x0: number, x1: number, y: number, top: number) => {
-      for (let wx = x0; wx + 3 <= x1; wx += 6)
-        for (const z of [3, 9, 15, 21]) {
-          if (z + 5 > top) break;
-          const [x, yy] = at(wx, y, z + 5);
-          r.rect(x - 1, yy - 1, 5, 7, TONES.white.l);
-          r.rect(x, yy, 3, 5, TONES.iron.b);
-          r.set(x, yy, TONES.iron.l);
-        }
-    };
-    windows(5, 34, 25, 16);
-    windows(65, 94, 25, 7);
-    windows(37, 62, 27, 26);
-    const [dx, dy] = at(45, 27, 9);
-    r.rect(dx - 1, dy - 1, 8, 10, TONES.white.l);
-    r.rect(dx, dy, 6, 9, TONES.iron.o);
-  }
-  if (kind === 'oberbaum') {
-    // its arches, dark under the deck
-    for (const ax of [8, 22, 36]) {
-      const [x, y] = at(ax, 13, 9);
-      for (let k = 0; k < 9; k++) for (let i = 0; i < 6; i++) if (k > 1 || (i > 0 && i < 5)) r.set(x + i, y + k, TONES.iron.b);
+  if (kind === 'lookout') {
+    // the lanterns' little windows, warm
+    for (const [x, y] of LOOKOUT_LANTERNS) {
+      const [wx, wy] = at(x - 1, y + 1, 15);
+      r.rect(wx, wy, 3, 3, LAMP);
     }
+  }
+  if (kind === 'pavilion' || kind === 'teahouse') {
+    // a paper lantern hanging from the eaves
+    const [lx, ly] = at(kind === 'pavilion' ? 24 : 32, kind === 'pavilion' ? 40 : 42, kind === 'pavilion' ? 26 : 28);
+    r.set(lx, ly - 2, TONES.wood.o);
+    for (let k = 0; k < 4; k++) for (let i = -1; i <= 1; i++) r.set(lx + i, ly + k, k === 0 || k === 3 ? TONES.lacquer.d : i < 0 ? TONES.lacquer.s : TONES.lacquer.l);
   }
 }
 
-/** The folly of this kind, dressed for the season (snow on its ledges in winter). */
-export function buildLandmark(kind: LandmarkKind, s: Season = SEASON): Raster {
+/** Does this kind have a roof (drawn on its own, over cats up on it)? */
+export const hasRoof = (kind: LandmarkKind): boolean => LANDMARK_SHAPES[kind].some((s) => s.over);
+
+/** The folly of this kind, dressed for the season (snow on its ledges in winter): all but its roof, or (`over`) its roof alone. */
+export function buildLandmark(kind: LandmarkKind, s: Season = SEASON, over = false): Raster {
   const { w, h, ox, oy } = LANDMARK_SPRITE[kind];
   const c = new Canvas(w, h);
   const seed = kind.length * 13 + kind.charCodeAt(0);
-  for (const shape of LANDMARK_SHAPES[kind]) drawShape(c, shape, -ox, -oy, seed);
-  details(kind, c.r, -ox, -oy);
-  overgrow(c.r, LANDMARK_SHAPES[kind], -ox, -oy, seed);
-  outline(c.r, TONES[LANDMARK_SHAPES[kind][0].mat].o);
+  const shapes = LANDMARK_SHAPES[kind].filter((sh) => !!sh.over === over);
+  for (const shape of shapes) drawShape(c, shape, -ox, -oy, seed);
+  if (!over) {
+    details(kind, c.r, -ox, -oy);
+    overgrow(c.r, shapes, -ox, -oy, seed);
+  }
+  outline(c.r, TONES[shapes[0].mat].o);
   paintOver(c.r, seed);
   snowCap(c.r, s.snow, seed);
   return c.r;
