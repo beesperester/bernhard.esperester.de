@@ -2,7 +2,7 @@ import { Raster, hex, type RGB } from './raster.ts';
 import { KITTEN_FRAMES, youngFrame } from './kitten.ts';
 
 // Cat sprites are 16x16 character maps.
-//   o outline   b fur   d fur shade/stripes   k patch (calico)
+//   o outline   b fur   d fur shade/stripes   k markings
 //   w white fur p pink  e eyes   r mouth   . transparent
 
 export const CAT = 16;
@@ -573,67 +573,71 @@ export const frameIndex = (name: FrameName, flip = false): number =>
   FRAME_NAMES.indexOf(name) + (flip ? FRAME_NAMES.length : 0);
 
 // ---- coats ----
+// One cat, drawn once (MASTER: its fur in placeholder colours), and every
+// coat a palette swap of its fur: the outline, the fur, its shade and
+// stripes, its markings and its white. Eyes, nose and mouth are the same on
+// every cat.
+
+/** A coat: the colours its fur's letters (o b d k w) are swapped to. */
 export interface Coat {
   name: string;
-  o: string; b: string; d: string; k: string; w: string; e: string;
+  o: string; b: string; d: string; k: string; w: string;
 }
 
 export const COATS: Coat[] = [
-  { name: 'tabby', o: '#302018', b: '#a08060', d: '#685038', k: '#685038', w: '#f0e8d8', e: '#58a030' },
-  { name: 'ginger', o: '#482010', b: '#f09838', d: '#c06018', k: '#c06018', w: '#f8f0e0', e: '#a8a020' },
-  { name: 'black', o: '#100c10', b: '#383040', d: '#28202c', k: '#28202c', w: '#383040', e: '#e8d020' },
-  { name: 'tuxedo', o: '#100c10', b: '#383040', d: '#28202c', k: '#28202c', w: '#f8f8f8', e: '#58b048' },
-  { name: 'white', o: '#504850', b: '#f8f8f8', d: '#d8d0d8', k: '#d8d0d8', w: '#ffffff', e: '#4890e8' },
-  { name: 'grey', o: '#282830', b: '#8890a0', d: '#606878', k: '#606878', w: '#d8d8e0', e: '#e0a020' },
-  { name: 'calico', o: '#302018', b: '#f8f0e0', d: '#e08830', k: '#383038', w: '#ffffff', e: '#58a030' },
-  { name: 'cream', o: '#584028', b: '#f0d8a8', d: '#d8b078', k: '#d8b078', w: '#fff8e8', e: '#4890e8' },
-  { name: 'siamese', o: '#302018', b: '#f0e0c8', d: '#685040', k: '#685040', w: '#f8f0e0', e: '#3878e8' },
+  { name: 'tabby', o: '#302018', b: '#a08060', d: '#685038', k: '#685038', w: '#f0e8d8' },
+  { name: 'ginger', o: '#482010', b: '#f09838', d: '#c06018', k: '#c06018', w: '#f8f0e0' },
+  { name: 'black', o: '#100c10', b: '#383040', d: '#28202c', k: '#28202c', w: '#383040' },
+  { name: 'tuxedo', o: '#100c10', b: '#383040', d: '#28202c', k: '#28202c', w: '#f8f8f8' },
+  { name: 'white', o: '#504850', b: '#f8f8f8', d: '#d8d0d8', k: '#d8d0d8', w: '#ffffff' },
+  { name: 'grey', o: '#282830', b: '#8890a0', d: '#606878', k: '#606878', w: '#d8d8e0' },
+  { name: 'blue', o: '#202430', b: '#6c7894', d: '#4c5670', k: '#4c5670', w: '#c8d0e0' },
+  { name: 'cream', o: '#584028', b: '#f0d8a8', d: '#d8b078', k: '#d8b078', w: '#fff8e8' },
+  { name: 'chocolate', o: '#281810', b: '#7a5440', d: '#563828', k: '#563828', w: '#e8d8c8' },
 ];
 
+const EYES = hex('#a8b830');
 const PINK = hex('#f090a0');
 const MOUTH = hex('#a02838');
+const FUR = ['o', 'b', 'd', 'k', 'w'] as const;
 
-/** Calico: replace some stripe pixels with the black patch colour in a fixed pattern. */
-function coatPalette(c: Coat): Record<string, RGB> {
-  return { o: hex(c.o), b: hex(c.b), d: hex(c.d), k: hex(c.k), w: hex(c.w), e: hex(c.e), p: PINK, r: MOUTH };
-}
+/** The master's placeholder colour for each fur letter: (n, 0, 255), n its place in FUR (nothing else on a cat is drawn so). */
+const MARK: Record<string, RGB> = Object.fromEntries(FUR.map((ch, n) => [ch, [n + 1, 0, 255] as RGB]));
 
-/** Build the sprite sheet (one row: all frames, then all frames mirrored). */
-export function buildCatSheet(coatIndex: number): Raster {
-  const coat = COATS[((coatIndex % COATS.length) + COATS.length) % COATS.length];
-  const pal = coatPalette(coat);
+/** The one cat: every frame (and mirrored) in every size, its fur in MARK colours. */
+let master: Raster | null = null;
+function masterSheet(): Raster {
+  if (master) return master;
+  const pal = { ...MARK, e: EYES, p: PINK, r: MOUTH };
   const n = FRAME_NAMES.length;
   const sheet = new Raster(CAT * n * 2, CAT * SIZED.length);
   SIZED.forEach((sized, row) =>
     FRAME_NAMES.forEach((name, i) => {
-      let rows = sized(name);
-      if (coat.name === 'calico') rows = calicoize(rows);
-      if (coat.name === 'siamese') rows = siamesize(rows);
-      sheet.paint(rows, i * CAT, row * CAT, pal);
-      sheet.paint(rows, (i + n) * CAT, row * CAT, pal, true);
+      sheet.paint(sized(name), i * CAT, row * CAT, pal);
+      sheet.paint(sized(name), (i + n) * CAT, row * CAT, pal, true);
     }),
   );
-  return sheet;
+  return (master = sheet);
 }
 
-/** Calico: big black patches on the upper-left of every frame, orange stripes elsewhere. */
-function calicoize(rows: readonly string[]): string[] {
-  return rows.map((r, y) =>
-    [...r].map((ch, x) => (ch === 'b' && ((x + y * 2) % 11 < 3 || (x > 9 && y < 9 && y > 4)) ? 'k' : ch)).join(''),
-  );
-}
-
-/** Siamese: dark points on ears, face centre, paws and tail tip. */
-function siamesize(rows: readonly string[]): string[] {
-  // (the head is the top four rows of whatever size of cat this is)
-  const top = rows.findIndex((r) => /[^.]/.test(r));
-  return rows.map((r, y) => [...r].map((ch) => (ch === 'b' && (y - top < 4 || y > 12) ? 'd' : ch)).join(''));
-}
-
-/** Just the eyes of every frame (in the coat's eye colour, brightened), to make them glow at night. */
-export function buildEyeSheet(coatIndex: number): Raster {
+/** The cat in coat `coatIndex`: the master with its fur swapped to the coat's colours. */
+export function buildCatSheet(coatIndex: number): Raster {
   const coat = COATS[((coatIndex % COATS.length) + COATS.length) % COATS.length];
-  const [r, g, b] = hex(coat.e);
+  const swap = FUR.map((ch) => hex(coat[ch]));
+  const m = masterSheet(), out = new Raster(m.w, m.h);
+  out.data.set(m.data);
+  for (let i = 0; i < out.data.length; i += 4) {
+    if (out.data[i + 3] === 0 || out.data[i + 1] !== 0 || out.data[i + 2] !== 255) continue;
+    const c = swap[out.data[i] - 1];
+    if (!c) continue;
+    out.data[i] = c[0]; out.data[i + 1] = c[1]; out.data[i + 2] = c[2];
+  }
+  return out;
+}
+
+/** Just the eyes of every frame, brightened, to make them glow at night (the same for every cat). */
+export function buildEyeSheet(): Raster {
+  const [r, g, b] = EYES;
   const glow: RGB = [Math.min(255, r * 0.6 + 110), Math.min(255, g * 0.6 + 110), Math.min(255, b * 0.6 + 90)];
   const n = FRAME_NAMES.length;
   const sheet = new Raster(CAT * n * 2, CAT * SIZED.length);

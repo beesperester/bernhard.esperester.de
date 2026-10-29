@@ -109,7 +109,7 @@ export class CatView {
       .setTint(SILHOUETTE).setTintMode(Phaser.TintModes.FILL);
     this.head = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setVisible(false);
     this.rim = scene.add.sprite(x, y, 'cat-rim', 0).setOrigin(0.5, 1).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
-    this.eyes = scene.add.sprite(x, y, `cat-eyes-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(DEPTH.glow)
+    this.eyes = scene.add.sprite(x, y, 'cat-eyes', 0).setOrigin(0.5, 1).setDepth(DEPTH.glow)
       .setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     // drawn at screen resolution and shrunk by the zoom, so the letters stay sharp
     this.label = scene.add.text(x, y, '', {

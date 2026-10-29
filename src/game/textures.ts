@@ -53,10 +53,10 @@ const tex = scene.textures;
   BUTTERFLY_COLOURS.forEach((_, i) => sheet(`butterfly-${i}`, buildButterfly(i), 7, 5));
   sheet('bee', buildBee(), 4, 3);
   tex.addCanvas('alert', toCanvas(buildAlert()));
-  COATS.forEach((_, c) => {
-    const canvas = toCanvas(buildEyeSheet(c));
-    catFrames(tex.addCanvas(`cat-eyes-${c}`, canvas)!, canvas);
-  });
+  {
+    const canvas = toCanvas(buildEyeSheet());
+    catFrames(tex.addCanvas('cat-eyes', canvas)!, canvas);
+  }
   tex.addCanvas('firefly', toCanvas(buildFirefly()));
   tex.addCanvas('glow-firefly', toCanvas(buildGlow(9, 9, [200, 255, 120])));
   tex.addCanvas('glow-puff', toCanvas(buildGlow(15, 15, [220, 255, 150])));

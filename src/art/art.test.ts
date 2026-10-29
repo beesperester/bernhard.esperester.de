@@ -40,7 +40,19 @@ describe('critter and furniture art', () => {
 describe('cats', () => {
   it.each(COATS.map((_, i) => i))('coat %i has a full sheet and eyes', (i) => {
     expect(opaque(buildCatSheet(i))).toBeGreaterThan(100);
-    expect(buildEyeSheet(i).w).toBeGreaterThan(0);
+    expect(buildEyeSheet().w).toBeGreaterThan(0);
+  });
+
+  it('is one cat in every coat: the same shape, only its fur recoloured', () => {
+    const a = buildCatSheet(0), b = buildCatSheet(4);
+    let fur = 0;
+    for (let i = 0; i < a.data.length; i += 4) {
+      expect(b.data[i + 3]).toBe(a.data[i + 3]);
+      // (no placeholder colour of the master left anywhere)
+      expect(a.data[i + 1] === 0 && a.data[i + 2] === 255 && a.data[i + 3] > 0).toBe(false);
+      if (a.data[i] !== b.data[i] || a.data[i + 1] !== b.data[i + 1] || a.data[i + 2] !== b.data[i + 2]) fur++;
+    }
+    expect(fur).toBeGreaterThan(1000);
   });
 });
 
