@@ -5,6 +5,8 @@ import { LANDMARK_SPOTS, LEVEL, TILE, levelAt } from '../world/map.ts';
 import { LANDMARKS, LANDMARK_DEPTH, LANDMARK_SHAPES, LANDMARK_SIZE, LANDMARK_SPRITE, type LandmarkKind } from '../world/landmarks.ts';
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { cullerFor } from './Culler.ts';
+import { autoMaps } from '../art/painted.ts';
+import { addPainted, paint } from './Painted.ts';
 
 /** A cat this close to a folly (px beyond its edges) can paw at it. */
 const READ_AT = 14;
@@ -34,15 +36,21 @@ export class Landmarks {
       const lift = levelAt(l.tx, l.ty + h - 1) * LEVEL;
       const x = l.tx * TILE + s.ox, y = l.ty * TILE + s.oy - lift;
       const front = (l.ty + h) * TILE - 2;
-      const canvas = toCanvas(buildLandmark(l.kind));
-      if (!scene.textures.exists(`landmark-${l.kind}`)) scene.textures.addCanvas(`landmark-${l.kind}`, canvas);
-      cullerFor(scene).add(scene.add.image(x, y, `landmark-${l.kind}`).setOrigin(0).setDepth(front));
+      const base = buildLandmark(l.kind), canvas = toCanvas(base);
+      // (shaded and rimmed in the sun on the GPU, from its outline: Painted.ts)
+      const painted = (key: string, r: Raster) => {
+        if (scene.textures.exists(key)) return;
+        const { main, normal } = autoMaps(r);
+        addPainted(scene, key, main, normal, r.w, r.h);
+      };
+      painted(`landmark-${l.kind}`, base);
+      cullerFor(scene).add(paint(scene.add.image(x, y, `landmark-${l.kind}`)).setOrigin(0).setDepth(front));
       // (its roof just over a cat up on it: CatView puts that at the front + 0.6)
       let whole = canvas;
       if (hasRoof(l.kind)) {
-        const roof = toCanvas(buildLandmark(l.kind, undefined, true));
-        if (!scene.textures.exists(`landmark-${l.kind}-roof`)) scene.textures.addCanvas(`landmark-${l.kind}-roof`, roof);
-        const img = cullerFor(scene).add(scene.add.image(x, y, `landmark-${l.kind}-roof`).setOrigin(0).setDepth(front + 0.8));
+        const top = buildLandmark(l.kind, undefined, true), roof = toCanvas(top);
+        painted(`landmark-${l.kind}-roof`, top);
+        const img = cullerFor(scene).add(paint(scene.add.image(x, y, `landmark-${l.kind}-roof`)).setOrigin(0).setDepth(front + 0.8));
         const [rx0, ry0, rx1, ry1] = roofOf(l.kind);
         this.roofs.push({ img, x0: l.tx * TILE + rx0, y0: l.ty * TILE + ry0, x1: l.tx * TILE + rx1, y1: l.ty * TILE + ry1 });
         // (its shadow and lit rims are of the whole of it)

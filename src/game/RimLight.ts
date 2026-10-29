@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import { catFrames } from './textures.ts';
-import type { Prop } from '../art/trees.ts';
 import { paintLight } from './Painted.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
 import { LEVEL, TILE, WORLD_H, WORLD_W } from '../world/map.ts';
@@ -14,16 +13,15 @@ const OUTER = 255, INNER = 110;
 /** Rims are blended over what's under them, not added: this much stronger, to light it as much. */
 const BOOST = 1.25;
 
-type Solid = (x: number, y: number) => boolean;
 interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; w: number; h: number; rim: (out: Uint8ClampedArray) => void }
 
 /**
- * Sunlit rims on everything standing up (cats, furniture, cliffs, stairs): the
+ * Sunlit rims on everything standing up (cats, cliffs, stairs): the
  * edge pixels on the side facing the sun light up, so you can tell where the
  * sun is. Each object gets an additive overlay whose
  * texture is redrawn whenever the sun moves to another of the 16 directions.
- * (The trees, and the bushes, rocks and hedges in the ground, light their own
- * rims on the GPU: Painted.ts is told the light.)
+ * (The trees, furniture and follies, and the bushes, rocks and hedges in the
+ * ground, light their own rims on the GPU: Painted.ts is told the light.)
  */
 export class RimLight {
   private readonly scene: Phaser.Scene;
@@ -41,7 +39,7 @@ export class RimLight {
 
   constructor(
     scene: Phaser.Scene,
-    parts: { things: { p: Pick<Prop, 'x' | 'y' | 'depthY'>; canvas: HTMLCanvasElement }[]; upright: (x: number, y: number) => boolean; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catSize: number },
+    parts: { upright: (x: number, y: number) => boolean; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catSize: number },
   ) {
     this.scene = scene;
     const add = (key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']) => {
@@ -85,9 +83,6 @@ export class RimLight {
       });
     });
 
-    // furniture and follies
-    parts.things.forEach(({ p, canvas }, i) => this.overlays.push(this.outline(`rim-thing-${i}`, canvas, p.x, p.y, p.depthY + 0.002)));
-
     // cats: one rim sheet for all coats (they share their outlines), used by every cat's rim sprite
     const cw = parts.catSheet.width, ch = parts.catSheet.height;
     const ca = parts.catSheet.getContext('2d')!.getImageData(0, 0, cw, ch).data;
@@ -109,18 +104,6 @@ export class RimLight {
     return { img, tex, w, h, rim };
   }
 
-  /** A rim round the outline of a picture standing at (x, y). */
-  private outline(key: string, canvas: HTMLCanvasElement, x: number, y: number, depth: number): Overlay {
-    const { width: w, height: h } = canvas;
-    const a = canvas.getContext('2d')!.getImageData(0, 0, w, h).data;
-    const solid: Solid = (px, py) => px >= 0 && py >= 0 && px < w && py < h && a[(py * w + px) * 4 + 3] > 0;
-    const rim = new Uint8ClampedArray(w * h);
-    return this.overlay(key, w, h, x, y, depth, (out) => {
-      this.rimInto(rim, w, h, solid, solid);
-      for (let k = 0; k < rim.length; k++) out[k * 4 + 3] = rim[k];
-    });
-  }
-
   private paint(o: Overlay): void {
     const img = new ImageData(o.w, o.h);
     img.data.fill(255);
@@ -128,14 +111,6 @@ export class RimLight {
     o.rim(img.data);
     o.tex.getContext().putImageData(img, 0, 0);
     o.tex.refresh();
-  }
-
-  /** Rim brightness for every pixel of a shape: lit where the next pixel towards the sun is empty. */
-  private rimInto(out: Uint8ClampedArray, w: number, h: number, mine: Solid, solid: Solid): void {
-    const [a, b] = this.d1, [c, d] = this.d2;
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++)
-        out[y * w + x] = !mine(x, y) ? 0 : !solid(x + a, y + b) ? OUTER : !solid(x + c, y + d) ? INNER : 0;
   }
 
   update(light: Light): void {

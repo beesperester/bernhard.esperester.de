@@ -14,6 +14,8 @@ import { Act } from './state.ts';
 import type { CatView } from './CatView.ts';
 import type { Effects } from './fauna/Effects.ts';
 import { cullerFor } from './Culler.ts';
+import { autoMaps } from '../art/painted.ts';
+import { addPainted, paint } from './Painted.ts';
 
 /** Blankets lie flat on the grass, under everything that stands. */
 const FLAT = -99994;
@@ -46,9 +48,11 @@ export class Furniture {
         dressForSeason(r, key);
         paintOver(r, key.length * 31 + key.charCodeAt(0));
         art.set(key, (canvas = toCanvas(r)));
-        scene.textures.addCanvas(`furniture-${key}`, canvas);
+        // (shaded and rimmed in the sun on the GPU, from its outline: Painted.ts)
+        const { main, normal } = autoMaps(r);
+        addPainted(scene, `furniture-${key}`, main, normal, r.w, r.h);
       }
-      cullerFor(scene).add(scene.add.image(x, y, `furniture-${key}`).setOrigin(0).setDepth(depth).setFlipX(flip));
+      cullerFor(scene).add(paint(scene.add.image(x, y, `furniture-${key}`)).setOrigin(0).setDepth(depth).setFlipX(flip));
       if (depth !== FLAT) this.pieces.push({ p: { x, y, depthY: depth }, canvas: flip ? mirrored(canvas) : canvas });
     };
     for (const f of FURNITURE) {

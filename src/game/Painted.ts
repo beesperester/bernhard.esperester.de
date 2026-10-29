@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COAT, PLAIN, RAMP_ROWS, RAMP_W, RIM_BIT, SPECK, ramps } from '../art/painted.ts';
+import { AUTO, COAT, PLAIN, RAMP_ROWS, RAMP_W, RIM_BIT, SPECK, ramps } from '../art/painted.ts';
 import { COAT_H } from '../art/coat.ts';
 
 // The engine's painted shading (art/painted.ts says what the pictures hold):
@@ -40,32 +40,36 @@ float solidAt(vec2 texCoord, vec2 d) {
   vec2 uv = texCoord + vec2(d.x, -d.y) / getTexRes();
   return uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ? 0.0 : step(0.5 / 255.0, texture2D(uNormSampler, uv).a);
 }
+/** Colour c a step lighter (warm) where it faces the light, a step darker (cool) where it faces away, by these much. */
+vec3 toned(vec3 c, float facing, float lighter, float darker) {
+  return facing > 0.35 ? mix(c, vec3(1.0, 0.95, 0.82), lighter) : facing < -0.3 ? mix(c, vec3(0.16, 0.1, 0.24), darker) : c;
+}
 vec4 painted(vec4 c, vec2 texCoord) {
   if (c.a < 0.5) return c;
   vec4 n = texture2D(uNormSampler, texCoord);
   float flags = byteOf(n.a);
   vec2 L = uSun.xy;
   float k = uSun.z;
+  float facing = (unbyte(n.r, 1.0) * L.x + unbyte(n.g, 1.0) * L.y) * k;
   if (flags == ${COAT}.0) {
-    // fur: its colour from the coat, under the frames (art/coat.ts), a tone lighter facing the light, darker away
+    // fur: its colour from the coat, under the frames (art/coat.ts), a tone lighter facing the light, darker away (not the outline)
     vec2 res = getTexRes();
     vec3 fur = texture2D(uMainSampler[0], vec2((byteOf(c.r) + 0.5) / res.x, (${COAT_H}.0 - byteOf(c.g) - 0.5) / res.y)).rgb;
-    float l = (unbyte(n.r, 1.0) * L.x + unbyte(n.g, 1.0) * L.y) * k;
-    // (not the outline)
-    if (byteOf(c.b) > 0.5) fur = l > 0.35 ? mix(fur, vec3(1.0, 0.95, 0.82), 0.22) : l < -0.3 ? mix(fur, vec3(0.16, 0.1, 0.24), 0.28) : fur;
-    return vec4(fur, 1.0);
+    return vec4(byteOf(c.b) > 0.5 ? toned(fur, facing, 0.22, 0.28) : fur, 1.0);
   }
-  if (flags > 0.5 && flags < ${PLAIN}.0) {
+  // anything else with no normals of its own: its own colours, lighter or darker at its edges as they face the light
+  if (flags == ${AUTO}.0) c.rgb = toned(c.rgb, facing, 0.16, 0.2);
+  else if (flags > 0.5 && flags < ${PLAIN}.0) {
     float row = byteOf(c.r), kind = byteOf(rampAt(row, RAMP_W - 1.0).r), tone;
     if (kind < 0.5) {
       // leaves (art/trees.ts' shade())
       float nx = unbyte(n.r, 1.0), ny = unbyte(n.g, 1.0), jit = unbyte(n.b, 2.0);
       bool rim = flags >= ${RIM_BIT}.0;
       float speck = (flags - (rim ? ${RIM_BIT}.0 : 0.0) - 1.0) / ${SPECK}.0;
-      float facing = nx * L.x + ny * L.y;
-      if (rim && facing < 0.15) tone = 3.0;
+      float faces = nx * L.x + ny * L.y;
+      if (rim && faces < 0.15) tone = 3.0;
       else {
-        float l = facing * k + (unbyte(c.g, 2.0) * L.x + unbyte(c.b, 2.0) * L.y) * 0.8 * k + jit;
+        float l = faces * k + (unbyte(c.g, 2.0) * L.x + unbyte(c.b, 2.0) * L.y) * 0.8 * k + jit;
         tone = l > 0.55 ? 0.0 : l > 0.05 ? 1.0 : l > -0.45 ? 2.0 : 3.0;
         if ((speck < 0.07 || (speck < 0.16 && ny < -0.25)) && tone > 0.0) tone -= 1.0;
         else if (speck > 0.95 && tone < 3.0) tone += 1.0;

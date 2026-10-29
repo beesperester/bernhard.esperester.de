@@ -289,7 +289,7 @@ export class GardenScene extends Phaser.Scene {
     // which pixels of the ground art stand up from it: for sunlit rims, and for where shadows can't fall
     const upright = uprightAt;
     this.rims = new RimLight(this, {
-      things: standing, upright, terrain: canvases.terrain,
+      upright, terrain: canvases.terrain,
       catSheet: canvases.cats[0], catSize: CAT,
     });
     // what can stand in front of a lantern's light

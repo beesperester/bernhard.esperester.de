@@ -61,10 +61,11 @@ export const N_RANGE = 1, C_RANGE = 2, J_RANGE = 2;
 /**
  * In the normal map's alpha: 0 nothing standing (empty, or the flat ground); PLAIN for something
  * standing but not shaded, in its own colours; COAT for fur, its colour looked up in a coat map
- * (art/coat.ts); else shaded from a ramp: 1 + speck (0..1) * SPECK on a leaf, plus RIM_BIT on a
+ * (art/coat.ts); AUTO for a picture's own colours, a little lighter or darker as it faces the light
+ * (autoMaps); else shaded from a ramp: 1 + speck (0..1) * SPECK on a leaf, plus RIM_BIT on a
  * puff's rim, 1 for anything else.
  */
-export const SPECK = 62, RIM_BIT = 64, COAT = 128, PLAIN = 255;
+export const SPECK = 62, RIM_BIT = 64, COAT = 128, AUTO = 129, PLAIN = 255;
 
 /** Pictures encoded against another thread's ramps (`theirs`, its rows: the painter's), moved onto this thread's, in place. */
 export function adoptRamps(mains: Uint8ClampedArray[], normal: Uint8Array, theirs: Ramps['rows']): void {
@@ -73,4 +74,39 @@ export function adoptRamps(mains: Uint8ClampedArray[], normal: Uint8Array, their
     const f = normal[o + 3];
     if (f !== 0 && f < COAT) for (const m of mains) m[o] = to[m[o]];
   }
+}
+
+/**
+ * Which way a picture's surface faces at (x, y), from its outline alone: away from the inside, more
+ * so nearer the edge (within `reach` px), flat further in. `solid` says where the picture is.
+ */
+export function outlineNormal(solid: (x: number, y: number) => boolean, x: number, y: number, reach = 3): [number, number] {
+  let ax = 0, ay = 0;
+  for (let dy = -reach; dy <= reach; dy++)
+    for (let dx = -reach; dx <= reach; dx++) {
+      const d2 = dx * dx + dy * dy;
+      if (!d2 || d2 > reach * reach || solid(x + dx, y + dy)) continue;
+      ax += dx / d2;
+      ay += dy / d2;
+    }
+  const len = Math.hypot(ax, ay);
+  if (len < 1e-6) return [0, 0];
+  const k = Math.min(1, len / 1.5);
+  return [(ax / len) * k, (ay / len) * k];
+}
+
+/** A picture as the GPU draws anything with no normals of its own: its colours, and normals from its outline (AUTO). */
+export function autoMaps(r: { w: number; h: number; data: Uint8ClampedArray }): { main: Uint8ClampedArray; normal: Uint8Array } {
+  const { w, h, data } = r, main = new Uint8ClampedArray(data), normal = new Uint8Array(data.length);
+  const solid = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && data[(y * w + x) * 4 + 3] > 0;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      if (!solid(x, y)) continue;
+      const o = (y * w + x) * 4, [nx, ny] = outlineNormal(solid, x, y);
+      main[o + 3] = 255;
+      normal[o] = toByte(nx, N_RANGE);
+      normal[o + 1] = toByte(ny, N_RANGE);
+      normal[o + 3] = AUTO;
+    }
+  return { main, normal };
 }

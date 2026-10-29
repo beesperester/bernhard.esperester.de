@@ -11,7 +11,7 @@
 // (outline, fur, shade, markings, white).
 import { Raster, hex, type RGB } from './raster.ts';
 import { CAT, COATS, EYES, FRAME_NAMES, FUR, MOUTH, PINK, SIZED, framePos, frameIndex, stageRow, type Coat } from './cat.ts';
-import { COAT as COAT_FLAG, N_RANGE, PLAIN, toByte } from './painted.ts';
+import { COAT as COAT_FLAG, N_RANGE, PLAIN, outlineNormal, toByte } from './painted.ts';
 
 export const COAT_W = CAT, COAT_H = CAT;
 
@@ -62,23 +62,6 @@ function coatPixel(b: [number, number, number, number], x: number, y: number, ch
   return best;
 }
 
-/** Which way the fur faces at (x, y) of frame `rows`: away from the inside of its outline, more so near the edge. */
-function furNormal(rows: readonly string[], x: number, y: number): [number, number] {
-  const R = 3, solid = (px: number, py: number) => (rows[py]?.[px] ?? '.') !== '.';
-  let ax = 0, ay = 0;
-  for (let dy = -R; dy <= R; dy++)
-    for (let dx = -R; dx <= R; dx++) {
-      const d2 = dx * dx + dy * dy;
-      if (!d2 || d2 > R * R || solid(x + dx, y + dy)) continue;
-      ax += dx / d2;
-      ay += dy / d2;
-    }
-  const len = Math.hypot(ax, ay);
-  if (len < 1e-6) return [0, 0];
-  const k = Math.min(1, len / 1.5);
-  return [(ax / len) * k, (ay / len) * k];
-}
-
 /**
  * The cat's sheet as the GPU draws it (art/painted.ts): every frame of every size and facing, its fur
  * holding where on the coat it comes from (red, green) and its letter (blue), its eyes, nose and mouth
@@ -102,7 +85,7 @@ export function buildCatMaps(): { w: number; h: number; main: Uint8ClampedArray;
             normal[o + 3] = PLAIN;
             return;
           }
-          const [u, v] = coatPixel(b, x, y, ch), [nx, ny] = furNormal(rows, x, y);
+          const [u, v] = coatPixel(b, x, y, ch), [nx, ny] = outlineNormal((px, py) => (rows[py]?.[px] ?? '.') !== '.', x, y);
           main[o] = u;
           main[o + 1] = v;
           main[o + 2] = FUR.indexOf(ch as (typeof FUR)[number]);
