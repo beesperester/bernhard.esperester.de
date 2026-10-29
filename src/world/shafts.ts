@@ -54,7 +54,7 @@ function layOutShafts(): Shaft[] {
       if (r(0) > SOME) continue;
       const x = Math.round((i + 0.1 + r(1) * 0.8) * CELL), y = Math.round((j + 0.1 + r(2) * 0.8) * CELL);
       if (!nearTree(x, y)) continue;
-      out.push({ x, y, w: 5 + Math.round(r(3) * 9), lift: r(4) < GROUNDED ? 0 : 8 + Math.round(r(5) * 40), phase: r(6) });
+      out.push({ x, y, w: 8 + Math.round(r(3) * 13), lift: r(4) < GROUNDED ? 0 : 8 + Math.round(r(5) * 40), phase: r(6) });
     }
   return out;
 }
