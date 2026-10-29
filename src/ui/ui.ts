@@ -1,5 +1,5 @@
 // DOM overlay: status line, the how-to-play sign, and Game Boy style touch controls.
-import { dpadURL } from './pixel.ts';
+import { DPAD_STATES } from './pixel.ts';
 
 /** A, B and SELECT (see game/controls.ts). */
 export type Button = 'jump' | 'paw' | 'emote';
@@ -61,7 +61,7 @@ function keyEl(key: Key, onTouch: boolean): HTMLElement {
   }
   if (['up', 'down', 'left', 'right'].includes(key)) return Object.assign(document.createElement('kbd'), { className: `arrow ${key}`, title: `arrow ${key}` });
   const k = document.createElement('kbd');
-  if (key === 'dpad') k.className = 'dpad';
+  if (key === 'dpad') k.className = 'dpad sheet';
   else if (onTouch) k.className = key.length === 1 ? 'round' : 'pill';
   k.textContent = key === 'dpad' ? '' : key;
   if (key === 'SPACE' || key === 'SHIFT') k.classList.add('wide');
@@ -166,12 +166,8 @@ export function setupUI(onHelp: (open: boolean) => void = () => {}): UI {
 
 function setupDpad(el: HTMLElement): void {
   let active: number | null = null;
-  // the pixel-art pad with the pressed arms pushed in, drawn once per combination
-  const art = new Map<string, string>();
-  const show = (dir: string) => {
-    if (!art.has(dir)) art.set(dir, `url(${dpadURL(dir)})`);
-    el.style.backgroundImage = art.get(dir)!;
-  };
+  // the pixel-art pad with the pressed arms pushed in: its frame in the d-pad's sheet
+  const show = (dir: string) => el.style.setProperty('--frame', String(Math.max(0, DPAD_STATES.indexOf(dir))));
   const set = (e: PointerEvent | null) => {
     touch.up = touch.down = touch.left = touch.right = false;
     if (!e) return;

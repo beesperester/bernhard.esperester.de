@@ -37,16 +37,35 @@ html, body {
   pointer-events: none;
 }
 
-/* where you are, on a plank like the snack board's title (src/art/plank.ts, every pixel doubled) */
+/* where you are, on a plank like the snack board's title */
+/* a frame from a sprite sheet (src/ui/pixel.ts): a row of --frames pictures, showing number --frame */
+.sheet,
+#help-dialog kbd.arrow::after {
+  background-repeat: no-repeat;
+  background-size: calc(var(--frames) * 100%) 100%;
+  background-position: calc(var(--frame, 0) * 100% / (var(--frames) - 1)) 0;
+  image-rendering: pixelated;
+}
+
+/* a wooden plank to write on (src/art/plank.ts): the ends stay put, the middle stretches, every pixel doubled */
+.plank {
+  border: 0 solid transparent;
+  border-image: var(--px-plank-walnut) 4 7 fill / 8px 14px stretch;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 0 rgba(20, 12, 4, 0.45));
+}
+.plank.pine { border-image-source: var(--px-plank-pine); }
+.plank.oak0 { border-image-source: var(--px-plank-oak-0); }
+.plank.oak1 { border-image-source: var(--px-plank-oak-1); }
+.plank.oak2 { border-image-source: var(--px-plank-oak-2); }
+.plank.oak3 { border-image-source: var(--px-plank-oak-3); }
+
 #status {
   top: max(12px, env(safe-area-inset-top));
   padding: 6px 16px 6px;
   font-size: 13px;
   color: #f4dca8;
   text-shadow: 1px 1px 0 #120a04;
-  border: 0 solid transparent;
-  border-image: var(--px-plank-walnut) 4 7 fill / 8px 14px stretch;
-  filter: drop-shadow(0 2px 0 rgba(20, 12, 4, 0.45));
 }
 
 /* the snack log: who ate what, bottom left, each line fading after a while */
@@ -85,17 +104,18 @@ html, body {
   padding: 0;
   border: 0;
   border-image: none;
-  background: var(--px-music) 0 0 / 100% 100%;
-  image-rendering: pixelated;
+  /* a sheet of 7: style.css picks each button's picture by its place in ICONS (src/ui/pixel.ts) */
+  background-image: var(--px-icons);
+  --frames: 7;
   cursor: pointer;
   pointer-events: auto;
 }
-#music.muted { background-image: var(--px-music-off); }
-#sound { right: 50px; background-image: var(--px-sound); }
-#sound.muted { background-image: var(--px-sound-off); }
-#fullscreen { right: 88px; background-image: var(--px-fullscreen); }
-#fullscreen.on { background-image: var(--px-fullscreen-exit); }
-#help-btn { right: 126px; background-image: var(--px-help); }
+#music.muted { --frame: 1; }
+#sound { right: 50px; --frame: 2; }
+#sound.muted { --frame: 3; }
+#fullscreen { right: 88px; --frame: 4; }
+#fullscreen.on { --frame: 5; }
+#help-btn { right: 126px; --frame: 6; }
 #music:active, #sound:active, #fullscreen:active, #help-btn:active { transform: translateY(2px); }
 /* (installed on the home screen it is full screen already) */
 @media (display-mode: fullscreen), (display-mode: standalone) {
@@ -137,9 +157,9 @@ html, body {
   width: 132px;
   height: 138px;
   pointer-events: auto;
-  /* 44×46 art at 3x; ui.ts swaps in the pressed arms */
-  background: var(--px-dpad) 0 0 / 100% 100%;
-  image-rendering: pixelated;
+  /* a sheet of 44×46 frames at 3x; ui.ts picks the one with the pressed arms */
+  background-image: var(--px-dpad);
+  --frames: 9;
   filter: drop-shadow(0 3px 0 rgba(10, 24, 10, 0.35));
 }
 
@@ -199,16 +219,6 @@ html, body {
   border-image: none;
   filter: none;
 }
-#board .title,
-#board li {
-  /* the plank art is set from code; ends stay put, the middle stretches, every pixel doubled */
-  border: 0 solid transparent;
-  border-image-slice: 4 7 fill;
-  border-image-width: 8px 14px;
-  border-image-repeat: stretch;
-  image-rendering: pixelated;
-  filter: drop-shadow(0 2px 0 rgba(20, 12, 4, 0.45));
-}
 #board .title {
   margin: 0 6px 2px;
   padding: 6px 16px 6px;
@@ -239,7 +249,7 @@ html, body {
 #board li .face { width: 32px; height: 22px; margin: -4px -6px 0 -8px; image-rendering: pixelated; filter: drop-shadow(1px 1px 0 rgba(30, 16, 6, 0.6)); }
 #board li .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 #board li .n { font-weight: bold; }
-#board li .seal { width: 16px; height: 16px; margin: 0 -2px; image-rendering: pixelated; filter: drop-shadow(1px 1px 0 rgba(30, 16, 6, 0.6)); }
+#board li .seal { width: 16px; height: 16px; margin: 0 -2px; background: var(--px-seal) 0 0 / 100% 100%; image-rendering: pixelated; filter: drop-shadow(1px 1px 0 rgba(30, 16, 6, 0.6)); }
 #board li.me { font-weight: bold; color: #4a2c10; text-shadow: 1px 1px 0 #fbe0a0; }
 #board li.me .rank { color: #8a3a10; }
 
@@ -337,10 +347,6 @@ html, body {
   letter-spacing: 0.12em;
   color: #ffe08a;
   text-shadow: 1px 1px 0 #120a04;
-  border: 0 solid transparent;
-  border-image: var(--px-plank-walnut) 4 7 fill / 8px 14px stretch;
-  image-rendering: pixelated;
-  filter: drop-shadow(0 2px 0 rgba(20, 12, 4, 0.45));
 }
 #help-dialog .rows { display: grid; gap: 10px; }
 #help-dialog .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
@@ -403,10 +409,10 @@ html, body {
 }
 #help-dialog kbd.wide { min-width: 70px; }
 /* the arrow keys carry a drawn arrow (the font has none), 7×7 at 2x */
-#help-dialog kbd.arrow::after { content: ''; width: 14px; height: 14px; background: var(--px-arrow-up) 0 0 / 100% 100%; image-rendering: pixelated; }
-#help-dialog kbd.arrow.down::after { background-image: var(--px-arrow-down); }
-#help-dialog kbd.arrow.left::after { background-image: var(--px-arrow-left); }
-#help-dialog kbd.arrow.right::after { background-image: var(--px-arrow-right); }
+#help-dialog kbd.arrow::after { content: ''; width: 14px; height: 14px; background-image: var(--px-arrows); --frames: 4; }
+#help-dialog kbd.arrow.down::after { --frame: 1; }
+#help-dialog kbd.arrow.left::after { --frame: 2; }
+#help-dialog kbd.arrow.right::after { --frame: 3; }
 #help-dialog .arrows {
   display: inline-grid;
   grid-template: 'a up b' auto 'left down right' auto / auto auto auto;
@@ -442,7 +448,8 @@ html, body {
   width: 44px;
   height: 46px;
   border: 0;
-  background: var(--px-dpad) 0 0 / 100% 100%;
+  background-image: var(--px-dpad);
+  --frames: 9;
 }
 #help-dialog .close {
   display: grid;

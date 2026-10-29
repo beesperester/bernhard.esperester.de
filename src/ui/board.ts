@@ -1,6 +1,6 @@
 // The scoreboard in the corner, and the dialog for naming your cat.
 import { NAME_AT, NAME_MAX, type Row } from '../game/Board.ts';
-import { WOODS, buildPlank, rasterURL } from '../art/plank.ts';
+import { rasterURL } from '../art/plank.ts';
 import { CAT, buildCatSheet, frameIndex } from '../art/cat.ts';
 import { Raster } from '../art/raster.ts';
 
@@ -22,45 +22,17 @@ function face(coat: number): string {
   return url;
 }
 
-/** The seal for a cat whose chain is proven in Bitcoin: gold, with a tick. */
-const SEAL = ['..oooo..', '.oyyyyo.', 'oyyyyywo', 'oyyyywyo', 'owyywyyo', 'oywwyyyo', '.oyyyyo.', '..oooo..'];
-let sealURL = '';
-function seal(): string {
-  if (!sealURL) {
-    const r = new Raster(8, 8);
-    const ink: Record<string, [number, number, number]> = { o: [0x5a, 0x34, 0x0c], y: [0xf2, 0xc2, 0x3a], w: [0xff, 0xfa, 0xe8] };
-    SEAL.forEach((row, y) => [...row].forEach((ch, x) => { if (ink[ch]) r.set(x, y, ink[ch]); }));
-    sealURL = rasterURL(r);
-  }
-  return sealURL;
-}
-
-/** Every name is painted on a wooden plank: a few oak ones to vary, golden pine for you. */
-let planks: { oak: string[]; pine: string; walnut: string } | null = null;
-function plankArt() {
-  if (!planks) {
-    planks = {
-      oak: [11, 12, 13, 14].map((seed) => `url(${rasterURL(buildPlank(WOODS.oak, seed))})`),
-      pine: `url(${rasterURL(buildPlank(WOODS.pine, 21))})`,
-      walnut: `url(${rasterURL(buildPlank(WOODS.walnut, 31))})`,
-    };
-    document.querySelector<HTMLElement>('#board .title')!.style.borderImageSource = planks.walnut;
-  }
-  return planks;
-}
-
 export function renderBoard(rows: Row[], myId: string): void {
   const list = document.querySelector<HTMLOListElement>('#board ol')!;
-  const art = plankArt();
   const top = rows.slice(0, SHOWN);
   const me = rows.find((r) => r.id === myId);
   if (me && !top.includes(me)) top.push(me);
   // names come from other visitors: only ever set as text
   list.replaceChildren(...top.map((r) => {
     const li = document.createElement('li');
-    li.className = r.id === myId ? 'me' : '';
     const rank = rows.indexOf(r);
-    li.style.borderImageSource = r.id === myId ? art.pine : art.oak[rank % art.oak.length];
+    // every name painted on a wooden plank (src/ui/pixel.ts): a few oak ones to vary, golden pine for you
+    li.className = r.id === myId ? 'plank pine me' : `plank oak${rank % 4}`;
     const place = document.createElement('span');
     place.className = 'rank';
     place.textContent = String(rank + 1);
@@ -76,7 +48,7 @@ export function renderBoard(rows: Row[], myId: string): void {
     n.textContent = String(r.score);
     li.append(place, pic, name);
     // its catches are on a chain proven in Bitcoin (a stamp: net/stamp.ts)
-    if (r.verified) li.append(Object.assign(document.createElement('img'), { className: 'seal', src: seal(), alt: 'verified', title: 'Verified: its catches are anchored in Bitcoin' }));
+    if (r.verified) li.append(Object.assign(document.createElement('span'), { className: 'seal', role: 'img', ariaLabel: 'verified', title: 'Verified: its catches are anchored in Bitcoin' }));
     li.append(n);
     return li;
   }));

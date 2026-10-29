@@ -1,6 +1,11 @@
-// The UI's pixel art: text-box frames, buttons, the d-pad and the music and
-// sound icons, drawn in code like everything else and handed to the CSS as
-// image variables (each shown at a whole multiple of its pixels).
+// The UI's pixel art: text-box frames, buttons, wooden planks, the d-pad and
+// the icons, drawn in code like everything else, each once, and handed to the
+// CSS as image variables (each shown at a whole multiple of its pixels).
+// Pictures of one size that take turns in the same place (the icon buttons,
+// the d-pad's pressed arms, the arrow keys) share a sprite sheet: one row of
+// frames, picked with background-position (see .sheet in style.css). Frames
+// that stretch round text (border-image) can't come from a sheet and get an
+// image each.
 import { Raster, hex, type RGB } from '../art/raster.ts';
 import { WOODS, buildPlank, buildSign, rasterURL } from '../art/plank.ts';
 
@@ -62,8 +67,11 @@ function roundButton(face: RGB, light: RGB, dark: RGB, outline: RGB, pressed: bo
 
 const PAD = { o: hex('#101018'), b: hex('#383844'), l: hex('#5a5a6a'), d: hex('#24242e'), p: hex('#1a1a22'), a: hex('#14141a'), al: hex('#7a7a8a') };
 
-/** The d-pad, 44×44, with the pressed arms (a string of u/d/l/r) pushed in. */
-export function dpadURL(dir: string): string {
+/** The d-pad's frames in its sheet: which arms are pressed in each (ui.ts picks one). */
+export const DPAD_STATES = ['', 'u', 'd', 'l', 'r', 'ul', 'ur', 'dl', 'dr'];
+
+/** The d-pad, 44×46, with the pressed arms (a string of u/d/l/r) pushed in. */
+function dpad(dir: string): Raster {
   const r = new Raster(44, 46);
   const arm = 14, a0 = 15, a1 = a0 + arm;
   const cross = (x: number, y: number) => x >= 0 && y >= 0 && x < 44 && y < 44 && ((x >= a0 && x < a1) || (y >= a0 && y < a1));
@@ -88,7 +96,7 @@ export function dpadURL(dir: string): string {
   arrow(21, 39, 0, 1, dir.includes('d'));
   arrow(4, 21, -1, 0, dir.includes('l'));
   arrow(39, 21, 1, 0, dir.includes('r'));
-  return rasterURL(r);
+  return r;
 }
 
 const NOTE = [
@@ -141,6 +149,29 @@ const QUESTION = [
   '...oo...',
 ];
 
+/** The seal for a cat whose chain is proven in Bitcoin: gold, with a tick. 8×8. */
+function seal(): Raster {
+  const r = new Raster(8, 8);
+  r.paint(['..oooo..', '.oyyyyo.', 'oyyyyywo', 'oyyyywyo', 'owyywyyo', 'oywwyyyo', '.oyyyyo.', '..oooo..'], 0, 0, { o: hex('#5a340c'), y: hex('#f2c23a'), w: hex('#fffae8') });
+  return r;
+}
+
+/** Frames of one size side by side in a row: a sprite sheet. */
+function sheet(frames: Raster[]): Raster {
+  const { w, h } = frames[0];
+  const r = new Raster(w * frames.length, h);
+  frames.forEach((f, k) => {
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (f.data[i + 3]) r.set(k * w + x, y, [f.data[i], f.data[i + 1], f.data[i + 2]], f.data[i + 3]);
+    }
+  });
+  return r;
+}
+
+/** The icon buttons' frames in their sheet, in order (style.css picks them by number). */
+export const ICONS = ['music', 'music-off', 'sound', 'sound-off', 'fullscreen', 'fullscreen-exit', 'help'] as const;
+
 /** A little arrow for the arrow keys, pointing up; the rest are turned from it. 7×7. */
 function arrowIcon(dir: 'up' | 'down' | 'left' | 'right'): Raster {
   const r = new Raster(7, 7);
@@ -190,17 +221,15 @@ export function applyPixelUI(): void {
   }
   set('--px-round', roundButton(pink[0], pink[1], pink[2], pink[3], false));
   set('--px-round-down', roundButton(pink[0], pink[1], pink[2], pink[3], true));
-  set('--px-music', iconButton(NOTE, false));
-  set('--px-music-off', iconButton(NOTE, true));
-  set('--px-sound', iconButton(SPEAKER, false));
-  set('--px-sound-off', iconButton(SPEAKER, true));
-  set('--px-fullscreen', iconButton(EXPAND, false));
-  set('--px-fullscreen-exit', iconButton(SHRINK, false));
-  set('--px-help', iconButton(QUESTION, false));
+  set('--px-icons', sheet([iconButton(NOTE, false), iconButton(NOTE, true), iconButton(SPEAKER, false), iconButton(SPEAKER, true), iconButton(EXPAND, false), iconButton(SHRINK, false), iconButton(QUESTION, false)]));
   set('--px-key', keycap(false));
-  for (const d of ['up', 'down', 'left', 'right'] as const) set(`--px-arrow-${d}`, arrowIcon(d));
   set('--px-key-down', keycap(true));
+  set('--px-arrows', sheet((['up', 'down', 'left', 'right'] as const).map(arrowIcon)));
+  set('--px-dpad', sheet(DPAD_STATES.map(dpad)));
+  set('--px-seal', seal());
+  // the wood: the help sign, and planks to write on (the snack board's names on oak, yours on pine)
   set('--px-sign', buildSign(7));
-  set('--px-plank-walnut', buildPlank(WOODS.walnut, 3));
-  root.setProperty('--px-dpad', `url(${dpadURL('')})`);
+  set('--px-plank-walnut', buildPlank(WOODS.walnut, 31));
+  set('--px-plank-pine', buildPlank(WOODS.pine, 21));
+  [11, 12, 13, 14].forEach((seed, k) => set(`--px-plank-oak-${k}`, buildPlank(WOODS.oak, seed)));
 }
