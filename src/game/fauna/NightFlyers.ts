@@ -63,34 +63,19 @@ export class NightFlyers implements Fauna {
     this.haunts = [...LANTERNS.map(([x, y]): Pt => [x, y]), ...waterBoxes().map((b): Pt => [b.x + b.w / 2, b.y + b.h / 2])];
     // owls sit on the top of a crown or on a lantern
     this.perches = [
-      ...trees.map(({ p, canvas }) => {
-        const { width: w, height: h } = canvas;
-        const a = canvas.getContext('2d')!.getImageData(0, 0, w, h).data;
-        let best = { x: w / 2, top: h };
-        for (let x = Math.floor(w * 0.3); x < w * 0.7; x++) {
-          let top = 0;
-          while (top < h && a[(top * w + x) * 4 + 3] === 0) top++;
-          if (top < best.top) best = { x, top };
-        }
+      ...trees.map((t) => {
+        const top = t.crown.reduce((a, b) => (b.z + b.rz > a.z + a.rz ? b : a));
         // sunk a little into the leaves
-        return { x: p.x + best.x, y: p.depthY, h: p.depthY - (p.y + best.top) - 2, depth: p.depthY + 0.5 };
+        return { x: t.x + top.x, y: t.y, h: t.elev + top.z + top.rz - 2, depth: t.y + 0.5 };
       }),
       ...LANTERNS.map(([x, y]) => ({ x, y, h: elevAt(x, y) + LANTERN_H, depth: y + 0.5 })),
     ];
     // roosts: the lowest edge of the leaves either side of the trunk
-    for (const { p, canvas } of trees) {
-      const { width: w, height: h } = canvas;
-      const a = canvas.getContext('2d')!.getImageData(0, 0, w, h).data;
-      for (const [x0, x1] of [[0.15, 0.4], [0.6, 0.85]]) {
-        let best = { x: 0, bottom: -1 };
-        for (let x = Math.floor(w * x0); x < w * x1; x++) {
-          let bottom = h - 1;
-          while (bottom >= 0 && a[(bottom * w + x) * 4 + 3] === 0) bottom--;
-          if (bottom < h - 12 && bottom > best.bottom) best = { x, bottom };
-        }
-        if (best.bottom > 0) this.roosts.push({ x: p.x + best.x, y: p.depthY, h: p.depthY - (p.y + best.bottom), depth: p.depthY + 0.5 });
+    for (const t of trees)
+      for (const side of [-1, 1]) {
+        const low = t.crown.filter((c) => c.x * side > 4).sort((a, b) => a.z - a.rz - (b.z - b.rz))[0];
+        if (low) this.roosts.push({ x: t.x + low.x, y: t.y, h: t.elev + low.z - Math.round(low.rz * 0.8), depth: t.y + 0.5 });
       }
-    }
   }
 
   update({ gt, cats, prey, view }: FaunaFrame): void {

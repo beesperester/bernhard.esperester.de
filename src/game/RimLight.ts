@@ -6,6 +6,7 @@ import { LEVEL, MAP_H, MAP_W, TILE, WORLD_H, WORLD_W, levelAt } from '../world/m
 import { hasUpright } from '../art/tiles.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
+import type { TreeWatcher } from './Trees.ts';
 
 /** The sun's direction is rounded to one of this many, so rims are only redrawn now and then. */
 const DIRECTIONS = 16;
@@ -15,7 +16,11 @@ const CHUNK = 8;
 const OUTER = 255, INNER = 110;
 
 type Solid = (x: number, y: number) => boolean;
-interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; w: number; h: number; rim: (out: Uint8ClampedArray) => void }
+interface Overlay {
+  img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; w: number; h: number; rim: (out: Uint8ClampedArray) => void;
+  /** How much of the rim shows (a tree fading out takes its rim with it). */
+  k: number;
+}
 
 /**
  * Sunlit rims on everything standing up (cats, trees, bushes, rocks, hedges,
@@ -23,8 +28,11 @@ interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTe
  * so you can tell where the sun is. Each object gets an additive overlay whose
  * texture is redrawn whenever the sun moves to another of the 16 directions.
  */
-export class RimLight {
+export class RimLight implements TreeWatcher {
+  private readonly scene: Phaser.Scene;
   private readonly overlays: Overlay[] = [];
+  /** The trees' rims, while their pictures are drawn. */
+  private readonly trees = new Map<number, Overlay>();
   private readonly catTex: Phaser.Textures.CanvasTexture;
   private readonly catAlpha: Uint8Array;
   private readonly catW: number;
@@ -38,12 +46,11 @@ export class RimLight {
 
   constructor(
     scene: Phaser.Scene,
-    parts: { trees: { p: Pick<Prop, 'x' | 'y' | 'depthY'>; canvas: HTMLCanvasElement }[]; upright: (x: number, y: number) => boolean; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catSize: number },
+    parts: { things: { p: Pick<Prop, 'x' | 'y' | 'depthY'>; canvas: HTMLCanvasElement }[]; upright: (x: number, y: number) => boolean; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catSize: number },
   ) {
+    this.scene = scene;
     const add = (key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']) => {
-      const tex = scene.textures.createCanvas(key, w, h)!;
-      const img = cullerFor(scene).add(scene.add.image(x, y, key).setOrigin(0).setDepth(depth).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
-      this.overlays.push({ img, tex, w, h, rim });
+      this.overlays.push(this.overlay(key, w, h, x, y, depth, rim));
     };
 
     // things in the ground art (on the lawn; those on raised ground go with the terrain below)
@@ -100,17 +107,8 @@ export class RimLight {
       });
     });
 
-    // trees and furniture
-    parts.trees.forEach(({ p, canvas }, i) => {
-      const { width: w, height: h } = canvas;
-      const a = canvas.getContext('2d')!.getImageData(0, 0, w, h).data;
-      const solid: Solid = (x, y) => x >= 0 && y >= 0 && x < w && y < h && a[(y * w + x) * 4 + 3] > 0;
-      const rim = new Uint8ClampedArray(w * h);
-      add(`rim-tree-${i}`, w, h, p.x, p.y, p.depthY + 0.002, (out) => {
-        this.rimInto(rim, w, h, solid, solid);
-        for (let k = 0; k < rim.length; k++) out[k * 4 + 3] = rim[k];
-      });
-    });
+    // furniture and follies
+    parts.things.forEach(({ p, canvas }, i) => this.overlays.push(this.outline(`rim-thing-${i}`, canvas, p.x, p.y, p.depthY + 0.002)));
 
     // cats: one rim sheet for all coats (they share their outlines), used by every cat's rim sprite
     const cw = parts.catSheet.width, ch = parts.catSheet.height;
@@ -124,6 +122,60 @@ export class RimLight {
   }
 
   private readonly catSize: number;
+
+  private overlay(key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']): Overlay {
+    const tex = this.scene.textures.createCanvas(key, w, h)!;
+    const img = cullerFor(this.scene).add(this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
+    return { img, tex, w, h, rim, k: 1 };
+  }
+
+  /** A rim round the outline of a picture standing at (x, y). */
+  private outline(key: string, canvas: HTMLCanvasElement, x: number, y: number, depth: number): Overlay {
+    const { width: w, height: h } = canvas;
+    const a = canvas.getContext('2d')!.getImageData(0, 0, w, h).data;
+    const solid: Solid = (px, py) => px >= 0 && py >= 0 && px < w && py < h && a[(py * w + px) * 4 + 3] > 0;
+    const rim = new Uint8ClampedArray(w * h);
+    return this.overlay(key, w, h, x, y, depth, (out) => {
+      this.rimInto(rim, w, h, solid, solid);
+      for (let k = 0; k < rim.length; k++) out[k * 4 + 3] = rim[k];
+    });
+  }
+
+  /** A tree has been drawn: its rim, in the light as it is now. */
+  added(i: number, p: Prop, canvas: HTMLCanvasElement): void {
+    const o = this.outline(`rim-tree-${i}`, canvas, p.x, p.y, p.depthY + 0.002);
+    this.trees.set(i, o);
+    this.overlays.push(o);
+    if (this.dir >= 0) this.paint(o);
+    o.img.setVisible(this.strength > 0).setAlpha(this.strength).setTint(this.colour);
+  }
+
+  /** A tree has been let go: and its rim. */
+  removed(i: number): void {
+    const o = this.trees.get(i);
+    if (!o) return;
+    this.trees.delete(i);
+    this.overlays.splice(this.overlays.indexOf(o), 1);
+    o.img.destroy();
+    this.scene.textures.remove(o.tex);
+  }
+
+  /** A tree is fading out (0 there .. 1 gone), its rim with it. */
+  faded(i: number, fade: number): void {
+    const o = this.trees.get(i);
+    if (!o) return;
+    o.k = 1 - fade;
+    o.img.setVisible(this.strength > 0 && o.k > 0).setAlpha(this.strength * o.k);
+  }
+
+  private paint(o: Overlay): void {
+    const img = new ImageData(o.w, o.h);
+    img.data.fill(255);
+    for (let k = 3; k < img.data.length; k += 4) img.data[k] = 0;
+    o.rim(img.data);
+    o.tex.getContext().putImageData(img, 0, 0);
+    o.tex.refresh();
+  }
 
   /** Rim brightness for every pixel of a shape: lit where the next pixel towards the sun is empty. */
   private rimInto(out: Uint8ClampedArray, w: number, h: number, mine: Solid, solid: Solid): void {
@@ -147,7 +199,7 @@ export class RimLight {
     this.colour = colour;
     if (key === this.shown) return;
     this.shown = key;
-    for (const o of this.overlays) o.img.setVisible(this.strength > 0).setAlpha(s).setTint(colour);
+    for (const o of this.overlays) o.img.setVisible(this.strength > 0 && o.k > 0).setAlpha(s * o.k).setTint(colour);
   }
 
   private redraw(q: number): void {
@@ -155,14 +207,7 @@ export class RimLight {
     const ang = (q / DIRECTIONS) * Math.PI * 2;
     this.d1 = [Math.round(Math.cos(ang)), Math.round(Math.sin(ang))];
     this.d2 = [Math.round(Math.cos(ang) * 2), Math.round(Math.sin(ang) * 2)];
-    for (const o of this.overlays) {
-      const img = new ImageData(o.w, o.h);
-      img.data.fill(255);
-      for (let k = 3; k < img.data.length; k += 4) img.data[k] = 0;
-      o.rim(img.data);
-      o.tex.getContext().putImageData(img, 0, 0);
-      o.tex.refresh();
-    }
+    for (const o of this.overlays) this.paint(o);
     // cats, frame by frame so rims stop at the frame edges
     const w = this.catW, h = this.catTex.height, S = this.catSize, A = this.catAlpha;
     const img = new ImageData(w, h);

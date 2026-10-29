@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { Bits } from '../art/raster.ts';
-import type { Prop } from '../art/trees.ts';
+import type { TreePlan } from '../world/trees.ts';
 import { Act, Prey } from './state.ts';
 import type { CatView } from './CatView.ts';
 import { TILE } from '../world/map.ts';
@@ -46,7 +46,7 @@ export class Ambient {
 
   constructor(
     scene: Phaser.Scene,
-    opts: { flowers: Pt[]; water: Bits; pond: { x: number; y: number; w: number; h: number }; trees: { p: Prop; canvas: HTMLCanvasElement }[] },
+    opts: { flowers: Pt[]; water: Bits; pond: { x: number; y: number; w: number; h: number }; trees: readonly TreePlan[] },
   ) {
     this.scene = scene;
     this.fx = new Effects(scene);

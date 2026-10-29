@@ -8,8 +8,7 @@ import { SEASON, type Season } from '../world/season.ts';
 import { DEFAULT_LIGHT, type ScreenLight } from './lighting.ts';
 import { SNOW, bayer } from './tiles.ts';
 import { dab } from './paint.ts';
-import { FORK_Z } from '../world/map.ts';
-import { TREES, type Perch, type TreePlan } from '../world/trees.ts';
+import { TREES, type Blob, type Perch, type TreePlan } from '../world/trees.ts';
 
 export interface Prop {
   raster: Raster;
@@ -197,9 +196,12 @@ class Sketch {
     const blossom = t.colour === 2 && roll < season.blossom;
     if (!blossom && roll >= season.leaves) return null;
     if (blossom) return CANOPIES[2].c;
-    // (in autumn a whole cloud of leaves turns the same colour: the first puff's)
+    // (in autumn a whole cloud of leaves turns the same colour: mostly the tree's own, now and then the next shade)
     const k = this.group ?? i;
-    if (hash2(k, t.seed, 1302) < season.turn) return AUTUMN[Math.floor(hash2(k, t.seed, 1303) * AUTUMN.length)];
+    if (hash2(k, t.seed, 1302) < season.turn) {
+      const own = Math.floor(hash2(t.seed, 0, 1303) * AUTUMN.length), u = hash2(k, t.seed, 1303);
+      return AUTUMN[(own + (u < 0.65 ? 0 : u < 0.85 ? 1 : AUTUMN.length - 1)) % AUTUMN.length];
+    }
     return t.colour === 2 ? CANOPIES[0].c : CANOPIES[t.colour].c;
   }
 
@@ -276,7 +278,7 @@ class Sketch {
   }
 
   /** The crown's bare limbs, forking up and out from the trunk at height z. */
-  crownLimbs(z: number, spread: number): void {
+  crownLimbs(z: number, spread: number, th = 2): void {
     if (!this.bare) return;
     const limb = (x: number, y: number, a: number, len: number, th: number, depth: number) => {
       const x1 = x + Math.cos(a) * len, y1 = y + Math.sin(a) * len * 0.8;
@@ -284,7 +286,7 @@ class Sketch {
       if (depth >= 2) return;
       for (const da of [-0.45 - this.rnd() * 0.3, 0.35 + this.rnd() * 0.3]) limb(x1, y1, a + da, len * (0.6 + this.rnd() * 0.15), Math.max(1, th - 1), depth + 1);
     };
-    for (const a of [-2.45, -1.95, -1.2, -0.7]) limb(this.cx, this.row(z), a + (this.rnd() - 0.5) * 0.2, spread * (0.8 + this.rnd() * 0.3), 2, 0);
+    for (const a of [-2.45, -1.95, -1.2, -0.7]) limb(this.cx, this.row(z), a + (this.rnd() - 0.5) * 0.2, spread * (0.8 + this.rnd() * 0.3), th, 0);
   }
 
   /** A few bare twigs from (x, y) reaching out and up, when the leaves are thin enough to show them. */
@@ -343,6 +345,50 @@ class Sketch {
     this.group = null;
   }
 
+  /**
+   * A big mass of leaves filling blob b: darker puffs behind, lighter ones
+   * heaped in front of them, the lower ones over the upper. With `line` (a
+   * height), its top is flattened there, a little hump at most: a branch level
+   * a cat walks along.
+   */
+  mass(b: Blob, line: number | null = null, dome = 0): void {
+    const mx = this.cx + b.x, my = this.row(b.z), top = line === null ? -Infinity : this.row(line) + 3;
+    const inside = (x: number, y: number, r: number) => ((x - mx) / Math.max(1, b.rx - r * 0.6)) ** 2 + ((y - my) / Math.max(1, b.rz - r * 0.6)) ** 2 <= 1;
+    const puffs = (n: number, r0: number, r1: number): Clump[] => {
+      const out: Clump[] = [];
+      for (let tries = 0; out.length < n && tries < n * 8; tries++) {
+        const r = r0 + this.rnd() * (r1 - r0);
+        const x = mx + (this.rnd() * 2 - 1) * b.rx, y = Math.max(my + (this.rnd() * 2 - 1) * b.rz, top + r);
+        if (inside(x, y, r)) out.push({ x, y, r });
+      }
+      return out;
+    };
+    const area = Math.PI * b.rx * b.rz;
+    // (big masses in bigger puffs)
+    const k = Math.min(1.7, Math.max(1, Math.sqrt(area) / 60));
+    this.group = this.clumps;
+    for (const c of puffs(Math.ceil(area / (260 * k * k)), 8 * k, 12 * k)) {
+      const pal = this.leaves();
+      if (pal) this.clump(c, back(pal));
+    }
+    // (top first: the lower puffs in front of them)
+    const front = puffs(Math.ceil(area / (150 * k * k)), 6 * k, 10 * k).sort((a, c) => a.y - c.y);
+    // along a branch level, a row of puffs makes the edge a cat walks on: rising a little over it, a hump in the middle
+    if (line !== null) {
+      const row: Clump[] = [];
+      for (let x = mx - b.rx + 7 * k; x <= mx + b.rx - 7 * k; x += 8 * k) {
+        const r = (6.5 + this.rnd() * 2.5) * k, hump = dome * Math.max(0, 1 - ((x - mx) / b.rx) ** 2);
+        row.push({ x: x + (this.rnd() - 0.5) * 3, y: this.row(line) - 1 - this.rnd() * 3 - hump + r, r });
+      }
+      front.unshift(...row.sort((a, c) => a.y - c.y));
+    }
+    for (const c of front) {
+      const pal = this.leaves();
+      if (pal) this.clump(c, pal, -Infinity, true);
+    }
+    this.group = null;
+  }
+
   /** A bird house hanging on the front of the trunk, its roof at height z. */
   birdhouse(z: number): void {
     const paint = PAINT[Math.floor(hash2(this.t.seed, 3, 1310) * PAINT.length)];
@@ -380,7 +426,7 @@ class Sketch {
     for (let x = cx + x0 - 1; x < cx + x0 + 6; x++) r.set(x, deck - 5, WOOD[1]);
     for (let x = cx + x1 - 6; x <= cx + x1; x++) r.set(x, deck - 5, WOOD[1]);
     // the hut: plank walls up to the eaves
-    const wall = 11, eaves = this.row(roofZ - 9);
+    const wall = Math.max(11, this.t.trunk + 3), eaves = this.row(roofZ - 9);
     for (let y = eaves + 1; y < deck; y++)
       for (let x = cx - wall; x < cx + wall; x++) {
         const edge = x === cx - wall || x === cx + wall - 1;
@@ -436,17 +482,15 @@ class Sketch {
   }
 }
 
-const branchesOf = (t: TreePlan) => t.perches.filter((p) => p.kind === 'branch');
-
-/** The limb out to a branch perch, with twigs at its end. */
-function limbTo(s: Sketch, p: Perch, thick: number): void {
-  const side = p.x0 < 0 ? -1 : 1;
-  const inner = side < 0 ? p.x1 : p.x0, outer = side < 0 ? p.x0 : p.x1;
-  const top = s.row(p.z);
-  // out of the trunk a little lower, rising to the perch, then along it
-  s.limb(s.cx + side * 2, top + 7, s.cx + inner, top, thick, 0.1);
-  s.limb(s.cx + inner, top, s.cx + outer, top, thick, 0.5);
-  s.twigs(s.cx + outer, top, side);
+/** A bough along branch level p: out of the trunk a little lower, rising to the level, then along it either way, with twigs at its ends. */
+function bough(s: Sketch, p: Perch, thick: number): void {
+  const y = s.row(p.z), root = Math.round(s.t.trunk * 0.4), knee = Math.round(s.t.trunk * 0.9) + 4;
+  for (const end of [p.x0, p.x1]) {
+    const side = Math.sign(end) || 1;
+    s.limb(s.cx + side * root, y + Math.round(thick * 2.5), s.cx + side * knee, y + 1, thick, 0.1);
+    s.limb(s.cx + side * knee, y + 1, s.cx + end, y + 1, thick, 0.6);
+    s.twigs(s.cx + end, y, side);
+  }
 }
 
 /** Apples or blossom dotted over the leaves. */
@@ -455,7 +499,7 @@ function dots(s: Sketch): void {
   const colours = t.colour === 3 ? (season.appleBlossom > 0.3 ? [hex('#ffffff'), hex('#f8d8e8')] : season.apples > 0.3 ? CANOPIES[3].dots : undefined)
     : t.colour === 2 && season.blossom > 0.3 ? CANOPIES[2].dots : undefined;
   if (!colours) return;
-  for (let k = 0; k < 36; k++) {
+  for (let k = 0; k < (W * s.H) / 120; k++) {
     const x = Math.floor(s.rnd() * W), y = Math.floor(s.rnd() * s.H);
     if (!painted.has(y * W + x - 1) || !painted.has((y + 2) * W + x + 2)) continue;
     const c = colours[k % colours.length];
@@ -463,39 +507,41 @@ function dots(s: Sketch): void {
   }
 }
 
+/** The whole crown's middle and size, for shading it as one. */
+function crownOf(s: Sketch, crown: Blob[]): Sketch['crown'] {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const b of crown) {
+    x0 = Math.min(x0, b.x - b.rx); x1 = Math.max(x1, b.x + b.rx);
+    y0 = Math.min(y0, s.row(b.z + b.rz)); y1 = Math.max(y1, s.row(b.z - b.rz));
+  }
+  return { x: s.cx + (x0 + x1) / 2, y: (y0 + y1) / 2, rx: (x1 - x0) / 2, ry: (y1 - y0) / 2 };
+}
+
+/** The leaf mass on top of branch level p (the one whose cloud reaches up to it), if any. */
+const massAt = (t: TreePlan, p: Perch): Blob | undefined => t.crown.find((b) => Math.abs(b.z + b.rz - 4 - p.z) < 1);
+
 /**
- * A broadleaf: a trunk forking into limbs, each carrying a cloud of leaves
- * (the branches a cat climbs are their flat tops), the crown a bigger cloud
- * on top, with sky between them (and maybe a bird house).
+ * A broadleaf: a stout trunk with a bough at every branch level, each
+ * carrying a mass of leaves whose flat top is that level, the crown the
+ * biggest on top (and maybe a bird house).
  */
 function broadleaf(t: TreePlan, season: Season): Prop {
   const s = new Sketch(t, season);
-  const top = t.perches.find((p) => p.kind === 'top')!;
-  const branches = branchesOf(t);
-  const reach = Math.max(...branches.map((p) => Math.max(-p.x0, p.x1)), 14);
-  const yTop = s.row(top.z), yLow = s.row(FORK_Z + 11);
-  s.crown = { x: s.cx, y: (yTop + yLow) / 2, rx: reach + 4, ry: (yLow - yTop) / 2 + 6 };
+  s.crown = crownOf(s, t.crown);
+  const levels = t.perches.filter((p) => p.kind !== 'birdhouse');
+  const top = levels[levels.length - 1];
   // the trunk carries on up the middle, thinning, into the crown
-  s.trunk(top.z - 4, (z) => (z <= FORK_Z ? 4 : Math.max(1.5, 3.5 - (z - FORK_Z) / 16)));
-  for (const p of branches) limbTo(s, p, 3);
-  // the crown's limbs: up and out from high on the trunk to either side of the top cloud
-  const crownBase = s.row(top.z - 14);
-  s.limb(s.cx - 1, crownBase, s.cx + top.x0 - 4, yTop + 5, 2, 0.3);
-  s.limb(s.cx, crownBase, s.cx + top.x1 + 4, yTop + 5, 2, 0.3);
-  s.crownLimbs(top.z - 8, 11);
-  // a little tuft on a twig off the side away from each branch, between them
-  for (const p of branches) {
-    const side = p.x0 < 0 ? 1 : -1, z = p.z + 5, y = s.row(z);
-    if (s.rnd() < 0.45) continue;
-    const len = 6 + Math.round(s.rnd() * 4);
-    s.limb(s.cx, y + 4, s.cx + side * len, y, 1, 0);
-    const pal = s.leaves();
-    if (pal) s.clump({ x: s.cx + side * (len + 1), y: y - 1, r: 3 + s.rnd() * 1.5 }, pal, -Infinity, true);
+  const thin = t.trunk * 0.3;
+  s.trunk(top.z - 6, (z) => Math.max(thin, t.trunk - (z / top.z) * (t.trunk - thin)));
+  // (the boughs thinner further up)
+  levels.forEach((p, i) => bough(s, p, Math.max(3, Math.round(t.trunk * 0.45 * (1 - (i / levels.length) * 0.5)))));
+  // (bare, the limbs that carry each mass show)
+  for (const b of t.crown) s.crownLimbs(b.z - b.rz + 6, Math.min(70, b.rx * 0.6), Math.max(2, Math.round(t.trunk / 5)));
+  // the masses from the top down: each level's flat top over the bottom of the one above
+  for (const p of [...levels].reverse()) {
+    const b = massAt(t, p);
+    if (b) s.mass(b, p.z, p === top ? 6 : 0);
   }
-  // (each cloud clear of the trunk, so it shows between them)
-  for (const p of branches) s.cluster(p.x0 < 0 ? p.x0 - 2 : Math.max(p.x0, 5), p.x0 < 0 ? Math.min(p.x1, -5) : p.x1 + 2, p.z, 8, 2);
-  // the crown: the biggest cloud, on top
-  s.cluster(top.x0 - 7, top.x1 + 7, top.z, 12, 5);
   dots(s);
   const house = t.perches.find((p) => p.kind === 'birdhouse');
   if (house) s.birdhouse(house.z);
@@ -505,40 +551,44 @@ function broadleaf(t: TreePlan, season: Season): Prop {
 /** A pine: a straight trunk with tiers of drooping boughs, narrowing to a spire. */
 function pine(t: TreePlan, season: Season): Prop {
   const s = new Sketch(t, season);
+  s.crown = crownOf(s, t.crown);
   const tiers = t.perches;
-  const tip = tiers[tiers.length - 1].z + 9;
-  s.crown = { x: s.cx, y: s.row(tip / 2), rx: 22, ry: tip / 2 };
-  s.trunk(tip - 2, (z) => Math.max(1, 3.5 - (z / tip) * 2.5));
+  const spire = t.crown[t.crown.length - 1], tip = spire.z + spire.rz;
+  s.trunk(tip - 4, (z) => Math.max(1.5, t.trunk - (z / tip) * (t.trunk - 1.5)));
   const { r } = s;
   // from the top down, so the lower boughs hang over the trunk between them
-  for (const p of [...tiers].reverse()) {
+  const peak = tiers[tiers.length - 1];
+  for (let z = peak.z + 1; z <= tip; z++) {
+    const w = Math.max(0.5, ((tip - z) / (tip - peak.z)) * 13);
+    const mid = s.cx + (peak.x0 + peak.x1) / 2;
+    for (let x = Math.floor(mid - w); x < Math.ceil(mid + w); x++) s.leaf(x, s.row(z), NEEDLES, (x + 0.5 - mid) / (w + 1), -0.4, false, 99);
+  }
+  for (const [k, p] of [...tiers.entries()].reverse()) {
     const top = s.row(p.z);
-    const mid = s.cx + (p.x0 + p.x1) / 2, half = (p.x1 - p.x0) / 2 + 2;
-    const thick = p.kind === 'top' ? 8 : 10;
+    const mid = s.cx + (p.x0 + p.x1) / 2, half = t.crown[k].rx - 3;
+    const thick = p.kind === 'top' ? 46 : 50;
     s.leaves();
     for (let dy = 0; dy < thick; dy++) {
-      // narrow at the top where it meets the trunk, spreading and drooping to the hem
-      const w = half * (0.55 + 0.45 * Math.min(1, dy / 3)) + dy * 0.6;
+      // a cone: narrow at the top where a cat stands by the trunk, spreading and drooping to the hem
+      const u0 = dy / (thick - 1), w = half * (0.3 + 0.7 * u0) + 2 * Math.sin(u0 * Math.PI);
       for (let x = Math.floor(mid - w); x < Math.ceil(mid + w); x++) {
         const u = (x + 0.5 - mid) / w;
         // ragged, drooping ends and a scalloped hem
-        if (dy >= thick - 3 && hash2(x, top + dy, t.seed + 1311) < 0.25 + (dy - thick + 3) * 0.25) continue;
-        if (Math.abs(u) > 0.85 && dy < 2 && hash2(x, dy, t.seed + 1312) < 0.5) continue;
-        s.leaf(x, top + dy, NEEDLES, u * 0.9, (dy / (thick - 1)) * 1.2 - 0.5, dy === thick - 1 || Math.abs(u) > 0.94, p.z);
+        if (dy >= thick - 5 && hash2(x, top + dy, t.seed + 1311) < 0.15 + (dy - thick + 5) * 0.17) continue;
+        if (Math.abs(u) > 0.85 && dy < 3 && hash2(x, dy, t.seed + 1312) < 0.5) continue;
+        // in layers of drooping fronds
+        const frond = Math.floor((dy + Math.abs(u) * 6) / 6) % 2;
+        s.leaf(x, top + dy, frond ? back(NEEDLES) : NEEDLES, u * 0.9, (dy / (thick - 1)) * 1.2 - 0.5, dy === thick - 1 || Math.abs(u) > 0.95, p.z + frond);
       }
     }
     // a cone or two hanging under the bough
-    if (season.snow < 0.5 && hash2(p.z, t.seed, 1313) < 0.6) {
-      const x = Math.round(mid + (hash2(p.z, t.seed, 1314) - 0.5) * half * 1.4);
-      r.set(x, top + thick, BARK[1]); r.set(x, top + thick + 1, BARK[2]);
-    }
-  }
-  // the spire above the top tier
-  const peak = tiers[tiers.length - 1];
-  for (let z = peak.z + 1; z <= tip; z++) {
-    const w = Math.max(0.5, ((tip - z) / (tip - peak.z)) * 4);
-    const mid = s.cx + (peak.x0 + peak.x1) / 2;
-    for (let x = Math.floor(mid - w); x < Math.ceil(mid + w); x++) s.leaf(x, s.row(z), NEEDLES, (x + 0.5 - mid) / (w + 1), -0.4, false, 99);
+    if (season.snow < 0.5)
+      for (let k = 0; k < 2; k++) {
+        if (hash2(p.z, t.seed + k, 1313) > 0.6) continue;
+        const x = Math.round(mid + (hash2(p.z, t.seed + k, 1314) - 0.5) * half * 1.4);
+        for (let dy = 0; dy < 4; dy++) r.set(x, top + thick + dy, dy === 0 ? BARK[1] : BARK[2]);
+        r.set(x + 1, top + thick + 1, BARK[3]); r.set(x + 1, top + thick + 2, BARK[3]);
+      }
   }
   return s.finish();
 }
@@ -546,28 +596,56 @@ function pine(t: TreePlan, season: Season): Prop {
 /** The big tree with a house in it. */
 function treehouse(t: TreePlan, season: Season): Prop {
   const s = new Sketch(t, season);
+  s.crown = crownOf(s, t.crown);
   const at = (k: string) => t.perches.find((p) => p.kind === k)!;
-  const deck = at('deck'), roof = at('roof'), top = at('top');
-  const branches = branchesOf(t);
-  const yTop = s.row(top.z), yLow = s.row(FORK_Z + 11);
-  s.crown = { x: s.cx, y: (yTop + yLow) / 2, rx: 44, ry: (yLow - yTop) / 2 + 4 };
-  s.trunk(top.z - 2, (z) => (z <= FORK_Z ? 6 : Math.max(3, 5 - (z - FORK_Z) / 14)));
-  for (const p of branches) limbTo(s, p, 4);
+  const fork = at('fork'), deck = at('deck'), roof = at('roof'), branch = at('branch'), top = at('top');
+  s.trunk(top.z - 6, (z) => Math.max(6, t.trunk - (z / top.z) * (t.trunk - 6)));
+  bough(s, fork, 7);
+  bough(s, branch, 6);
+  bough(s, top, 5);
   // limbs up behind the hut to the crown
-  const crownBase = s.row(deck.z + 4);
-  s.limb(s.cx - 2, crownBase, s.cx + top.x0 - 10, yTop + 6, 3, 0.3);
-  s.limb(s.cx + 1, crownBase, s.cx + top.x1 + 10, yTop + 6, 3, 0.3);
-  s.crownLimbs(top.z - 6, 13);
-  // a cloud of leaves either side behind the hut, then the branches' clouds and the hut on top of them
-  s.cluster(-38, -14, deck.z + 14, 8, 3);
-  s.cluster(14, 38, deck.z + 10, 8, 3);
-  for (const p of branches) if (p.z < deck.z) s.cluster(p.x0 < 0 ? p.x0 - 2 : Math.max(p.x0, 6), p.x0 < 0 ? Math.min(p.x1, -6) : p.x1 + 2, p.z, 8, 2);
+  const crownBase = s.row(deck.z + 8);
+  s.limb(s.cx - 6, crownBase, s.cx + top.x0 - 20, s.row(top.z) + 14, 6, 0.3);
+  s.limb(s.cx + 5, crownBase, s.cx + top.x1 + 20, s.row(top.z) + 14, 6, 0.3);
+  s.crownLimbs(top.z - 20, 60, 3);
+  // the crown, the branch below it, the clouds either side behind the hut, and the hut on top of them
+  s.mass(t.crown[3], top.z, 8);
+  s.mass(t.crown[2], branch.z);
+  s.mass(t.crown[0]);
+  s.mass(t.crown[1]);
   s.treehouse(deck.x0, deck.x1, deck.z, roof.z, roof.x1);
-  for (const p of branches) if (p.z > deck.z) s.cluster(p.x0 - 2, p.x1 + 2, p.z, 8, 2);
-  s.cluster(top.x0 - 12, top.x1 + 12, top.z, 12, 5);
   return s.finish();
 }
 
-export function buildProps(season: Season = SEASON): Prop[] {
-  return TREES.map((t) => (t.shape === 'pine' ? pine(t, season) : t.shape === 'treehouse' ? treehouse(t, season) : broadleaf(t, season)));
+/** The picture of tree i (they're drawn as the camera comes near them: the park has far too many to draw them all at once). */
+export function buildProp(i: number, season: Season = SEASON): Prop {
+  const t = TREES[i];
+  return t.shape === 'pine' ? pine(t, season) : t.shape === 'treehouse' ? treehouse(t, season) : broadleaf(t, season);
 }
+
+/**
+ * Tree i's outline, worked out from its plan rather than drawn (its leaf
+ * masses, trunk and boughs): for its shadow, and what it hides of a light.
+ * In its picture's px, 1 where it is.
+ */
+export function treeOutline(i: number): { w: number; h: number; data: Uint8Array } {
+  const t = TREES[i], { w, h } = t, data = new Uint8Array(w * h), cx = w / 2;
+  const row = (z: number) => h - 1 - z;
+  for (const b of t.crown) {
+    const mx = cx + b.x, my = row(b.z);
+    for (let y = Math.max(0, Math.floor(my - b.rz)); y <= Math.min(h - 1, my + b.rz); y++) {
+      const half = b.rx * Math.sqrt(Math.max(0, 1 - ((y - my) / b.rz) ** 2));
+      for (let x = Math.max(0, Math.round(mx - half)); x < Math.min(w, Math.round(mx + half)); x++) data[y * w + x] = 1;
+    }
+  }
+  const top = Math.max(...t.perches.map((p) => p.z));
+  for (let z = 0; z < top; z++) {
+    const half = Math.max(2, t.trunk - (z / top) * (t.trunk - 2));
+    for (let x = Math.round(cx - half); x < Math.round(cx + half); x++) data[row(z) * w + x] = 1;
+  }
+  for (const p of t.perches)
+    for (let x = Math.max(0, Math.round(cx + p.x0)); x < Math.min(w, Math.round(cx + p.x1)); x++)
+      for (let dy = 1; dy < 5; dy++) data[row(p.z) + dy >= 0 && row(p.z) + dy < h ? (row(p.z) + dy) * w + x : 0] = 1;
+  return { w, h, data };
+}
+

@@ -11,12 +11,14 @@
 // perch the cat stands on the trunk's line.
 
 import { hash2, mulberry32 } from '../art/raster.ts';
-import { FEET, FORK_Z, LEVEL, TILE, heightUnder, levelAt, tileAt, treeTiles, trunkBase, trunkTop } from './map.ts';
+import { FEET, FORK_Z, LEVEL, TILE, heightUnder, levelAt, tileAt, treeTiles, trunkBase, trunkHalf, trunkTop } from './map.ts';
 
-/** How far a branch is above the one below it: a jump (~14px) gets there, but not much higher. */
-export const RISE = 11;
+/** How far a branch level is above the one below it: more than a jump, so a cat leaps up the trunk to it. */
+export const RISE = 52;
+/** The highest a leap up a tree goes: from a branch (or the ground under the lowest) to the next one up. */
+export const LEAP = 58;
 /** The perches' band in depth: this far behind and in front of the trunk's foot. */
-export const BAND_BACK = 6, BAND_FRONT = 10;
+export const BAND_BACK = 8, BAND_FRONT = 12;
 /** A cat's paws can hang this far over the end of a branch. */
 const OVERHANG = 3;
 /** A falling cat still lands on a perch this far above its paws. */
@@ -29,6 +31,9 @@ export interface Perch { x0: number; x1: number; z: number; kind: PerchKind }
 
 /** A perch in the world: x across, y the trunk's foot, z its absolute height. */
 export interface PerchAt { tree: number; x0: number; x1: number; y: number; z: number; kind: PerchKind }
+
+/** A mass of leaves, relative to its tree like a perch: an ellipse round (x, z), rx across and rz up and down. */
+export interface Blob { x: number; z: number; rx: number; rz: number }
 
 export type TreeShape = 'broadleaf' | 'pine' | 'treehouse';
 
@@ -48,6 +53,10 @@ export interface TreePlan {
   w: number;
   h: number;
   perches: Perch[];
+  /** Where its leaves are (the art fills these, and its shadow, its outline against lights and owls go by them). */
+  crown: Blob[];
+  /** Half the trunk's width at its foot. */
+  trunk: number;
   /** A bird house hangs on the trunk (its roof is a perch). */
   birdhouse: boolean;
 }
@@ -55,54 +64,95 @@ export interface TreePlan {
 /** Resting places: a cat dozing on one of these is well rested. */
 export const HOUSES: ReadonlySet<PerchKind> = new Set(['birdhouse', 'deck', 'roof']);
 
-/** A broadleaf: the fork, four branches zigzagging up from side to side, and the crown's top. */
-function broadleafPerches(seed: number, birdhouse: boolean): Perch[] {
+/** How many branch levels a tree with a trunk `trunk` px across either side has (the top of the crown included): stouter trees have more. */
+function levelsOf(seed: number, trunk: number): number {
+  const u = hash2(seed, 3, 57);
+  return Math.min(7, 3 + Math.floor((trunk - 8) / 3) + (u < 0.3 ? 0 : 1));
+}
+
+/**
+ * A broadleaf: a branch level every RISE up the trunk, each a bough with a
+ * cloud of leaves on it whose flat top a cat walks on, reaching further to
+ * one side or the other; the crown's top the last of them.
+ */
+function broadleafPlan(seed: number, trunk: number, birdhouse: boolean): Pick<TreePlan, 'perches' | 'crown' | 'w' | 'h' | 'trunk'> {
   const rnd = mulberry32(seed * 7919 + 3);
-  const out: Perch[] = [{ x0: -9, x1: 9, z: FORK_Z, kind: 'fork' }];
+  const n = levelsOf(seed, trunk);
+  // (the stouter the tree, the further its boughs reach)
+  const k = trunk / 12;
+  const perches: Perch[] = [], crown: Blob[] = [];
   let side = rnd() < 0.5 ? -1 : 1;
-  for (let i = 1; i <= 4; i++) {
-    const z = FORK_Z + i * RISE;
-    // the bird house hangs on the front of the trunk in place of a branch
-    if (birdhouse && i === 2) {
-      out.push({ x0: -5, x1: 5, z, kind: 'birdhouse' });
-      continue;
-    }
-    const len = 12 + Math.floor(rnd() * 9);
-    // some branches start right at the trunk; others only further out, which takes a jump
-    const gap = rnd() < 0.5 ? 1 : 4 + Math.floor(rnd() * 6);
-    out.push(side < 0 ? { x0: -gap - len, x1: -gap, z, kind: 'branch' } : { x0: gap, x1: gap + len, z, kind: 'branch' });
+  for (let i = 0; i < n; i++) {
+    const z = FORK_Z + i * RISE, top = i === n - 1;
+    // each bough reaches well out to one side, less to the other (every one spans the trunk, so a leap up it lands)
+    // (the low boughs short, the middle ones longest)
+    const reach = k * (0.75 + 0.25 * Math.sin((Math.PI * (i + 1)) / (n + 1)));
+    const far = top ? (56 + rnd() * 20) * k : (70 + rnd() * 50) * reach, near = Math.max(trunk + 8, top ? (50 + rnd() * 16) * k : (30 + rnd() * 24) * reach);
+    const x0 = Math.round(side < 0 ? -far : -near), x1 = Math.round(side < 0 ? near : far);
+    perches.push({ x0, x1, z, kind: i === 0 ? 'fork' : top ? 'top' : 'branch' });
+    // its leaves: a cloud whose top is the bough's line, hanging down below it (the crown a big one)
+    // (the lowest a thin one, so the trunk shows below it)
+    // (thin shelves of leaves below, the trunk and boughs showing between them; a big dome on top)
+    const rz = top ? (48 + rnd() * 16) * k : i === 0 ? 12 + rnd() * 3 : (15 + rnd() * 6) * Math.min(k, 1.2);
+    crown.push({ x: (x0 + x1) / 2, z: z + 4 - rz, rx: (x1 - x0) / 2 + (top ? 24 : 12) * k, rz });
     side = -side;
   }
-  out.push({ x0: -8, x1: 8, z: FORK_Z + 5 * RISE, kind: 'top' });
-  return out;
+  // the bird house hangs on the front of the trunk between the two lowest levels
+  if (birdhouse) perches.splice(1, 0, { x0: -5, x1: 5, z: FORK_Z + Math.round(RISE / 2), kind: 'birdhouse' });
+  return frame(perches, crown, trunk);
 }
 
-/** A pine: tiers of boughs all round the trunk, narrowing to the top. */
-function pinePerches(seed: number): Perch[] {
+/** A pine: tiers of drooping boughs every RISE up the trunk, narrowing to a spire. */
+function pinePlan(seed: number, trunk: number): Pick<TreePlan, 'perches' | 'crown' | 'w' | 'h' | 'trunk'> {
   const rnd = mulberry32(seed * 7919 + 5);
-  const out: Perch[] = [];
-  for (let i = 0; i <= 6; i++) {
-    const hw = Math.round(21 - i * 2.6);
+  const n = Math.max(4, levelsOf(seed, trunk) + 1);
+  const perches: Perch[] = [], crown: Blob[] = [];
+  for (let i = 0; i < n; i++) {
+    const z = FORK_Z + i * RISE, top = i === n - 1;
+    const hw = Math.round((72 - (i / Math.max(1, n - 1)) * 50) * (trunk / 10));
     // windswept: each tier leans a little one way or the other
-    const off = i === 0 ? 0 : Math.round((rnd() - 0.5) * 4);
-    out.push({ x0: -hw + off, x1: hw + off, z: FORK_Z + i * RISE, kind: i === 6 ? 'top' : 'tier' });
+    const off = i === 0 ? 0 : Math.round((rnd() - 0.5) * 6);
+    // a cat stands on the narrow top of the tier's cone, by the trunk
+    const stand = Math.max(trunk + 6, Math.round(hw * 0.35));
+    perches.push({ x0: -stand + off, x1: stand + off, z, kind: top ? 'top' : 'tier' });
+    // the tier's skirt of needles, spreading down from its line
+    crown.push({ x: off, z: z - 22, rx: hw + 6, rz: 28 });
   }
-  return out;
+  // and the spire above the top tier
+  const peak = perches[perches.length - 1];
+  crown.push({ x: (peak.x0 + peak.x1) / 2, z: peak.z + 20, rx: 14, rz: 30 });
+  return frame(perches, crown, trunk);
 }
 
-/** The big tree with a house in it: up two branches to the deck, past the hut onto its roof, and to the top. */
-const TREEHOUSE: Perch[] = [
-  { x0: -10, x1: 10, z: FORK_Z, kind: 'fork' },
-  { x0: -24, x1: -2, z: FORK_Z + RISE, kind: 'branch' },
-  { x0: 2, x1: 24, z: FORK_Z + 2 * RISE, kind: 'branch' },
-  { x0: -30, x1: 30, z: FORK_Z + 3 * RISE, kind: 'deck' },
-  { x0: 18, x1: 34, z: FORK_Z + 4 * RISE, kind: 'branch' },
-  { x0: -10, x1: 10, z: FORK_Z + 4 * RISE + 9, kind: 'roof' },
-  { x0: -8, x1: 8, z: FORK_Z + 5 * RISE + 9, kind: 'top' },
-];
+/** The big tree with a house in it: up to the deck, onto the hut's roof, and to the top. */
+function treehousePlan(trunk: number): Pick<TreePlan, 'perches' | 'crown' | 'w' | 'h' | 'trunk'> {
+  const deck = FORK_Z + RISE, roof = deck + 34, top = roof + RISE * 2;
+  const perches: Perch[] = [
+    { x0: -30, x1: 30, z: FORK_Z, kind: 'fork' },
+    { x0: -52, x1: 52, z: deck, kind: 'deck' },
+    { x0: -24, x1: 24, z: roof, kind: 'roof' },
+    { x0: -48, x1: 44, z: roof + RISE, kind: 'branch' },
+    { x0: -50, x1: 50, z: top, kind: 'top' },
+  ];
+  const crown: Blob[] = [
+    { x: -70, z: deck + 26, rx: 44, rz: 28 },
+    { x: 70, z: deck + 20, rx: 44, rz: 28 },
+    { x: -2, z: roof + RISE + 4 - 30, rx: 70, rz: 30 },
+    { x: 0, z: top + 4 - 56, rx: 96, rz: 56 },
+  ];
+  return frame(perches, crown, trunk);
+}
 
-/** Picture sizes: room for the crown above the highest perch and the branches either side. */
-const SIZE: Record<TreeShape, [number, number]> = { broadleaf: [72, 84], pine: [56, 96], treehouse: [104, 100] };
+/** The picture's size: room for every perch, leaf and root, with the trunk's foot at the bottom middle. */
+function frame(perches: Perch[], crown: Blob[], trunk: number): Pick<TreePlan, 'perches' | 'crown' | 'w' | 'h' | 'trunk'> {
+  let reach = trunk + 6, top = 0;
+  for (const p of perches) reach = Math.max(reach, -p.x0 + 4, p.x1 + 4);
+  for (const b of crown) {
+    reach = Math.max(reach, Math.abs(b.x) + b.rx + 3);
+    top = Math.max(top, b.z + b.rz + 3);
+  }
+  return { perches, crown, trunk, w: Math.ceil(reach) * 2, h: Math.ceil(top) + 1 };
+}
 
 function plan(tx: number, ty: number, i: number): TreePlan {
   const ch = tileAt(tx, ty);
@@ -113,9 +163,9 @@ function plan(tx: number, ty: number, i: number): TreePlan {
   // bird houses on a few of the green trees and apple trees
   const birdhouse = shape === 'broadleaf' && colour !== 2 && hash2(tx, ty, 56) < 0.3;
   const [x, y] = trunkBase(tx, ty);
-  const [w, hh] = SIZE[shape];
-  const perches = shape === 'pine' ? pinePerches(seed) : shape === 'treehouse' ? TREEHOUSE : broadleafPerches(seed, birdhouse);
-  return { tx, ty, x, y, elev: levelAt(tx, ty) * LEVEL, shape, colour, seed, w, h: hh, perches, birdhouse };
+  const trunk = trunkHalf(tx, ty);
+  const made = shape === 'pine' ? pinePlan(seed, trunk) : shape === 'treehouse' ? treehousePlan(trunk) : broadleafPlan(seed, trunk, birdhouse);
+  return { tx, ty, x, y, elev: levelAt(tx, ty) * LEVEL, shape, colour, seed, birdhouse, ...made };
 }
 
 /** Every tree in the garden, in the order of treeTiles(). */
@@ -147,6 +197,23 @@ export function perchUnder(x: number, y: number, z: number, under = Infinity): P
       if (p.z <= z + CATCH && p.z < under && x > p.x0 - OVERHANG && x < p.x1 + OVERHANG && (!best || p.z > best.z)) best = p;
   }
   return best;
+}
+
+/**
+ * How high a leap from (x, y, z) goes, if a jump there is one: from the ground
+ * in front of a trunk, or from one of its branches, up to the next perch
+ * above (it spans the trunk, so straight up lands on it). 0 where there's
+ * nothing to leap up to.
+ */
+export function leapUp(x: number, y: number, z: number): number {
+  let best = Infinity;
+  for (const i of near(y)) {
+    const t = TREES[i];
+    if (!inBand(t, y) || Math.abs(x - t.x) > t.w / 2 + OVERHANG) continue;
+    for (const p of PERCHES[i]) if (p.z > z + 1 && p.z - z <= LEAP && x > p.x0 - OVERHANG && x < p.x1 + OVERHANG) best = Math.min(best, p.z - z);
+  }
+  // (and a little over it, to come down onto it)
+  return best < Infinity ? best + 3 : 0;
 }
 
 /** What a cat at (x, y), with its paws at height z, would stand on: the ground or a perch (not one at or above `under`). */

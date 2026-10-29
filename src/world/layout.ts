@@ -178,7 +178,7 @@ export function layOut(seed: number): Layout {
   /** Trees by their tile, to keep the next one off them. */
   const treeAt = new Set<number>();
   const crowded = (x: number, y: number) => {
-    for (let j = -3; j <= 3; j++) for (let i = -4; i <= 4; i++) if (treeAt.has((y + j) * W + x + i)) return true;
+    for (let j = -4; j <= 4; j++) for (let i = -6; i <= 6; i++) if (treeAt.has((y + j) * W + x + i)) return true;
     return false;
   };
   for (const [x, y] of order) {
@@ -231,6 +231,15 @@ export function layOut(seed: number): Layout {
   return { rows: T.map((r) => r.join('')), furniture, zones };
 }
 
+/** Half the width of the trunk of a tree (tile ch) on tile (tx, ty) at its foot: stout old trees, up to two tiles across. */
+export function trunkHalfOf(ch: string, tx: number, ty: number): number {
+  const u = hash2(tx, ty, 58);
+  return ch === 'H' ? 16 : ch === 'P' ? 8 + Math.floor(u * 4) : 9 + Math.floor(u * 8);
+}
+
+/** Trunks this stout (half-width, px) stand into the tiles either side of their own. */
+const FAT = 11;
+
 /**
  * Everything that grew must leave every bit of ground reachable: where trees,
  * bushes or hedges wall a patch in, clear them away.
@@ -238,7 +247,8 @@ export function layOut(seed: number): Layout {
 function connect(T: string[][], E: number[][]): void {
   const H = T.length, W = T[0].length;
   for (let pass = 0; pass < 60; pass++) {
-    const walk = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && !'~wlFmTPHbr#Lo'.includes(T[y][x]);
+    const fat = (x: number, y: number) => 'TH'.includes(T[y]?.[x] ?? '.') && trunkHalfOf(T[y][x], x, y) > FAT;
+    const walk = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && !'~wlFmTPHbr#Lo'.includes(T[y][x]) && !fat(x - 1, y) && !fat(x + 1, y);
     // (level ground, or on and off stairs: cliffs only go down, and that's not much of a connection)
     const step = (ax: number, ay: number, bx: number, by: number) =>
       E[ay][ax] === E[by][bx] || (T[ay][ax] === 'S' && E[by][bx] === E[ay][ax] + 1) || (T[by][bx] === 'S' && E[ay][ax] === E[by][bx] + 1);
@@ -275,7 +285,13 @@ function connect(T: string[][], E: number[][]): void {
             if ('TPbr#'.includes(T[y + dy][x + dx])) {
               T[y + dy][x + dx] = '.';
               cleared = true;
-            }
+            } else
+              // (or the stout tree beside it, standing into it)
+              for (const side of [-1, 1])
+                if (T[y + dy][x + dx + side] === 'T' && fat(x + dx + side, y + dy)) {
+                  T[y + dy][x + dx + side] = '.';
+                  cleared = true;
+                }
     if (!cleared) return;
   }
 }

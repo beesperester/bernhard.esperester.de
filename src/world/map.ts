@@ -8,7 +8,7 @@ import { PLATFORM, seatHeightNear } from './coaster.ts';
 import { hash2 } from '../art/raster.ts';
 import { SEASON } from './season.ts';
 import { ELEV, LANDMARK_SPOTS, SPAWN } from './garden.ts';
-import { FURNITURE_SIZE, layOut, type FurnitureKind } from './layout.ts';
+import { FURNITURE_SIZE, layOut, trunkHalfOf, type FurnitureKind } from './layout.ts';
 import { worldSeed } from './seed.ts';
 import { trackside } from './track.ts';
 import { TILE, MAP_W, MAP_H, WORLD_W, WORLD_H } from './size.ts';
@@ -80,7 +80,7 @@ export const FEET = { x0: -5, x1: 5, y0: -5, y1: 0 };
  * Height of a tree's fork above its foot: the trunk is solid up to there, and
  * the lowest perch (world/trees.ts) spans it, so a cat over the trunk is on it.
  */
-export const FORK_Z = 13;
+export const FORK_Z = 40;
 
 /**
  * Things that move about the park (the train, game/train.ts): how high whatever is under
@@ -184,6 +184,9 @@ export const groundAt = (x: number, y: number): number => heightUnder(x + FEET.x
 /** World position of a tree's trunk base (bottom centre). */
 export const trunkBase = (tx: number, ty: number): [number, number] => [tx * TILE + TILE / 2, ty * TILE + TILE - 1];
 
+/** Half the width of the trunk of the tree on tile (tx, ty) at its foot. */
+export const trunkHalf = (tx: number, ty: number): number => trunkHalfOf(ROWS[ty][tx], tx, ty);
+
 export function treeTiles(): [number, number][] {
   const out: [number, number][] = [];
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (isTree(ROWS[y][x])) out.push([x, y]);
@@ -259,7 +262,9 @@ export function pondBounds(): { x: number; y: number; w: number; h: number } {
 
 for (const [tx, ty] of treeTiles()) {
   const [x, y] = trunkBase(tx, ty);
-  TRUNKS.push([x - 6, y - 5, x + 6, y + 1, levelAt(tx, ty) * LEVEL + FORK_Z]);
+  // (round: about half as deep as it is wide)
+  const h = trunkHalf(tx, ty);
+  TRUNKS.push([x - h, y - Math.max(6, Math.round(h * 0.6)), x + h, y + 1, levelAt(tx, ty) * LEVEL + FORK_Z]);
 }
 
 // ---- garden furniture ----

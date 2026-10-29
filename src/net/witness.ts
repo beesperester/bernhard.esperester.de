@@ -1,5 +1,5 @@
 import { Act } from '../game/state.ts';
-import { DASH_MS, DASH_SPEED, ICE_GLIDE, JUMP_HEIGHT, WALK_SPEED } from '../game/movement.ts';
+import { DASH_MS, DASH_SPEED, ICE_GLIDE, WALK_SPEED, jumpRise } from '../game/movement.ts';
 import { FEET, WALL, coasterSeatAt, heightUnder } from '../world/map.ts';
 import { surfaceAt } from '../world/trees.ts';
 
@@ -67,8 +67,9 @@ export class MoveWitness {
     if (heightUnder(x + FEET.x0 + 1, y + FEET.y0 + 1, x + FEET.x1 - 1, y + FEET.y1 - 0.5, z + HEIGHT_SLACK) >= WALL) return 'in-wall';
     // what it could be standing on: the ground, or a branch up a tree (or sitting in a rollercoaster's car, up on its track)
     const ground = coasterSeatAt(x, y, z) ?? surfaceAt(x, y, z + HEIGHT_SLACK);
-    // jumping: no higher than a jump from where it last stood (or the ground here)
-    if (z > Math.max(ground, this.footing) + JUMP_HEIGHT + HEIGHT_SLACK) return 'too-high';
+    // jumping: no higher than a jump from where it last stood (or the ground here), or a leap up the tree it is at
+    const from = Math.max(ground, this.footing);
+    if (z > from + jumpRise(x, y, from) + HEIGHT_SLACK) return 'too-high';
     // not jumping: on the ground (or a branch)
     if (act !== Act.Jump && ground < WALL && Math.abs(z - ground) > HEIGHT_SLACK) return 'floating';
 

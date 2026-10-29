@@ -3,7 +3,6 @@ import { Act, Prey, SWIPE_AT_MS } from '../state.ts';
 import type { CatView } from '../CatView.ts';
 import { PUDDLE } from '../Furniture.ts';
 import { BATH_H, FORK_Z, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../../world/map.ts';
-import { RISE } from '../../world/trees.ts';
 import { SEASON } from '../../world/season.ts';
 import { Pool, seedRng, hash2, lerp, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
 import type { Effects } from './Effects.ts';
@@ -78,17 +77,17 @@ export class Birds implements Fauna {
     this.birds = new Pool(scene, 'bird-0');
     this.shadows = new Pool(scene, 'shadow');
     this.marks = new Pool(scene, 'alert');
-    // perches: along the tree's branches, boughs and roofs (the ones a cat can climb to as well), above a cat's leap from the ground
-    this.perches = trees.map(({ p }) => {
+    // perches: along the tree's branches, boughs and roofs (the ones a cat can climb to as well), above the lowest
+    this.perches = trees.map((t) => {
       const out: Spot[] = [];
-      for (const q of p.plan.perches) {
-        if (q.z < FORK_Z + RISE) continue;
-        for (let x = q.x0 + 2; x <= q.x1 - 2; x += 3) out.push({ x: p.plan.x + x, y: p.depthY, h: p.plan.elev + q.z, depth: p.depthY + 0.5, perch: true });
+      for (const q of t.perches) {
+        if (q.z <= FORK_Z) continue;
+        for (let x = q.x0 + 2; x <= q.x1 - 2; x += 3) out.push({ x: t.x + x, y: t.y, h: t.elev + q.z, depth: t.y + 0.5, perch: true });
       }
       return out;
     });
     // lawns: open grass or path a few steps from the trunk, at the tree's level
-    this.lawns = trees.map(({ p }) => this.lawnAround(Math.floor((p.x + 32) / TILE), Math.floor(p.depthY / TILE)));
+    this.lawns = trees.map((t) => this.lawnAround(Math.floor(t.x / TILE), Math.floor(t.y / TILE)));
     // bird baths: on the rim at the front of the basin, and the lawn around; the puddles under the pumps: round their edge
     this.baths = FURNITURE.filter((f) => f.kind === 'birdbath' || f.kind === 'pump').map((f) => {
       if (f.kind === 'pump') {

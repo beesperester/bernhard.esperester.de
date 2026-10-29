@@ -243,7 +243,7 @@ export class Squirrels implements Fauna {
   /** Where a squirrel on its trip is at garden time gt, or null if it isn't out. */
   private pose(trip: Trip, gt: number): Pose | null {
     const t = TREES[trip.tree];
-    const foot: Pt = [t.x + TRUNK_SIDE, t.y + 1];
+    const foot: Pt = [t.x + t.trunk - TRUNK_SIDE, t.y + 1];
     const climb = (trip.z / CLIMB_SPEED) * 1000;
     const [tx, ty] = trip.to;
     const run = (Math.hypot(tx - foot[0], ty - foot[1]) / RUN_SPEED) * 1000;
@@ -312,7 +312,7 @@ export class Squirrels implements Fauna {
       if (!p.climbing) {
         const v = this.wary.watch(trip.id, p.x, p.y, t.elev, cats, gt, now, SENSES);
         if (!v.calm && !v.alert) {
-          this.fled.set(trip.id, { t: gt, from: [p.x, p.y], ms: (Math.hypot(t.x + TRUNK_SIDE - p.x, t.y + 1 - p.y) / FLEE_SPEED) * 1000 });
+          this.fled.set(trip.id, { t: gt, from: [p.x, p.y], ms: (Math.hypot(t.x + t.trunk - TRUNK_SIDE - p.x, t.y + 1 - p.y) / FLEE_SPEED) * 1000 });
           this.wary.forget(trip.id);
           void sound.play('rustle', { at: { x: p.x, y: p.y }, volume: 0.3, rate: 2.4 });
           p = this.flightPose(trip, this.fled.get(trip.id)!, gt)!;
@@ -344,7 +344,7 @@ export class Squirrels implements Fauna {
   /** A fled squirrel: a dash to its trunk, up it, a sulk on a branch, and gone into the crown. */
   private flightPose(trip: Trip, f: Flight, gt: number): Pose | null {
     const t = TREES[trip.tree];
-    const foot: Pt = [t.x + TRUNK_SIDE, t.y + 1];
+    const foot: Pt = [t.x + t.trunk - TRUNK_SIDE, t.y + 1];
     const up = FORK_Z + RISE;
     if (f.gone) {
       // scrambling up into the leaves and out of sight

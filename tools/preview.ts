@@ -7,7 +7,8 @@ import { buildCatSheet, COATS, FRAMES, CAT } from '../src/art/cat.ts';
 import { buildGroundRegion } from '../src/art/tiles.ts';
 import { MAP_H, MAP_W, TILE } from '../src/world/map.ts';
 import { SPAWN } from '../src/world/garden.ts';
-import { buildProps } from '../src/art/trees.ts';
+import { buildProp } from '../src/art/trees.ts';
+import { TREES } from '../src/world/trees.ts';
 import { buildTerrain } from '../src/art/terrain.ts';
 import { buildLandmark } from '../src/art/landmarks.ts';
 import { buildSquirrel, buildHeldSquirrel, buildFruit } from '../src/art/critters.ts';
@@ -81,7 +82,9 @@ scene.blit(ground, 0, 0);
 // raised terrain and trees, painted back to front like the game sorts them
 const layers = [
   ...buildTerrain().map((t) => ({ r: t.raster, x: t.x, y: t.y, d: t.depth })),
-  ...buildProps().map((p) => ({ r: p.raster, x: p.x, y: p.y, d: p.depthY })),
+  ...TREES.map((t, i) => [t, i] as const)
+    .filter(([t]) => t.x + t.w / 2 > rx * TILE && t.x - t.w / 2 < (rx + RW) * TILE && t.y - t.h < (ry + RH) * TILE && t.y > ry * TILE)
+    .map(([, i]) => buildProp(i)).map((p) => ({ r: p.raster, x: p.x, y: p.y, d: p.depthY })),
 ].sort((a, b) => a.d - b.d);
 for (const l of layers) scene.blit(l.r, l.x - rx * TILE, l.y - ry * TILE);
 writeFileSync(`${out}/garden.png`, png(scene, 1));
@@ -103,10 +106,10 @@ for (let f = 0; f < n; f++) {
 writeFileSync(`${out}/cat-big.png`, png(big, 10));
 
 // trees, big
-const trees = buildProps().slice(0, 8);
-const tr = new Raster(trees.length * 66, 86);
+const trees = TREES.slice(0, 8).map((_, i) => buildProp(i));
+const tr = new Raster(trees.reduce((w, p) => w + p.raster.w + 2, 0), Math.max(...trees.map((p) => p.raster.h)) + 2);
 tr.rect(0, 0, tr.w, tr.h, hex('#68b848'));
-trees.forEach((p, i) => tr.blit(p.raster, i * 66 + 1, 1));
+trees.reduce((x, p) => (tr.blit(p.raster, x + 1, tr.h - 1 - p.raster.h), x + p.raster.w + 2), 0);
 writeFileSync(`${out}/trees.png`, png(tr, 4));
 
 // the landmark follies side by side, with a cat for scale

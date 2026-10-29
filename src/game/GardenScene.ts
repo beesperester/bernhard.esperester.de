@@ -3,17 +3,16 @@ import { PIXEL_FONT } from '../ui/pixel.ts';
 import { COATS, CAT } from '../art/cat.ts';
 import { uprightAt } from '../art/tiles.ts';
 import { Ground } from './Ground.ts';
-import { buildProps, type Prop } from '../art/trees.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
 import { HOUSES, TREES, standingOn, surfaceAt } from '../world/trees.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, COASTERS, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
-import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, JUMP_V, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
+import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow } from './Meadow.ts';
 import { Sunlight } from './Sunlight.ts';
 import { Clouds } from './Clouds.ts';
 import { PondReflection } from './PondReflection.ts';
-import { Trees } from './Trees.ts';
+import { Trees, outlineCanvas } from './Trees.ts';
 import { Furniture } from './Furniture.ts';
 import { Landmarks } from './Landmarks.ts';
 import { trunkNear } from '../world/fruit.ts';
@@ -36,7 +35,7 @@ import { Railway } from './Railway.ts';
 import { TrainView } from './TrainView.ts';
 import { CAR_W } from '../art/train.ts';
 import { FLOOR_H, NOTCHES, SPEEDS, aboard, inCab, local, poses, startState, trainUnder, world, type CarPose } from './train.ts';
-import { DASH_MS, DASH_SPEED, STEP_UP, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, step } from './movement.ts';
+import { DASH_MS, DASH_SPEED, STEP_UP, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, jumpRise, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { PEER, theNet, type Net, type NetEvents } from '../net/net.ts';
@@ -225,8 +224,7 @@ export class GardenScene extends Phaser.Scene {
     // raised ground: each plateau row lifted by its height, sorted like everything else by ground y
     canvases.terrain.forEach((t, i) => cullerFor(this).add(this.add.image(t.x, t.y, `terrain-${i}`).setOrigin(0).setDepth(t.depth)));
 
-    const props = buildProps();
-    this.trees = new Trees(this, props, canvases.props);
+    this.trees = new Trees(this);
     const furniture = (this.furniture = new Furniture(this, toCanvas));
     this.landmarks = new Landmarks(this, toCanvas);
     new Railway(this, toCanvas);
@@ -238,9 +236,9 @@ export class GardenScene extends Phaser.Scene {
       if (this.daylight && this.daylight.light.night > 0.5) return null;
       const bird = this.ambient?.perchedBird(x, y, 220);
       if (bird) return bird;
-      const near = props.filter((p) => Math.hypot(p.plan.x - x, p.depthY - 40 - y) < 220);
-      const p = near[Math.floor(Math.random() * near.length)];
-      return p ? { x: p.plan.x, y: p.depthY - 40 } : null;
+      const near = TREES.filter((t) => Math.hypot(t.x - x, t.y - 60 - y) < 220);
+      const t = near[Math.floor(Math.random() * near.length)];
+      return t ? { x: t.x, y: t.y - 60 } : null;
     });
     this.meadow = new Meadow(this);
     const water = canvases.water;
@@ -248,7 +246,7 @@ export class GardenScene extends Phaser.Scene {
       waterMask: water,
       catSheets: canvases.cats,
       floraSheets: canvases.flora,
-      props: props.map((p, i) => ({ p, canvas: canvases.props[i] })),
+      trees: this.trees,
       plants: this.meadow.plants,
     };
     this.ponds = waterBoxes().map((box) => new PondReflection(this, box, reflect));
@@ -263,28 +261,34 @@ export class GardenScene extends Phaser.Scene {
     // which pixels of the ground art stand up from it: for sunlit rims, and for where shadows can't fall
     const upright = uprightAt;
     this.rims = new RimLight(this, {
-      trees: [...reflect.props, ...standing], upright, terrain: canvases.terrain,
+      things: standing, upright, terrain: canvases.terrain,
       catSheet: canvases.cats[0], catSize: CAT,
     });
+    this.trees.watch(this.rims);
     // what can stand in front of a lantern's light
     const source = (key: string) => this.textures.get(key).getSourceImage() as HTMLCanvasElement;
     const occluders: Occluder[] = [
-      ...props.map((p, i) => ({ canvas: canvases.props[i], x: p.x, y: p.y, w: canvases.props[i].width, h: canvases.props[i].height, depth: p.depthY })),
+      ...TREES.map((t, i) => {
+        // (a tree's outline from its plan, only worked out for those that stand in front of a light)
+        let canvas: HTMLCanvasElement | null = null;
+        return { get canvas() { return (canvas ??= outlineCanvas(i)); }, x: t.x - t.w / 2, y: t.y - (t.h - 1) - t.elev, w: t.w, h: t.h, depth: t.y };
+      }),
       ...standing.map(({ p, canvas }) => ({ canvas, x: p.x, y: p.y, w: canvas.width, h: canvas.height, depth: p.depthY })),
       ...canvases.terrain.map((t, i) => ({ canvas: source(`terrain-${i}`), x: t.x, y: t.y, w: t.raster.w, h: t.raster.h, depth: t.depth })),
     ];
     this.lanterns = new Lanterns(this, occluders);
-    this.shadows = this.makeShadows(props, canvases, furniture, upright);
+    this.shadows = this.makeShadows(canvases, furniture, upright);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
-    this.lighting = new Lighting(this, reflect.props, this.trees, canvases.terrain, this.ground);
+    this.lighting = new Lighting(this, this.trees, canvases.terrain, this.ground);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
+    catLight.treeFade = (i) => this.trees.fadeOf(i);
     catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)
       for (let tx = 0; tx < MAP_W; tx++) if (groundOf(tileAt(tx, ty)) === 'flowers') flowers.push([tx * TILE + 8, ty * TILE + 8]);
-    this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: reflect.props });
-    this.weather = new Weather(this, props, water);
+    this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: TREES });
+    this.weather = new Weather(this, TREES, water);
     this.zones = new Zones(this, toCanvas);
     this.streams = new Streams(this, water);
     this.puddles = new Puddles(this, this.ambient.fx);
@@ -473,14 +477,14 @@ export class GardenScene extends Phaser.Scene {
   }
 
   /** Who casts what shadow: trees, lanterns and furniture by their outlines, and soft blobs under everything for the night. */
-  private makeShadows(props: Prop[], canvases: ReturnType<typeof makeTextures>, furniture: Furniture, upright: (x: number, y: number) => boolean): Shadows {
+  private makeShadows(canvases: ReturnType<typeof makeTextures>, furniture: Furniture, upright: (x: number, y: number) => boolean): Shadows {
     const casters: Caster[] = [];
     const blobs: { x: number; y: number; w: number; h: number; depth: number }[] = [];
-    props.forEach((p, i) => {
-      const c = canvases.props[i];
-      const lift = p.plan.elev;
-      casters.push({ src: c, sx: 0, sy: 0, w: c.width, h: c.height, x: p.x, y: p.y, ground: p.depthY, lift, cap: Infinity, depth: 'round' });
-      blobs.push({ x: p.plan.x, y: p.depthY - lift - 1, w: Math.round(p.raster.w * 0.65), h: 14, depth: p.depthY - 0.01 });
+    // (a tree's shadow from its plan: it is only drawn near the camera)
+    TREES.forEach((t) => {
+      const lift = t.elev, y = t.y - (t.h - 1) - lift;
+      casters.push({ src: { tree: t }, sx: 0, sy: 0, w: t.w, h: t.h, x: t.x - t.w / 2, y, ground: t.y, lift, cap: Infinity, depth: 'round' });
+      blobs.push({ x: t.x, y: t.y - lift - 1, w: Math.round(t.w * 0.65), h: 18, depth: t.y - 0.01 });
     });
     const lantern = this.textures.get('lantern').getSourceImage() as HTMLCanvasElement;
     for (const [x, y] of LANTERNS) {
@@ -512,7 +516,7 @@ export class GardenScene extends Phaser.Scene {
 
   private fitZoom(): void {
     const { width, height } = this.scale.gameSize;
-    const zoom = Math.max(2, Math.round(Math.min(width / 260, height / 220)));
+    const zoom = Math.max(2, Math.round(Math.min(width / 320, height / 270)));
     this.cameras.main.setZoom(zoom);
     this.sun?.resize();
     this.vignette?.resize();
@@ -607,7 +611,7 @@ export class GardenScene extends Phaser.Scene {
     // only animate plants and redraw reflections that are on screen
     const view = this.cameras.main.worldView;
     this.ground.update(view, time);
-    this.trees.update([this.me], view);
+    this.trees.update(this.me, view, dt * 1000);
     this.catSounds.update(cats, time);
     cullerFor(this).update(view);
     this.meadow.update(gt, cats, view);
@@ -925,7 +929,8 @@ export class GardenScene extends Phaser.Scene {
     else if (roll && grounded) begin(Act.Roll);
     else if (jump && grounded) {
       begin(Act.Jump);
-      this.vz = Math.min(JUMP_V, Math.sqrt(2 * GRAVITY * STAGE_JUMP[me.stage]));
+      // (at a tree, a leap up to its next branch)
+      this.vz = Math.sqrt(2 * GRAVITY * Math.min(jumpRise(me.x, me.y, me.z), STAGE_JUMP[me.stage]));
       this.dropFrom = Infinity;
     }
 
@@ -980,8 +985,9 @@ export class GardenScene extends Phaser.Scene {
     const ground = this.riding && this.boarded && me.z <= FLOOR_H + 1.5 ? FLOOR_H : surfaceAt(me.x, me.y, me.z, this.dropFrom);
     if (me.z > ground || this.vz > 0) {
       if (me.act !== Act.Jump) me.setAct(Act.Jump, now);
+      // (exactly as a thrown thing flies, so a jump peaks where it was aimed whatever the frame rate)
+      me.z += this.vz * dt - (GRAVITY * dt * dt) / 2;
       this.vz -= GRAVITY * dt;
-      me.z += this.vz * dt;
       if (me.z <= ground && this.vz <= 0) {
         me.z = ground;
         this.vz = 0;

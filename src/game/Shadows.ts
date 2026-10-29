@@ -4,6 +4,7 @@ import type { TerrainPiece } from '../art/terrain.ts';
 import type { CatView } from './CatView.ts';
 import { LEVEL, TILE, WORLD_H, WORLD_W, casterHeight, elevAt, levelAt } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
+import type { TreePlan } from '../world/trees.ts';
 import { cullerFor } from './Culler.ts';
 
 // Shadows that follow the sun. By day they are cast for real:
@@ -33,6 +34,27 @@ const CAT_REACH = Math.ceil(CAT * Math.tan((90 - MIN_EL) * RAD)) + 2;
 const CELL = CAT + 2 * CAT_REACH;
 /** The window shadows are cast in reaches this far (px) beyond the view... */
 const WINDOW_MARGIN = 256;
+/** The shadows of this many trees are kept, to be laid down again as the window moves. */
+const TREE_MARKS = 160;
+
+/** Where a shadow falls on the ground at one level: a box of the world, 1 where it is. */
+interface Footprint { x: number; y: number; w: number; h: number; bits: Uint8Array }
+
+/** Collect what `cast` marks, for each of `n` levels, into footprints. */
+function footprints(n: number, cast: (put: (px: number, py: number, l: number) => void) => void): Footprint[] {
+  const pts: number[][] = Array.from({ length: n }, () => []);
+  cast((px, py, l) => pts[l].push(px, py));
+  return pts.map((p) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < p.length; i += 2) {
+      x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); y0 = Math.min(y0, p[i + 1]); y1 = Math.max(y1, p[i + 1]);
+    }
+    if (!p.length) return { x: 0, y: 0, w: 0, h: 0, bits: new Uint8Array(0) };
+    const w = x1 - x0 + 1, h = y1 - y0 + 1, bits = new Uint8Array(w * h);
+    for (let i = 0; i < p.length; i += 2) bits[(p[i + 1] - y0) * w + p[i] - x0] = 1;
+    return { x: x0, y: y0, w, h, bits };
+  });
+}
 /** ...and is moved once the view has come within this of its edge. */
 const WINDOW_SLACK = 112;
 /** At most this long (ms) a frame spends casting the next window. */
@@ -40,7 +62,8 @@ const BUDGET_MS = 5;
 
 /** Something whose outline casts a shadow: a sprite (or part of a sheet) and where its foot is. */
 export interface Caster {
-  src: CanvasImageSource & { width: number; height: number };
+  /** Its picture, or (for a tree, which is only drawn near the camera) its plan: its shadow is worked out from its leaf masses and trunk. */
+  src: (CanvasImageSource & { width: number; height: number }) | { tree: TreePlan };
   /** Region of `src` to use. */
   sx: number; sy: number; w: number; h: number;
   /** Screen position of the region's top-left corner. */
@@ -95,10 +118,12 @@ export class Shadows {
   private readonly groundImg: Phaser.GameObjects.Image;
   private readonly overlays: Overlay[] = [];
   /** Each caster with its outline read out once. */
-  private readonly casters: (Caster & { alpha: Uint8Array })[];
+  private readonly casters: (Caster & { alpha: Uint8Array | null; tree: TreePlan | null })[];
   private readonly catAlpha: Uint8Array;
   private readonly catSheetW: number;
   private readonly catFrames = new Map<number, ImageData>();
+  /** Where each tree's shadow falls for the sun as it was last cast (most recently used last). */
+  private readonly treeMarks = new Map<TreePlan, { key: string; levels: Footprint[] }>();
   private readonly cats = new Map<CatView, { tex: Phaser.Textures.CanvasTexture; img: Phaser.GameObjects.Image; frame: number; key: string }>();
   private readonly blobs: Phaser.GameObjects.Image[] = [];
   private catCount = 0;
@@ -109,13 +134,14 @@ export class Shadows {
     this.scene = scene;
     this.upright = opts.upright;
     this.casters = opts.casters.map((c) => {
+      if ('tree' in c.src) return { ...c, alpha: null, tree: c.src.tree };
       const ctx = scratch(c.w, c.h);
       ctx.clearRect(0, 0, c.w, c.h);
       ctx.drawImage(c.src, c.sx, c.sy, c.w, c.h, 0, 0, c.w, c.h);
       const a = ctx.getImageData(0, 0, c.w, c.h).data;
       const alpha = new Uint8Array(c.w * c.h);
       for (let k = 0; k < alpha.length; k++) alpha[k] = a[k * 4 + 3] > 0 ? 1 : 0;
-      return { ...c, alpha };
+      return { ...c, alpha, tree: null };
     });
 
     this.ground = scene.textures.createCanvas('sun-shadows', 1, 1)!;
@@ -340,13 +366,31 @@ export class Shadows {
       // (only those whose shadow can reach the window)
       const reach = (c.h + c.lift) * per + 4 + (c.depth === 'round' ? c.w : c.depth);
       if (c.x + c.w + reach < ox || c.x - reach > ox + W || Math.max(c.y + c.h, c.ground) + reach < oy || c.y - reach > oy + H) continue;
+      // (a tree's shadow takes a few ms: one at a time)
+      if (c.tree) {
+        const k = `${w.key}:${levels}`;
+        let marks = this.treeMarks.get(c.tree);
+        if (marks?.key !== k) {
+          yield;
+          marks = { key: k, levels: footprints(levels + 1, (put) => this.projectTree(c.tree!, c.lift, w.s, levels, put)) };
+          this.treeMarks.delete(c.tree);
+          this.treeMarks.set(c.tree, marks);
+          if (this.treeMarks.size > TREE_MARKS) this.treeMarks.delete(this.treeMarks.keys().next().value!);
+        }
+        marks.levels.forEach((f, l) => {
+          for (let y = 0; y < f.h; y++)
+            for (let x = 0; x < f.w; x++) if (f.bits[y * f.w + x]) mark(f.x + x, f.y + y, l);
+        });
+        continue;
+      }
       if (++done % 24 === 0) yield;
+      const alpha = c.alpha!;
       const foot = c.y + c.h - 1; // screen y of the bottom row
-      if (c.depth === 'round') { this.projectRound(c, w.s, steps, levels, mark); continue; }
+      if (c.depth === 'round') { this.projectRound(c, alpha, w.s, steps, levels, mark); continue; }
       const deep = c.depth;
       for (let y = 0; y < c.h; y++)
         for (let x = 0; x < c.w; x++) {
-          if (!c.alpha[y * c.w + x]) continue;
+          if (!alpha[y * c.w + x]) continue;
           const h0 = Math.min(c.cap, foot - (c.y + y));
           // smear each pixel over its one-pixel slice of height, so long shadows have no gaps
           for (let k = 0; k < steps; k++)
@@ -363,18 +407,63 @@ export class Shadows {
   }
 
   /**
+   * A tree's shadow, from its plan: each mass of leaves is a ball (as deep as
+   * it is wide), whose shadow along the sun's rays is an ellipse on the
+   * ground; the trunk a column of discs, each bough a bar.
+   */
+  private projectTree(t: TreePlan, lift: number, [sx, sy]: [number, number], levels: number, mark: (px: number, py: number, l: number) => void): void {
+    const top = Math.max(...t.perches.map((p) => p.z));
+    for (let l = 0; l <= levels; l++) {
+      // (the tree's foot this high above the ground at level l)
+      const base = lift - l * LEVEL;
+      for (const b of t.crown) {
+        const zc = b.z + base, { rx, rz } = b;
+        if (zc + rz < 0) continue;
+        // a ground point (u, v) from under the ball is shaded if some point of the ball is on the ray
+        // through it: the nearest the ray comes (in the ball's own measure) is at height Z
+        const A = (sx * sx + sy * sy) / (rx * rx) + 1 / (rz * rz);
+        const z0 = Math.max(0, zc - rz), z1 = zc + rz;
+        const u0 = Math.floor(Math.min(sx * z0, sx * z1) - rx), u1 = Math.ceil(Math.max(sx * z0, sx * z1) + rx);
+        const v0 = Math.floor(Math.min(sy * z0, sy * z1) - rx), v1 = Math.ceil(Math.max(sy * z0, sy * z1) + rx);
+        const cx = Math.round(t.x + b.x), cy = t.y;
+        for (let v = v0; v <= v1; v++)
+          for (let u = u0; u <= u1; u++) {
+            const Z = Math.max(0, ((sx * u + sy * v) / (rx * rx) + zc / (rz * rz)) / A);
+            const du = u - sx * Z, dv = v - sy * Z, dz = Z - zc;
+            if ((du * du + dv * dv) / (rx * rx) + (dz * dz) / (rz * rz) <= 1) mark(cx + u, cy + v, l);
+          }
+      }
+      // the trunk, thinning as it goes up (a disc every px of height, which is plenty)
+      for (let z = Math.max(0, -base); z < top; z++) {
+        const h = z + base, r = Math.max(2, t.trunk - (z / top) * (t.trunk - 2));
+        const ox = t.x + sx * h, oy = t.y + sy * h;
+        for (let dy = -Math.floor(r); dy <= r; dy++) {
+          const half = Math.sqrt(Math.max(0, r * r - dy * dy)), py = Math.round(oy + dy);
+          for (let px = Math.round(ox - half); px < Math.round(ox + half); px++) mark(px, py, l);
+        }
+      }
+      for (const p of t.perches) {
+        const h = p.z + base;
+        if (h < 0) continue;
+        for (let x = p.x0; x < p.x1; x++)
+          for (let d = -1; d <= 1; d++) mark(Math.round(t.x + x + sx * h), Math.round(t.y + sy * h) + d, l);
+      }
+    }
+  }
+
+  /**
    * A round thing's shadow: every run of pixels across a row of its outline is
    * taken as a disc lying level at that height (a slice through the crown),
    * and its shadow is that disc, moved along the sun's rays down to the ground.
    */
-  private projectRound(c: Caster & { alpha: Uint8Array }, [sx, sy]: [number, number], steps: number, levels: number, mark: (px: number, py: number, l: number) => void): void {
+  private projectRound(c: Caster, alpha: Uint8Array, [sx, sy]: [number, number], steps: number, levels: number, mark: (px: number, py: number, l: number) => void): void {
     const foot = c.y + c.h - 1;
     for (let y = 0; y < c.h; y++) {
       const h0 = Math.min(c.cap, foot - (c.y + y));
       for (let x = 0; x < c.w; ) {
-        while (x < c.w && !c.alpha[y * c.w + x]) x++;
+        while (x < c.w && !alpha[y * c.w + x]) x++;
         const a = x;
-        while (x < c.w && c.alpha[y * c.w + x]) x++;
+        while (x < c.w && alpha[y * c.w + x]) x++;
         if (x === a) break;
         const r = (x - a) / 2, mid = c.x + a + r;
         // small discs get smeared over the row's slice of height, so they leave no gaps

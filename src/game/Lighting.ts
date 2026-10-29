@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { SUNLIT_TILES, groundTile } from '../art/tiles.ts';
-import { relightProp, type Prop } from '../art/trees.ts';
+import { relightProp } from '../art/trees.ts';
 import { raised, type TerrainPiece } from '../art/terrain.ts';
 import { screenLight, sunLight, type ScreenLight } from '../art/lighting.ts';
 import { LEVEL, MAP_H, MAP_W, TILE, levelAt, tileAt } from '../world/map.ts';
@@ -19,7 +19,6 @@ const TURN_STEP = 12, CONTRAST_STEP = 0.1;
 
 export class Lighting {
   private readonly scene: Phaser.Scene;
-  private readonly props: { p: Prop; canvas: HTMLCanvasElement }[];
   private readonly trees: Trees;
   private readonly terrain: TerrainPiece[];
   private readonly ground: Ground;
@@ -29,9 +28,8 @@ export class Lighting {
   private readonly shown = new Map<number, Uint8ClampedArray>();
   private key = '';
 
-  constructor(scene: Phaser.Scene, props: { p: Prop; canvas: HTMLCanvasElement }[], trees: Trees, terrain: TerrainPiece[], ground: Ground) {
+  constructor(scene: Phaser.Scene, trees: Trees, terrain: TerrainPiece[], ground: Ground) {
     this.scene = scene;
-    this.props = props;
     this.trees = trees;
     this.terrain = terrain;
     this.ground = ground;
@@ -57,7 +55,8 @@ export class Lighting {
   }
 
   private relightTrees(): void {
-    this.props.forEach(({ p, canvas }, i) => {
+    // (only those drawn now: the others are drawn in the light as it is when they come into view)
+    this.trees.each((i, p, canvas) => {
       if (!p.lit) return;
       relightProp(p, sunLight);
       const img = new ImageData(p.raster.data, p.raster.w, p.raster.h);

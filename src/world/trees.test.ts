@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { GRAVITY, JUMP_V } from '../game/state.ts';
-import { DASH_SPEED, WALK_SPEED, step } from '../game/movement.ts';
+import { GRAVITY } from '../game/state.ts';
+import { DASH_SPEED, WALK_SPEED, jumpRise, step } from '../game/movement.ts';
 import { MoveWitness } from '../net/witness.ts';
 import { Act } from '../game/state.ts';
 import { FORK_Z, LEVEL, TILE, WALL, heightUnder, levelAt } from './map.ts';
-import { RISE, TREES, perchUnder, standingOn, surfaceAt, treeHolding, type TreePlan } from './trees.ts';
+import { LEAP, RISE, TREES, leapUp, perchUnder, standingOn, surfaceAt, treeHolding, type TreePlan } from './trees.ts';
 
 const DT = 1 / 60;
 
-/** A jump from (x, y, z) running at vx: where the cat comes down (as the game moves it). */
+/** A jump from (x, y, z) running at vx (a leap, at a tree): where the cat comes down (as the game moves it). */
 function leap(x: number, y: number, z: number, vx: number): { x: number; y: number; z: number } {
   const body = { x, y, z, airborne: true };
-  let vz = JUMP_V;
+  let vz = Math.sqrt(2 * GRAVITY * jumpRise(x, y, z));
   for (let i = 0; i < 240; i++) {
     step(body, vx * DT, 0);
     const ground = surfaceAt(body.x, body.y, body.z);
+    body.z += vz * DT - (GRAVITY * DT * DT) / 2;
     vz -= GRAVITY * DT;
-    body.z += vz * DT;
     if (body.z <= ground && vz <= 0) return { ...body, z: ground };
   }
   return body;
@@ -54,11 +54,13 @@ describe('trees', () => {
     expect(TREES.filter((t) => t.birdhouse).length).toBeGreaterThan(2);
   });
 
-  it('keeps every step up a tree within a jump', () => {
+  it('keeps every step up a tree within a leap', () => {
     for (const t of TREES) {
       const zs = [...new Set(t.perches.map((p) => p.z))].sort((a, b) => a - b);
       expect(zs[0]).toBe(FORK_Z);
-      for (let i = 1; i < zs.length; i++) expect(zs[i] - zs[i - 1]).toBeLessThanOrEqual(RISE);
+      for (let i = 1; i < zs.length; i++) expect(zs[i] - zs[i - 1]).toBeLessThanOrEqual(Math.min(RISE, LEAP));
+      // two to four levels, the top included (a bird house or the hut's roof in between)
+      expect(t.perches.filter((p) => p.kind !== 'birdhouse' && p.kind !== 'roof').length).toBeGreaterThanOrEqual(2);
       // the lowest perch spans the trunk, so nothing ends up standing on it
       expect(t.perches[0].x0).toBeLessThanOrEqual(-8);
       expect(t.perches[0].x1).toBeGreaterThanOrEqual(8);
@@ -129,10 +131,15 @@ describe('trees', () => {
     const t = TREES.find((q) => q.shape === 'broadleaf' && !q.elev)!;
     const w = new MoveWitness();
     expect(w.observe(t.x, t.y + 6, 0, Act.Idle, 0)).toBeNull();
-    expect(w.observe(t.x, t.y + 4, 12, Act.Jump, 200)).toBeNull();
+    expect(w.observe(t.x, t.y + 6, 30, Act.Jump, 200)).toBeNull();
+    // (a leap that high only goes up a tree)
+    expect(leapUp(t.x + 200, t.y + 4, 0)).toBe(0);
+    expect(new MoveWitness().observe(t.x + 200, t.y + 30, 30, Act.Jump, 0)).toBe('too-high');
     expect(w.observe(t.x, t.y, FORK_Z, Act.Idle, 400)).toBeNull();
     // but hanging in the air beside the tree is
-    expect(w.observe(t.x + 40, t.y, FORK_Z, Act.Idle, 600)).toBe('floating');
+    // (off to one side, clear of every tree: big crowns reach far)
+    const x = [1, 2, 3, 4, 5].map((k) => t.x + k * 40).find((x) => surfaceAt(x, t.y, FORK_Z) < FORK_Z - 10 && leapUp(x, t.y, 0) === 0)!;
+    expect(w.observe(x, t.y, FORK_Z, Act.Idle, 600)).toBe('floating');
   });
 });
 

@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { CAT, framePos } from '../art/cat.ts';
 import { FLORA } from '../art/flora.ts';
-import type { Prop } from '../art/trees.ts';
+import { TREES } from '../world/trees.ts';
+import type { Trees } from './Trees.ts';
 import type { CatView } from './CatView.ts';
 import type { LivePlant } from './Meadow.ts';
 import { cullerFor } from './Culler.ts';
@@ -26,7 +27,9 @@ export class PondReflection {
   /** Whether the cat layer has anything on it (to clear it once they've gone). */
   private catsShown = false;
   private readonly mask: HTMLCanvasElement;
-  private readonly trees: { canvas: HTMLCanvasElement; p: Prop }[];
+  /** The park's trees, and which of them reflect here. */
+  private readonly park: Trees;
+  private readonly trees: number[];
   private readonly plants: LivePlant[];
   private readonly catSheets: HTMLCanvasElement[];
   private readonly floraSheets: HTMLCanvasElement[];
@@ -38,7 +41,7 @@ export class PondReflection {
       waterMask: Mask;
       catSheets: HTMLCanvasElement[];
       floraSheets: HTMLCanvasElement[];
-      props: { canvas: HTMLCanvasElement; p: Prop }[];
+      trees: Trees;
       plants: LivePlant[];
     },
   ) {
@@ -62,7 +65,9 @@ export class PondReflection {
     // keep everything whose reflection reaches this patch (tall trees span several)
     const near = (bx: number, base: number, half: number, tall: number) =>
       bx + half > x && bx - half < x + w && base + tall > y && base < y + h;
-    this.trees = opts.props.filter(({ p, canvas }) => near(p.x + canvas.width / 2, p.depthY + 1, canvas.width / 2, p.depthY + 1 - p.y));
+    this.park = opts.trees;
+    this.trees = [];
+    TREES.forEach((t, i) => { if (near(t.x, t.y + 1, t.w / 2, t.h + t.elev)) this.trees.push(i); });
     this.plants = opts.plants.filter((p) => near(p.x, p.y, 8, FLORA[p.kind].h));
   }
 
@@ -78,7 +83,11 @@ export class PondReflection {
     const raw = this.begin();
     // big crowns would swamp the water, so trees reflect more faintly than cats
     raw.globalAlpha = 0.45;
-    for (const { canvas, p } of this.trees) this.flipped(canvas, 0, 0, canvas.width, canvas.height, p.x, p.y, p.depthY + 1);
+    // (only those drawn now: the others are too far off to be seen)
+    for (const i of this.trees) {
+      const t = this.park.get(i);
+      if (t) this.flipped(t.canvas, 0, 0, t.canvas.width, t.canvas.height, t.p.x, t.p.y, t.p.depthY + 1);
+    }
     raw.globalAlpha = 1;
     for (const p of this.plants) {
       const k = FLORA[p.kind];

@@ -3,7 +3,8 @@ import * as critters from './critters.ts';
 import * as furniture from './furniture.ts';
 import { COATS, buildCatSheet, buildEyeSheet } from './cat.ts';
 import { buildGroundRegion, buildWaterMask, ripplesIn } from './tiles.ts';
-import { buildProps } from './trees.ts';
+import { buildProp } from './trees.ts';
+import { TREES } from '../world/trees.ts';
 import { buildTerrain } from './terrain.ts';
 import { placeFlora } from './flora.ts';
 import { seasonAt } from '../world/season.ts';
@@ -65,7 +66,11 @@ describe('the garden through the seasons', () => {
         for (let c = 0; c < 4; c++) if (whole.data[(y * W + x) * 4 + c] !== half.data[(y * HW + hx) * 4 + c]) diff++;
       }
     expect(diff).toBe(0);
-    expect(buildProps(season).length).toBeGreaterThan(20);
+    expect(TREES.length).toBeGreaterThan(20);
+    for (const shape of ['broadleaf', 'pine', 'treehouse']) {
+      const i = TREES.findIndex((t) => t.shape === shape);
+      if (i >= 0) expect(buildProp(i, season).raster.w).toBe(TREES[i].w);
+    }
   });
 
   it('has open water only in the streams when the ponds are frozen', () => {

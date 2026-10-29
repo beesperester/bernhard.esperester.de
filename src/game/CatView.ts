@@ -31,6 +31,8 @@ export const catLight = {
   shade: (_x: number, _y: number): number => 0,
   /** True if something stands in front of world point (x, y) for a cat whose feet are at feetY. */
   occluded: (_x: number, _y: number, _feetY: number): boolean => false,
+  /** How faded tree i is (0 there .. 1 gone): a cat up in a tree fades out with it. */
+  treeFade: (_tree: number): number => 0,
 };
 
 /** Walking into shade, a cat takes this long to darken fully. */
@@ -155,15 +157,17 @@ export class CatView {
     // cliff from behind, it stands a hair short of the cliff's row and must stay behind it)
     const d = this.ride ?? (tree >= 0 ? TREES[tree].y + 0.6 : folly !== null ? folly + 0.6 : this.y);
     this.depth = d;
+    // (up a tree that has faded away in front of our cat, it is gone with it)
+    const seen = tree >= 0 ? 1 - catLight.treeFade(tree) : 1;
     // the shadow lies on whatever surface is below the cat (riding, the floor of its car)
     const below = Math.round(this.ride !== null ? z : surfaceAt(this.x, this.y, z));
-    this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft).setScale(Math.min(1, k + 0.15));
+    this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft * seen).setScale(Math.min(1, k + 0.15));
     // standing in the shade of something: it darkens step by step (a sliver of shadow crossed
     // on the way barely shows, so the cat doesn't flicker) and brightens at once in the sun
     const dark = catLight.shade(this.x, this.y);
     this.shaded = dark < this.shaded ? dark : Math.min(dark, this.shaded + (dtm > 0 ? dtm / SHADE_IN_MS : 0));
     const shade = this.shaded;
-    this.sprite.setPosition(x, y - lift).setDepth(d);
+    this.sprite.setPosition(x, y - lift).setDepth(d).setAlpha(seen).setVisible(seen > 0);
     this.frame = stageRow(stage) + frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
     if (shade > 0) this.sprite.setTint(Phaser.Display.Color.GetColor(255 - 90 * shade, 255 - 80 * shade, 255 - 50 * shade));
@@ -174,13 +178,13 @@ export class CatView {
       this.head.setPosition(x, y - lift).setDepth(this.ride + 0.7).setFrame(this.frame).setTint(this.sprite.tintTopLeft)
         .setCrop(0, 0, CAT, CAT - Math.round(HEAD_FROM * k));
     const top = y - lift;
-    const rim = catLight.rim * (1 - shade);
+    const rim = catLight.rim * (1 - shade) * seen;
     this.rim.setVisible(rim > 0);
     if (rim > 0) this.rim.setPosition(x, top).setDepth(d + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour);
     // eyes shine in the dark, unless something stands in front of this cat
-    const glow = catLight.night > 0.05 && (this.local || !catLight.occluded(x, top - 9 * k, y));
+    const glow = catLight.night > 0.05 && seen > 0 && (this.local || !catLight.occluded(x, top - 9 * k, y));
     this.eyes.setVisible(glow);
-    if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * (this.act === Act.Sleep ? 0 : 0.9));
+    if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * seen * (this.act === Act.Sleep ? 0 : 0.9));
     // our own cat, where a hill hides it: the covered part shows as a silhouette
     const cover = this.local ? terrainCover(x, this.y, lift, CAT, CAT) : null;
     this.ghost.setVisible(!!cover);
@@ -192,7 +196,7 @@ export class CatView {
 
     // a fish or a bird in the mouth while eating: whole, half, bones (or a last tuft)
     const eating = (this.act === Act.Eat || this.act === Act.Feast) && ms < EAT_MS - 400;
-    this.held.setVisible(eating);
+    this.held.setVisible(eating && seen > 0).setAlpha(seen);
     if (eating) {
       const right = this.facing === Facing.Right;
       const sideways = right || this.facing === Facing.Left;
@@ -211,7 +215,7 @@ export class CatView {
     const step = this.labelT < 0 ? 1 : (now - this.labelT) / LABEL_FADE_MS;
     this.labelT = now;
     this.labelAlpha = Math.max(0, Math.min(1, this.labelAlpha + (hiding ? -step : step)));
-    this.label.setVisible(!!this.name && this.labelAlpha > 0).setAlpha(this.labelAlpha)
+    this.label.setVisible(!!this.name && this.labelAlpha * seen > 0).setAlpha(this.labelAlpha * seen)
       .setScale(1 / zoom).setPosition(x, y + 1 - below);
 
     const content = ((this.act === Act.Eat || this.act === Act.Feast) && ms > EAT_MS - 700) || (this.act === Act.Munch && ms > MUNCH_MS - 500);

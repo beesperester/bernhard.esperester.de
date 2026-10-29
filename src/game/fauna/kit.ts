@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { mulberry32, type Bits } from '../../art/raster.ts';
-import type { Prop } from '../../art/trees.ts';
+import type { TreePlan } from '../../world/trees.ts';
 import type { Prey } from '../state.ts';
 import type { CatView } from '../CatView.ts';
 import type { Effects } from './Effects.ts';
@@ -23,7 +23,7 @@ export interface PreyRef {
 export interface FaunaContext {
   scene: Phaser.Scene;
   /** Tree crowns, with their pictures (for perches and roosts). */
-  trees: { p: Prop; canvas: HTMLCanvasElement }[];
+  trees: readonly TreePlan[];
   /** Flower heads bees and butterflies visit. */
   flowers: Pt[];
   /** Pixel mask of open water. */
