@@ -23,6 +23,7 @@ import { Shadows, type Caster } from './Shadows.ts';
 import { Vignette } from './Vignette.ts';
 import { Daylight } from './Daylight.ts';
 import { RimLight } from './RimLight.ts';
+import { Lilies } from './Lilies.ts';
 import { Lanterns, type Occluder } from './Lanterns.ts';
 import { Glows } from './Glows.ts';
 import { NightWater } from './NightWater.ts';
@@ -149,6 +150,7 @@ export class GardenScene extends Phaser.Scene {
   private meadow!: Meadow;
   private shafts!: Shafts;
   private glows!: Glows;
+  private lilies!: Lilies;
   private fog!: Fog;
   private clouds!: Clouds;
   private ponds: PondReflection[] = [];
@@ -302,6 +304,7 @@ export class GardenScene extends Phaser.Scene {
     ];
     this.glows = new Glows(this, this.trees, occluders);
     this.lanterns = new Lanterns(this, this.glows);
+    this.lilies = new Lilies(this, toCanvas, this.glows);
     this.shadows = this.makeShadows(canvases, furniture, upright);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
@@ -677,6 +680,7 @@ export class GardenScene extends Phaser.Scene {
     this.shafts.update(light, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), time, view);
     this.fog.update(fogAt(gt), time, view);
     this.lanterns.update(light, time);
+    this.lilies.update(light, time);
     this.glows.update(view, dt * 1000, this.cameras.main.zoom);
     this.train.light(light);
     this.zones.light(light, time);
