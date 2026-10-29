@@ -40,20 +40,41 @@ const TREE_MARKS = 160;
 /** Where a shadow falls on the ground at one level: a box of the world, 1 where it is. */
 interface Footprint { x: number; y: number; w: number; h: number; bits: Uint8Array }
 
-/** Collect what `cast` marks, for each of `n` levels, into footprints. */
-function footprints(n: number, cast: (put: (px: number, py: number, l: number) => void) => void): Footprint[] {
-  const pts: number[][] = Array.from({ length: n }, () => []);
-  cast((px, py, l) => pts[l].push(px, py));
-  return pts.map((p) => {
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (let i = 0; i < p.length; i += 2) {
-      x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); y0 = Math.min(y0, p[i + 1]); y1 = Math.max(y1, p[i + 1]);
+/** Runs of shade put down by a caster: each its level, row and first and past-last px (world px). */
+class Spans {
+  a = new Int32Array(1 << 14);
+  n = 0;
+
+  put(l: number, y: number, x0: number, x1: number): void {
+    if (x1 <= x0) return;
+    if (this.n + 4 > this.a.length) {
+      const b = new Int32Array(this.a.length * 2);
+      b.set(this.a);
+      this.a = b;
     }
-    if (!p.length) return { x: 0, y: 0, w: 0, h: 0, bits: new Uint8Array(0) };
-    const w = x1 - x0 + 1, h = y1 - y0 + 1, bits = new Uint8Array(w * h);
-    for (let i = 0; i < p.length; i += 2) bits[(p[i + 1] - y0) * w + p[i] - x0] = 1;
-    return { x: x0, y: y0, w, h, bits };
-  });
+    const a = this.a, n = this.n;
+    a[n] = l; a[n + 1] = y; a[n + 2] = x0; a[n + 3] = x1;
+    this.n = n + 4;
+  }
+}
+const spans = new Spans();
+
+/** Collect what `cast` puts down, for each of `n` levels, into footprints. */
+function footprints(n: number, cast: (out: Spans) => void): Footprint[] {
+  spans.n = 0;
+  cast(spans);
+  const { a } = spans, box = Array.from({ length: n }, () => [Infinity, Infinity, -Infinity, -Infinity]);
+  for (let i = 0; i < spans.n; i += 4) {
+    const b = box[a[i]];
+    b[0] = Math.min(b[0], a[i + 2]); b[1] = Math.min(b[1], a[i + 1]); b[2] = Math.max(b[2], a[i + 3]); b[3] = Math.max(b[3], a[i + 1] + 1);
+  }
+  const out = box.map(([x0, y0, x1, y1]) =>
+    x1 < x0 ? { x: 0, y: 0, w: 0, h: 0, bits: new Uint8Array(0) } : { x: x0, y: y0, w: x1 - x0, h: y1 - y0, bits: new Uint8Array((x1 - x0) * (y1 - y0)) });
+  for (let i = 0; i < spans.n; i += 4) {
+    const f = out[a[i]], row = (a[i + 1] - f.y) * f.w - f.x;
+    f.bits.fill(1, row + a[i + 2], row + a[i + 3]);
+  }
+  return out;
 }
 /** ...and is moved once the view has come within this of its edge. */
 const WINDOW_SLACK = 112;
@@ -80,7 +101,8 @@ export interface Caster {
   depth: number | 'round';
 }
 
-interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; t: TerrainPiece; drawn: boolean }
+/** A plateau top's shadows, and where they were last drawn (1 a px; null: none). */
+interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; t: TerrainPiece; drawn: Uint8Array | null }
 
 /** A stretch of the ground shadows are worked out over (world px), and all that is worked out for it. */
 interface Win {
@@ -149,7 +171,7 @@ export class Shadows {
     for (const [i, t] of opts.terrain.entries()) {
       if (t.stairs) continue;
       const tex = scene.textures.createCanvas(`sun-shadows-${i}`, t.raster.w, TILE)!;
-      this.overlays.push({ t, tex, drawn: false, img: cullerFor(scene).add(scene.add.image(t.x, t.y, `sun-shadows-${i}`).setOrigin(0).setDepth(t.depth + 0.001).setVisible(false)) });
+      this.overlays.push({ t, tex, drawn: null, img: cullerFor(scene).add(scene.add.image(t.x, t.y, `sun-shadows-${i}`).setOrigin(0).setDepth(t.depth + 0.001).setVisible(false)) });
     }
 
     // the cats' outlines (all coats share them)
@@ -230,15 +252,18 @@ export class Shadows {
     for (let i = 0; i < shade.length; i++)
       if (shade[i] && level[i] === 0) { d[i * 4] = COLOUR[0]; d[i * 4 + 1] = COLOUR[1]; d[i * 4 + 2] = COLOUR[2]; d[i * 4 + 3] = 255; }
     yield;
-    // ...and the tops of the plateaus, which are drawn lifted (those in the window, and those to be wiped)
-    const tops: [Overlay, ImageData][] = [];
+    // ...and the tops of the plateaus, which are drawn lifted (those in the window, and those to be wiped),
+    // where they've changed (as the window moves on, most haven't)
+    const tops: [Overlay, Uint8Array | null][] = [];
+    let looked = 0;
     for (const o of this.overlays) {
       const { t } = o, lift = t.level * LEVEL;
       if (t.x + t.raster.w <= ox || t.x >= ox + W || t.y + lift + TILE <= oy || t.y + lift >= oy + H) {
-        if (o.drawn) tops.push([o, new ImageData(t.raster.w, TILE)]);
+        if (o.drawn) tops.push([o, null]);
         continue;
       }
-      const top = new ImageData(t.raster.w, TILE);
+      const top = new Uint8Array(t.raster.w * TILE);
+      let any = false;
       for (let y = 0; y < TILE; y++)
         for (let x = 0; x < t.raster.w; x++) {
           if (!t.raster.isSet(x, y)) continue;
@@ -246,11 +271,11 @@ export class Shadows {
           if (wx < 0 || wy < 0 || wx >= W || wy >= H) continue;
           const i = wy * W + wx;
           if (!shade[i] || level[i] !== t.level) continue;
-          const k = (y * t.raster.w + x) * 4;
-          top.data[k] = COLOUR[0]; top.data[k + 1] = COLOUR[1]; top.data[k + 2] = COLOUR[2]; top.data[k + 3] = 255;
+          top[y * t.raster.w + x] = 1;
+          any = true;
         }
-      tops.push([o, top]);
-      if (tops.length % 16 === 0) yield;
+      if (any ? !o.drawn || !same(top, o.drawn) : o.drawn) tops.push([o, any ? top : null]);
+      if (++looked % 16 === 0) yield;
     }
 
     // show them all at once
@@ -261,14 +286,20 @@ export class Shadows {
     this.ground.getContext().putImageData(img, 0, 0);
     this.ground.refresh();
     this.groundImg.setPosition(ox, oy);
-    for (const [o, top] of tops) {
-      o.tex.getContext().putImageData(top, 0, 0);
-      o.tex.refresh();
-      o.drawn = top.data.some((v) => v > 0);
-    }
     this.spare = this.win;
     this.win = w;
     this.catFrames.clear();
+    // (the tops a few at a time: each is a picture of its own, and sending many at once stalls a frame)
+    for (const [n, [o, top]] of tops.entries()) {
+      const { w: tw } = o.t.raster, img = new ImageData(tw, TILE);
+      if (top)
+        for (let i = 0; i < top.length; i++)
+          if (top[i]) { img.data[i * 4] = COLOUR[0]; img.data[i * 4 + 1] = COLOUR[1]; img.data[i * 4 + 2] = COLOUR[2]; img.data[i * 4 + 3] = 255; }
+      o.tex.getContext().putImageData(img, 0, 0);
+      o.tex.refresh();
+      o.drawn = top;
+      if (n % 8 === 7) yield;
+    }
   }
 
   /** Put window `w` round `view`, and read the height of everything in it. */
@@ -372,7 +403,7 @@ export class Shadows {
         let marks = this.treeMarks.get(c.tree);
         if (marks?.key !== k) {
           yield;
-          marks = { key: k, levels: footprints(levels + 1, (put) => this.projectTree(c.tree!, c.lift, w.s, levels, put)) };
+          marks = { key: k, levels: footprints(levels + 1, (out) => this.projectTree(c.tree!, c.lift, w.s, levels, out)) };
           this.treeMarks.delete(c.tree);
           this.treeMarks.set(c.tree, marks);
           if (this.treeMarks.size > TREE_MARKS) this.treeMarks.delete(this.treeMarks.keys().next().value!);
@@ -409,10 +440,12 @@ export class Shadows {
   /**
    * A tree's shadow, from its plan: each mass of leaves is a ball (as deep as
    * it is wide), whose shadow along the sun's rays is an ellipse on the
-   * ground; the trunk a column of discs, each bough a bar.
+   * ground; the trunk a column of discs, each bough a bar. Put down a row at
+   * a time.
    */
-  private projectTree(t: TreePlan, lift: number, [sx, sy]: [number, number], levels: number, mark: (px: number, py: number, l: number) => void): void {
-    const top = Math.max(...t.perches.map((p) => p.z));
+  private projectTree(t: TreePlan, lift: number, [sx, sy]: [number, number], levels: number, out: Spans): void {
+    let top = 0;
+    for (const p of t.perches) top = Math.max(top, p.z);
     for (let l = 0; l <= levels; l++) {
       // (the tree's foot this high above the ground at level l)
       const base = lift - l * LEVEL;
@@ -420,33 +453,52 @@ export class Shadows {
         const zc = b.z + base, { rx, rz } = b;
         if (zc + rz < 0) continue;
         // a ground point (u, v) from under the ball is shaded if some point of the ball is on the ray
-        // through it: the nearest the ray comes (in the ball's own measure) is at height Z
-        const A = (sx * sx + sy * sy) / (rx * rx) + 1 / (rz * rz);
+        // through it: the ray at height Z is (u - sx Z, v - sy Z, Z), and in the ball's own measure
+        // it's AZ² - 2BZ + C from the middle, nearest at Z = B / A (or the ground, if that's below it)
+        const ia = 1 / (rx * rx), ib = 1 / (rz * rz), A = (sx * sx + sy * sy) * ia + ib;
         const z0 = Math.max(0, zc - rz), z1 = zc + rz;
-        const u0 = Math.floor(Math.min(sx * z0, sx * z1) - rx), u1 = Math.ceil(Math.max(sx * z0, sx * z1) + rx);
         const v0 = Math.floor(Math.min(sy * z0, sy * z1) - rx), v1 = Math.ceil(Math.max(sy * z0, sy * z1) + rx);
         const cx = Math.round(t.x + b.x), cy = t.y;
-        for (let v = v0; v <= v1; v++)
-          for (let u = u0; u <= u1; u++) {
-            const Z = Math.max(0, ((sx * u + sy * v) / (rx * rx) + zc / (rz * rz)) / A);
-            const du = u - sx * Z, dv = v - sy * Z, dz = Z - zc;
-            if ((du * du + dv * dv) / (rx * rx) + (dz * dz) / (rz * rz) <= 1) mark(cx + u, cy + v, l);
+        // (where the ball meets the ground, if it does: a disc this wide)
+        const foot = (1 - zc * zc * ib) / ia;
+        for (let v = v0; v <= v1; v++) {
+          // the ray comes within the ball where A·C - B² <= A: a quadratic in u, so a run from root to root
+          const k = sy * v * ia + zc * ib;
+          const qa = ia * (sy * sy * ia + ib), qb = -2 * sx * ia * k, qc = A * (v * v * ia + zc * zc * ib - 1) - k * k;
+          const disc = qb * qb - 4 * qa * qc;
+          if (disc < 0) continue;
+          const root = Math.sqrt(disc);
+          let u0 = Math.ceil((-qb - root) / (2 * qa)), u1 = Math.floor((-qb + root) / (2 * qa));
+          if (u1 < u0) continue;
+          // ...but where B < 0 the nearest point is the ground itself, shaded only under the ball's foot
+          const r2 = foot - v * v, half = r2 >= 0 ? Math.floor(Math.sqrt(r2)) : -1;
+          if (sx === 0) {
+            if (k < 0) { u0 = Math.max(u0, -half); u1 = Math.min(u1, half); }
+            out.put(l, cy + v, cx + u0, cx + u1 + 1);
+            continue;
           }
+          // (B = sx·u·ia + k, so it's >= 0 on one side of this u)
+          const ut = -k / (sx * ia);
+          const [s0, s1] = sx > 0 ? [Math.max(u0, Math.ceil(ut)), u1] : [u0, Math.min(u1, Math.floor(ut))];
+          out.put(l, cy + v, cx + s0, cx + s1 + 1);
+          const [o0, o1] = sx > 0 ? [u0, Math.min(u1, s0 - 1)] : [Math.max(u0, s1 + 1), u1];
+          out.put(l, cy + v, cx + Math.max(o0, -half), cx + Math.min(o1, half) + 1);
+        }
       }
       // the trunk, thinning as it goes up (a disc every px of height, which is plenty)
       for (let z = Math.max(0, -base); z < top; z++) {
         const h = z + base, r = Math.max(2, t.trunk - (z / top) * (t.trunk - 2));
         const ox = t.x + sx * h, oy = t.y + sy * h;
         for (let dy = -Math.floor(r); dy <= r; dy++) {
-          const half = Math.sqrt(Math.max(0, r * r - dy * dy)), py = Math.round(oy + dy);
-          for (let px = Math.round(ox - half); px < Math.round(ox + half); px++) mark(px, py, l);
+          const half = Math.sqrt(Math.max(0, r * r - dy * dy));
+          out.put(l, Math.round(oy + dy), Math.round(ox - half), Math.round(ox + half));
         }
       }
       for (const p of t.perches) {
         const h = p.z + base;
         if (h < 0) continue;
-        for (let x = p.x0; x < p.x1; x++)
-          for (let d = -1; d <= 1; d++) mark(Math.round(t.x + x + sx * h), Math.round(t.y + sy * h) + d, l);
+        const x0 = Math.round(t.x + p.x0 + sx * h), y = Math.round(t.y + sy * h);
+        for (let d = -1; d <= 1; d++) out.put(l, y + d, x0, x0 + p.x1 - p.x0);
       }
     }
   }
@@ -542,6 +594,8 @@ export class Shadows {
       }
   }
 }
+
+const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 let scratchCanvas: HTMLCanvasElement | null = null;
 function scratch(w: number, h: number): CanvasRenderingContext2D {

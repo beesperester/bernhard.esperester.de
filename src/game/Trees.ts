@@ -1,16 +1,17 @@
 import Phaser from 'phaser';
 import { bayer } from '../art/tiles.ts';
-import { buildProp, relightProp, treeOutline, type Prop } from '../art/trees.ts';
+import { relightProp, treeOutline, type Prop } from '../art/trees.ts';
 import { Raster } from '../art/raster.ts';
-import { sunLight } from '../art/lighting.ts';
+import { sunLight, type ScreenLight } from '../art/lighting.ts';
 import { TREES, treeHolding } from '../world/trees.ts';
 import type { CatView } from './CatView.ts';
 import { toCanvas } from './textures.ts';
+import type { Painter } from './Painter.ts';
 import { holeIn } from './HoleFilter.ts';
 
 // The park's trees. They are big and there are many, so a tree is only drawn
-// while the camera is near it: those in view straight away, those just
-// beyond it a few at a time, and the far ones are let go again.
+// while the camera is near it, nearest first, by the painter off the main
+// thread (Painter.ts); the far ones are let go again.
 //
 // Each tree is two pictures: the tree from the back (the leaves at the back,
 // trunk, branches and the small leaves along them) and the leaves hanging in
@@ -25,8 +26,6 @@ import { holeIn } from './HoleFilter.ts';
 const AHEAD = 200;
 /** ...and those further off than this are let go. */
 const KEEP = 600;
-/** At most this long (ms) a frame spends drawing trees that aren't in view yet. */
-const BUDGET_MS = 6;
 /** The trees are looked up in square cells this big. */
 const CELL = 256;
 /** A hole opens over this long (ms). */
@@ -91,12 +90,17 @@ export class Trees {
   private readonly live = new Map<number, Live>();
   private readonly cells = new Map<number, number[]>();
   private readonly watchers: TreeWatcher[] = [];
+  private readonly painter: Painter;
+  /** Trees asked of the painter and not back yet. */
+  private readonly asked = new Set<number>();
   /** The trees with a hole in them this frame, and the hole. */
   private holed: Live[] = [];
   private hole: { x: number; y: number } = { x: 0, y: 0 };
+  private view = new Phaser.Geom.Rectangle();
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, painter: Painter) {
     this.scene = scene;
+    this.painter = painter;
     TREES.forEach((_, i) => {
       const [x0, y0, x1, y1] = box(i);
       for (let cy = Math.floor(y0 / CELL); cy <= Math.floor(y1 / CELL); cy++)
@@ -166,6 +170,7 @@ export class Trees {
 
   /** Draw the trees round the view, let go of the far ones, and open the hole round `me`. */
   update(me: CatView, view: Phaser.Geom.Rectangle, dt: number): void {
+    this.view = view;
     this.show(view);
     const mine = treeHolding(me.x, me.y, me.z);
     const hx = Math.round(me.x), hy = Math.round(me.y - me.z - CAT_MID);
@@ -221,19 +226,28 @@ export class Trees {
 
   /** Draw the trees near the view (those in it at once), and let go of the far ones. */
   private show(view: Phaser.Geom.Rectangle): void {
-    const near = this.around(view, AHEAD);
-    const start = performance.now();
-    for (const i of near) {
-      if (this.live.has(i)) continue;
-      const [x0, y0, x1, y1] = box(i);
-      const inView = x1 > view.x && x0 < view.right && y1 > view.y && y0 < view.bottom;
-      if (!inView && performance.now() - start > BUDGET_MS) continue;
-      this.make(i);
+    for (const i of this.around(view, AHEAD)) {
+      if (!this.painter.free) break;
+      if (this.live.has(i) || this.asked.has(i)) continue;
+      this.asked.add(i);
+      const lit = { ...sunLight };
+      void this.painter.tree(i).then((p) => {
+        this.asked.delete(i);
+        // (unless the camera has gone on, far enough that it would be let go)
+        const [x0, y0, x1, y1] = box(i), v = this.view;
+        if (x1 < v.x - KEEP || x0 > v.right + KEEP || y1 < v.y - KEEP || y0 > v.bottom + KEEP) return;
+        this.make(i, p, lit);
+      });
     }
     for (const i of this.live.keys()) {
       const [x0, y0, x1, y1] = box(i);
       if (x1 < view.x - KEEP || x0 > view.right + KEEP || y1 < view.y - KEEP || y0 > view.bottom + KEEP) this.drop(i);
     }
+  }
+
+  /** Whether every tree in `view` is drawn. */
+  ready(view: Phaser.Geom.Rectangle): boolean {
+    return this.around(view, 0).every((i) => this.live.has(i));
   }
 
   /** The trees whose pictures reach into `view` grown by `margin` px, nearest the middle first. */
@@ -250,12 +264,12 @@ export class Trees {
   }
 
   private pic(key: string, r: Raster, x: number, y: number, depth: number): Pic {
-    const canvas = toCanvas(r);
-    const { width: w, height: h } = canvas;
+    const { w, h } = r;
     const tex = this.scene.textures.createCanvas(key, w, h)!;
-    const orig = canvas.getContext('2d')!.getImageData(0, 0, w, h);
+    const orig = new ImageData(new Uint8ClampedArray(r.data), w, h);
     tex.getContext().putImageData(orig, 0, 0);
     tex.refresh();
+    const canvas = tex.getSourceImage() as HTMLCanvasElement;
     const img = this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth);
     return { canvas, tex, img, orig };
   }
@@ -268,10 +282,10 @@ export class Trees {
     t[which] = null;
   }
 
-  private make(i: number): void {
-    const p = buildProp(i);
-    // (in the light as it is now)
-    relightProp(p, sunLight);
+  /** Show tree i, drawn in light `lit`. */
+  private make(i: number, p: Prop, lit: ScreenLight): void {
+    // (in the light as it is now: it may have moved on while the tree was being drawn)
+    if (lit.x !== sunLight.x || lit.y !== sunLight.y || lit.k !== sunLight.k) relightProp(p, sunLight);
     const base = this.pic(`tree-${i}`, p.raster, p.x, p.y, p.depthY);
     const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.x, p.y, p.depthY + FRONT) : null;
     this.live.set(i, { p, base, front, mid: null, hole: 0, open: 0, cut: '', cutFront: '', dirty: false });

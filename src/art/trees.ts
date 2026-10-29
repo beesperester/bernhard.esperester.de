@@ -249,6 +249,46 @@ export function puffSheet(pal: RGB[] = CANOPIES[0].c): Raster {
   return out;
 }
 
+/** A tree drawn elsewhere (a worker), sent as plain data: its pictures' pixels and lit pixels, to move rather than copy. */
+export interface PropParts {
+  i: number;
+  layers: ({ w: number; h: number; data: Uint8ClampedArray; lit: LitParts | null } | null)[];
+  x: number; y: number; depthY: number; kind: number;
+}
+type LitParts = { at: Int32Array; flags: Uint8Array; pal: Uint8Array; f: Int16Array; pals: RGB[][] };
+
+/** Tree i's prop as parts to send, and the buffers to move with them. */
+export function propParts(i: number, p: Prop): [PropParts, ArrayBuffer[]] {
+  const moved: ArrayBuffer[] = [];
+  const layer = (r: Raster | undefined, lit: LitPixels | undefined) => {
+    if (!r) return null;
+    moved.push(r.data.buffer as ArrayBuffer);
+    if (lit) moved.push(...[lit.at, lit.flags, lit.pal, lit.f].map((a) => a.buffer as ArrayBuffer));
+    return { w: r.w, h: r.h, data: r.data, lit: lit ? { at: lit.at, flags: lit.flags, pal: lit.pal, f: lit.f, pals: lit.pals } : null };
+  };
+  return [{ i, layers: [layer(p.raster, p.lit), layer(p.front?.raster, p.front?.lit), layer(p.mid?.raster, p.mid?.lit)], x: p.x, y: p.y, depthY: p.depthY, kind: p.kind }, moved];
+}
+
+/** A prop again, from its parts. */
+export function propFrom(parts: PropParts): Prop {
+  const layer = (l: PropParts['layers'][number]) => {
+    if (!l) return undefined;
+    const raster = new Raster(l.w, l.h);
+    raster.data.set(l.data);
+    let lit: LitPixels | undefined;
+    if (l.lit) {
+      lit = new LitPixels(0, l.lit.pals);
+      Object.assign(lit, { at: l.lit.at, flags: l.lit.flags, pal: l.lit.pal, f: l.lit.f });
+    }
+    return { raster, lit };
+  };
+  const [base, front, mid] = parts.layers.map(layer);
+  return {
+    raster: base!.raster, lit: base!.lit, front: front && { raster: front.raster, lit: front.lit! }, mid: mid && { raster: mid.raster, lit: mid.lit! },
+    x: parts.x, y: parts.y, depthY: parts.depthY, kind: parts.kind, plan: TREES[parts.i],
+  };
+}
+
 /** Shade a prop's lit pixels for light L (in place). */
 export function relightProp(prop: Prop, L: ScreenLight): void {
   for (const { raster, lit } of [{ raster: prop.raster, lit: prop.lit }, ...(prop.front ? [prop.front] : []), ...(prop.mid ? [prop.mid] : [])]) {

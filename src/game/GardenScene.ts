@@ -53,6 +53,7 @@ import { worldSeed } from '../world/seed.ts';
 import { askName, renderBoard } from '../ui/board.ts';
 import { setupCollar } from '../ui/collar.ts';
 import { cullerFor } from './Culler.ts';
+import { Painter } from './Painter.ts';
 import { KITTEN_DASH_MS, STAGE_JUMP, STAGE_NAMES, Stage, canCatch, canDrive, canPounce, canRide, canShake, nextAt, stageOf } from './growth.ts';
 import { Fader } from '../ui/fader.ts';
 import { logSnack } from '../ui/feed.ts';
@@ -98,6 +99,8 @@ function loadCoat(): number {
  * waiting for the cats to connect at all was done before: net.ts, seed().)
  */
 const FIRST_LOOK_MS = 300;
+/** ...and at most this much longer for the ground and trees in view to be drawn. */
+const PAINT_WAIT_MS = 8000;
 
 /** Where to put a cat: x, y, height, facing. */
 type Pose = [number, number, number, number];
@@ -229,11 +232,12 @@ export class GardenScene extends Phaser.Scene {
     };
     const canvases = makeTextures(this);
 
-    this.ground = new Ground(this);
+    const painter = new Painter();
+    this.ground = new Ground(this, painter);
     // raised ground: each plateau row lifted by its height, sorted like everything else by ground y
     canvases.terrain.forEach((t, i) => cullerFor(this).add(this.add.image(t.x, t.y, `terrain-${i}`).setOrigin(0).setDepth(t.depth)));
 
-    this.trees = new Trees(this);
+    this.trees = new Trees(this, painter);
     const furniture = (this.furniture = new Furniture(this, toCanvas));
     this.landmarks = new Landmarks(this, toCanvas);
     new Railway(this, toCanvas);
@@ -562,7 +566,9 @@ export class GardenScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     const dt = Math.min(delta, 100) / 1000;
     if (!this.revealed) {
-      if (time >= this.revealAt) this.reveal();
+      // (once the ground and trees in view are drawn: the painter draws them off the main thread, as they're asked for)
+      const view = this.cameras.main.worldView, drawn = this.ground.ready(view) && this.trees.ready(view);
+      if (time >= this.revealAt && (drawn || time >= this.revealAt + PAINT_WAIT_MS)) this.reveal();
       else loading(0.65 + 0.35 * (time - this.arrived) / (this.revealAt - this.arrived), 120);
     }
     // the garden clock is shared by all visitors, so wind and fauna line up
