@@ -246,7 +246,7 @@ export function layOut(seed: number): Layout {
     // (nor just below a clearing, where its crown would hang over the clearing and hide it: thickets wall it there)
     if (CLEARINGS.some((c) => Math.abs(x - c.tx) <= c.r + 2 && y > c.ty && y - c.ty <= c.r + APRON)) continue;
     const z = zone(x, y), wall = ring.has(y * W + x);
-    const p = wall ? 0.8 : z === 'g' ? 0.55 : z === 'o' ? 0.015 : 0.03 + 0.2 * Math.max(0, noise(x, y, 9, 7) - 0.6) * 4;
+    const p = wall ? 0.6 : z === 'g' ? 0.24 : z === 'o' ? 0.015 : 0.03 + 0.2 * Math.max(0, noise(x, y, 9, 7) - 0.6) * 4;
     if (hash(x, y, 62) > p) continue;
     if (crowded(x, y, z === 'g' || wall)) continue;
     if (LANDMARK_SPOTS.some((s) => x >= s.tx - 3 && x < s.tx + LANDMARK_SIZE[s.kind][0] + 3 && y >= s.ty - 1 && y < s.ty + LANDMARK_SIZE[s.kind][1] + 4)) continue;

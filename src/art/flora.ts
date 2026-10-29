@@ -173,6 +173,9 @@ export function placeFlora(): Plant[] {
   });
 }
 
+/** The share of the woods' floor where undergrowth may grow. */
+const UNDER_SHARE = 0.5;
+
 /**
  * The forest floor on tile (tx, ty), if it is in the woods: patches of ferns (fewer under the pines),
  * of tall bracken, thickets of shrubs and of brambles (thickest round the clearings, walling them in).
@@ -181,6 +184,8 @@ export function placeFlora(): Plant[] {
 function undergrowth(tx: number, ty: number, h: number, at: (kind: number, tx: number, ty: number, k: number) => void): boolean {
   const biome = biomeAt(tx, ty);
   if (!biome) return false;
+  // (here and there: about half the floor is bare between them)
+  if (hash2(tx, ty, 506) > UNDER_SHARE) return false;
   // (none by the railway: they'd stand over the rails)
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (trackside(tx + dx, ty + dy)) return false;
   const n = (size: number, s: number) => noise(tx / size, ty / size, s);
