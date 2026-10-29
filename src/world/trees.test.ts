@@ -116,7 +116,8 @@ describe('trees', () => {
     const feet = [t.x - 5, t.y - 5, t.x + 5, t.y] as const;
     expect(heightUnder(...feet)).toBe(WALL);
     expect(heightUnder(...feet, t.elev + FORK_Z)).toBeLessThan(WALL);
-    expect(surfaceAt(t.x, t.y, t.elev + FORK_Z)).toBeLessThanOrEqual(t.elev + FORK_Z);
+    // (and stands on its top: it doesn't fall in and get caught again, over and over)
+    for (const z of [t.elev + FORK_Z, t.elev + FORK_Z + 0.3]) expect(surfaceAt(t.x, t.y, z)).toBe(t.elev + FORK_Z);
   });
 
   it('catches a cat dropping onto a trunk at its fork, not up at wall height', () => {

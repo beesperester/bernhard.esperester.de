@@ -385,9 +385,9 @@ export function perchUnder(x: number, y: number, z: number, under = Infinity): P
 /** What a cat at (x, y), with its paws at height z, would stand on: the ground or a perch (not one at or above `under`). */
 export function surfaceAt(x: number, y: number, z: number, under = Infinity): number {
   const x0 = x + FEET.x0, y0 = y + FEET.y0, x1 = x + FEET.x1, y1 = y + FEET.y1;
-  // over a trunk (below its fork a wall to walk into), a cat dropping down comes to rest on its top
+  // over a trunk (below its fork a wall to walk into), a cat dropping down comes to rest on its top, and stands on it
   const trunk = trunkTop(x0, y0, x1, y1);
-  const ground = trunk > z + CATCH ? Math.max(trunk, heightUnder(x0, y0, x1, y1, trunk)) : heightUnder(x0, y0, x1, y1, z + CATCH);
+  const ground = trunk > z + CATCH ? Math.max(trunk, heightUnder(x0, y0, x1, y1, trunk)) : Math.max(trunk, heightUnder(x0, y0, x1, y1, z + CATCH));
   const p = perchUnder(x, y, z, under);
   const pz = p ? zAt(p, x) : -Infinity;
   return pz > ground ? pz : ground;
