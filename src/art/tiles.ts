@@ -18,7 +18,7 @@ const C = {
   g0: LAWN[3], g1: LAWN[6], g2: LAWN[1], g3: LAWN[0], g4: LAWN[2], g5: LAWN[4],
   daisy: hex('#f4f0e4'), clover: hex('#aac868'),
   p0: GRAVEL[3], p1: GRAVEL[2], p2: GRAVEL[1],
-  w0: hex('#4682b8'), w1: hex('#88b8d8'), w2: hex('#2c5a8c'), w3: hex('#d4e8f4'),
+  w0: hex('#4682b8'), w1: hex('#88b8d8'), w2: hex('#2c5a8c'), w3: hex('#d4e8f4'), wd: hex('#3c74aa'), wl: hex('#5a94c4'),
   // the water's edge: in the shade of the bank, and wet earth catching the light
   wb: hex('#26403e'), we: hex('#728a70'),
   h0: hex('#4a7a46'), h1: hex('#76a058'), h2: hex('#2f573e'), h3: hex('#172e28'),
@@ -142,6 +142,13 @@ function path(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
 
 function water(r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number): void {
   r.rect(ox, oy, TILE, TILE, C.w0);
+  // (deeper and lighter in dabs, like the brush left it)
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const px = tx * TILE + x, py = ty * TILE + y, v = dab(px, py, 75) + patch(px, py, 76, 30) * 0.5;
+      if (v < -0.3) r.set(ox + x, oy + y, C.wd);
+      else if (v > 0.34) r.set(ox + x, oy + y, C.wl);
+    }
   for (let k = 0; k < 3; k++) {
     const x = ox + Math.floor(hash2(tx, ty, 70 + k) * 12) + (phase ? 1 : 0);
     const y = oy + 2 + k * 5 + Math.floor(hash2(tx, ty, 80 + k) * 2);
@@ -149,12 +156,28 @@ function water(r: Raster, ox: number, oy: number, tx: number, ty: number, phase:
   }
   const n = !isWaterCh(tileAt(tx, ty - 1)), s = !isWaterCh(tileAt(tx, ty + 1));
   const w = !isWaterCh(tileAt(tx - 1, ty)), e = !isWaterCh(tileAt(tx + 1, ty));
-  for (let i = 0; i < TILE; i++) {
-    if (n) { r.set(ox + i, oy, C.g3); r.set(ox + i, oy + 1, C.p2); r.set(ox + i, oy + 2, C.wb); r.set(ox + i, oy + 3, C.wb); }
-    if (s) { r.set(ox + i, oy + 15, C.g3); r.set(ox + i, oy + 14, C.p1); r.set(ox + i, oy + 13, C.we); }
-    if (w) { r.set(ox, oy + i, C.g3); r.set(ox + 1, oy + i, C.p1); r.set(ox + 2, oy + i, C.we); }
-    if (e) { r.set(ox + 15, oy + i, C.g3); r.set(ox + 14, oy + i, C.p1); r.set(ox + 13, oy + i, C.we); }
-  }
+  // the banks, ragged: grass fraying 0 to 2 px over them, a dark rim of earth, a lip of pebbles, and
+  // the water's edge (in the bank's shade on the far side, catching the light on the near ones)
+  const bank = (side: number, at: (i: number, d: number) => [number, number], wet: RGB[]) => {
+    for (let i = 0; i < TILE; i++) {
+      const [ax, ay] = at(i, 0), along = side < 3 ? tx * TILE + ax : ty * TILE + ay;
+      const f = Math.floor(hash2(along >> 1, side, 71) * 2.2 + hash2(along, side, 72) * 0.8);
+      let d = 0;
+      for (; d < f; d++) {
+        const [x, y] = at(i, d);
+        r.set(ox + x, oy + y, tone(LAWN, 0.3 + dab(tx * TILE + x, ty * TILE + y, 4) * 0.5));
+      }
+      const put = (c: RGB) => { const [x, y] = at(i, d++); r.set(ox + x, oy + y, c); };
+      put(C.g3);
+      put(hash2(along, side, 73) < 0.35 ? C.p2 : C.p1);
+      for (const c of wet) put(c);
+      if (hash2(along >> 1, side, 74) < 0.3) put(wet[wet.length - 1]);
+    }
+  };
+  if (n) bank(1, (i, d) => [i, d], [C.wb, C.wb]);
+  if (s) bank(2, (i, d) => [i, 15 - d], [C.we]);
+  if (w) bank(3, (i, d) => [d, i], [C.we]);
+  if (e) bank(4, (i, d) => [15 - d, i], [C.we]);
   // round the outside corners
   const corner = (cx: number, cy: number, dx: number, dy: number) => {
     for (let j = 0; j < 4; j++) for (let i = 0; i < 4 - j; i++) r.set(cx + i * dx, cy + j * dy, C.g0);
@@ -218,7 +241,7 @@ function bridge(r: Raster, ox: number, oy: number, tx: number, ty: number, phase
   for (let a = 0; a < TILE; a++)
     for (let b = 2; b < 14; b++) {
       // a: along the walking direction, b: across it
-      const board = a % 4 === 3 ? C.t2 : hash2(tx * TILE + a, ty * TILE + b, 9) < 0.12 ? C.t1 : a % 4 === 0 ? C.f1 : C.t0;
+      const v = dab(tx * TILE + a, ty * TILE + b, 9), board = a % 4 === 3 ? C.t2 : v < -0.28 ? C.t1 : a % 4 === 0 || v > 0.3 ? C.f1 : C.t0;
       const [x, y] = vertical ? [b, a] : [a, b];
       r.set(ox + x, oy + y, b === 2 || b === 13 ? C.t2 : board);
     }
@@ -299,7 +322,7 @@ function fence(r: Raster, ox: number, oy: number, tx: number, ty: number): void 
     for (let p = 0; p < 4; p++) {
       const x = ox + p * 4;
       r.set(x + 1, oy + 1, C.f2);
-      for (let y = 2; y < 15; y++) { r.set(x, y + oy, C.f2); r.set(x + 1, y + oy, C.f0); r.set(x + 2, y + oy, C.f1); }
+      for (let y = 2; y < 15; y++) { r.set(x, y + oy, C.f2); r.set(x + 1, y + oy, dab(tx * TILE + p * 4, ty * TILE + y, 10) < -0.3 ? C.f1 : C.f0); r.set(x + 2, y + oy, C.f1); }
       r.set(x + 1, oy + 2, C.f0); r.set(x, oy + 2, C.f2); r.set(x + 2, oy + 2, C.f2);
       for (let k = 0; k < 3; k++) r.set(x + k, oy + 15, C.f2);
       r.set(x + 3, oy + 15, C.g3);
@@ -323,7 +346,8 @@ function gate(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
   path(r, ox, oy, tx, ty);
   const left = tileAt(tx - 1, ty) !== tileAt(tx, ty);
   r.rect(ox, oy + 3, TILE, 12, C.t1);
-  for (let x = 0; x < TILE; x += 3) r.rect(ox + x, oy + 3, 2, 12, C.t0);
+  for (let x = 0; x < TILE; x += 3)
+    for (let y = 3; y < 15; y++) for (let k = 0; k < 2; k++) r.set(ox + x + k, oy + y, dab(tx * TILE + x + k, ty * TILE + y, 11) > 0.3 ? C.f1 : C.t0);
   r.rect(ox, oy + 7, TILE, 1, C.t2);
   r.rect(ox, oy + 11, TILE, 1, C.t2);
   r.rect(ox, oy + 14, TILE, 1, C.t2);
@@ -535,7 +559,7 @@ const mixRGB = (a: RGB, b: RGB, t: number): RGB => [Math.round(a[0] + (b[0] - a[
 /** Snow in four tones, shadowed blue to sunlit white. */
 export const SNOW: RGB[] = ['#7a8aa8', '#a2b2ca', '#c4d0e0', '#e2eaf4'].map(hex);
 const SNOW_LINE = hex('#56607a');
-const ICE: [RGB, RGB][] = [[C.w0, hex('#a6d4ec')], [C.w1, hex('#e2f4ff')], [C.w2, hex('#7aa8cc')], [C.w3, hex('#f2fbff')], [C.wb, hex('#7aa8cc')], [C.we, hex('#f2fbff')]];
+const ICE: [RGB, RGB][] = [[C.w0, hex('#a6d4ec')], [C.w1, hex('#e2f4ff')], [C.w2, hex('#7aa8cc')], [C.w3, hex('#f2fbff')], [C.wd, hex('#98c8e6')], [C.wl, hex('#b4def2')], [C.wb, hex('#7aa8cc')], [C.we, hex('#f2fbff')]];
 /** Everything green or earthy that snow settles on, and the flowers that are gone under it. */
 const SNOWY: RGB[] = [
   C.g0, C.g1, C.g2, C.g3, C.g4, C.g5, C.daisy, C.clover, C.yellow, C.orange, C.p0, C.p1, C.p2,
@@ -664,7 +688,7 @@ function shadeUnderCliffs(r: Raster, ox = 0, oy = 0): void {
 /** Opaque where the pond shows open water (not shore, not lily pads). */
 export function buildWaterMask(g0: Raster, g1: Raster): Raster {
   const m = new Raster(g0.w, g0.h);
-  const open = new Set([key(C.w0), key(C.w1)]);
+  const open = new Set([key(C.w0), key(C.w1), key(C.wd), key(C.wl)]);
   const isWater = (r: Raster, i: number) => open.has((r.data[i] << 16) | (r.data[i + 1] << 8) | r.data[i + 2]);
   for (let y = 0; y < m.h; y++)
     for (let x = 0; x < m.w; x++) {

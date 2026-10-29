@@ -4,6 +4,7 @@
 // with the ground in art/tiles.ts). Drawn in square pieces, only where the line passes.
 
 import { Raster, hash2, hex, type RGB } from './raster.ts';
+import { dab } from './paint.ts';
 import { trackPoints } from '../world/track.ts';
 import { isWaterway } from '../world/legend.ts';
 import { tileAt } from '../world/map.ts';
@@ -17,7 +18,8 @@ const BED = 6, SLEEPER = 5.5, GAUGE = 3;
 /** Sleepers this far apart along the line (px). */
 const SLEEPER_EVERY = 5;
 
-const GRAVEL: RGB[] = [hex('#8a8478'), hex('#a09a8c'), hex('#6e685e'), hex('#b4ae9e')];
+// (dark and cool to light and warm, laid in dabs)
+const GRAVEL: RGB[] = [hex('#625a62'), hex('#857c78'), hex('#a0968a'), hex('#bab09e')];
 const WOOD = { d: hex('#4a2e1a'), b: hex('#6e4426'), l: hex('#8a5a32') };
 const STEEL = { d: hex('#4e5058'), b: hex('#8a8c96'), l: hex('#d0d4dc') };
 
@@ -103,7 +105,7 @@ export function buildRailway(cx: number, cy: number, part: 'ground' | 'water', s
     if (wet(x, y)) return;
     for (let k = -BED; k <= BED; k += 0.5) {
       const px = x + nx * k, py = y + ny * k;
-      if (!wet(px, py)) put(px, py, GRAVEL[Math.floor(hash2(Math.round(px), Math.round(py), 1901) * GRAVEL.length)]);
+      if (!wet(px, py)) put(px, py, GRAVEL[Math.max(0, Math.min(3, Math.floor((0.55 + dab(Math.round(px), Math.round(py), 1901)) * GRAVEL.length)))]);
     }
   });
   // sleepers
