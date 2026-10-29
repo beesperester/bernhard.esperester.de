@@ -72,5 +72,4 @@ export const ICONS = {
   'bubble-mew': () => make(NOTE),
   you: () => make(YOU),
   shadow: () => make(SHADOW),
-  mote: () => make(['m']),
 };

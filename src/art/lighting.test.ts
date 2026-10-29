@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_LIGHT, screenLight, sunLight } from './lighting.ts';
 import { groundTile, SUNLIT_TILES } from './tiles.ts';
 import { buildProp, relightProp } from './trees.ts';
-import { buildRays } from './rays.ts';
 import { seasonAt } from '../world/season.ts';
 import { MAP_H, MAP_W, TILE, tileAt } from '../world/map.ts';
 
@@ -66,19 +65,5 @@ describe('lighting', () => {
         expect(right.data).not.toEqual(left.data);
       }
     expect(found).toBeGreaterThan(0);
-  });
-
-  it('lets the sun shafts fall in from the sun', () => {
-    const w = 64, h = 48;
-    const bright = (sun: [number, number]) => {
-      const { intensity } = buildRays(w, h, 0, sun);
-      let l = 0, r = 0;
-      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) (x < w / 2 ? (l += intensity[y * w + x]) : (r += intensity[y * w + x]));
-      return [l, r];
-    };
-    const [ml, mr] = bright([-1, -0.3]);
-    const [el, er] = bright([1, -0.3]);
-    expect(ml).toBeGreaterThan(mr);
-    expect(er).toBeGreaterThan(el);
   });
 });

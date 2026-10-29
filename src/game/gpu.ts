@@ -13,7 +13,7 @@ export type Uniforms = Record<string, number | number[]>;
  * built up from the 2×2 one; vnoise(p, s) is smooth value noise in [0,1) like paint.ts' noise()
  * (not the same values: a GPU hash, not hash2).
  */
-const COMMON = `
+export const COMMON = `
 float m2(vec2 p) { return mod(2.0 * p.x + 3.0 * p.y, 4.0); }
 float bayer(vec2 p) {
   vec2 a = mod(p, 4.0);
