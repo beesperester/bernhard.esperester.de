@@ -1,7 +1,7 @@
 // A sheet of the park's trees, to look the art over before it goes into the
-// game: small, medium and big broadleaves, pines and the tree house tree, as
-// they stand and with their leaves in front faded away (a cat up them), and
-// through the seasons.
+// game: small, medium and big broadleaves and pines, as they stand and with
+// their leaves in front taken away (a cat up them), and through the seasons;
+// and the sheet of puffs of leaves they are made from.
 //
 //   npx tsx tools/tree-sheet.ts [out dir]   (default: preview/)
 import { deflateSync } from 'node:zlib';
@@ -10,7 +10,7 @@ import { plant } from '../src/world/seed.ts';
 
 plant({ seed: Number(process.env.SEED ?? 8919), born: 0 });
 const { Raster, hex } = await import('../src/art/raster.ts');
-const { buildProp } = await import('../src/art/trees.ts');
+const { buildProp, puffSheet } = await import('../src/art/trees.ts');
 const { TREES } = await import('../src/world/trees.ts');
 const { treeSizeAt } = await import('../src/world/layout.ts');
 const { seasonAt } = await import('../src/world/season.ts');
@@ -86,4 +86,5 @@ function sheet(rows: { season: keyof typeof dates; front: boolean }[]): Raster {
 
 writeFileSync(`${out}/trees-summer.png`, png(sheet([{ season: 'summer', front: true }, { season: 'summer', front: false }]), 2));
 writeFileSync(`${out}/trees-seasons.png`, png(sheet([{ season: 'spring', front: true }, { season: 'autumn', front: true }, { season: 'winter', front: true }]), 1));
+writeFileSync(`${out}/leaves.png`, png(puffSheet(), 3));
 console.log('ok', out, picks.map((i) => `${TREES[i].shape}/${treeSizeAt(TREES[i].tx, TREES[i].ty)}`).join(' '));

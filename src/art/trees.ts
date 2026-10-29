@@ -8,6 +8,7 @@ import { SEASON, type Season } from '../world/season.ts';
 import { DEFAULT_LIGHT, type ScreenLight } from './lighting.ts';
 import { SNOW, bayer } from './tiles.ts';
 import { dab, patch, noise } from './paint.ts';
+import { puff, PUFF_SHAPES, PUFF_SIZES } from './leaves.ts';
 import { TREES, type Blob, type Perch, type TreePlan } from '../world/trees.ts';
 
 export interface Prop {
@@ -72,30 +73,6 @@ const HOLE = hex('#1c120c');
 /** The tree house's window. */
 const PANE = ['#fff2b0', '#e8c060'].map(hex);
 
-/**
- * Single leaves, subtly drawn into the leafy texture: little pointed ovals
- * on a staggered grid, each tilted its own way, lit along its upper edge and
- * shaded along its lower one (-1 .. 1, 0 between them).
- */
-function leafAt(x: number, y: number, seed: number): number {
-  // (the rows of leaves wander up and down and sideways, so they never line up across a crown)
-  const wx = x + patch(x, y, seed + 1336, 14) * 6, wy = y + patch(x, y, seed + 1337, 11) * 5;
-  const W = 6, H = 4;
-  const row = Math.floor(wy / H), col = Math.floor((wx + (row % 2) * (W / 2)) / W);
-  // (here and there no leaf at all, and where the leaves show at all comes and goes in soft patches)
-  const show = 0.5 + patch(x, y, seed + 1338, 18) * 1.6;
-  if (hash2(col, row, seed + 1333) > show) return 0;
-  // (each leaf a little off its spot, its own size)
-  const cx = col * W - (row % 2) * (W / 2) + W / 2 + (hash2(col, row, seed + 1330) - 0.5) * 3;
-  const cy = row * H + H / 2 + (hash2(col, row, seed + 1331) - 0.5) * 1.6;
-  const tilt = (hash2(col, row, seed + 1332) - 0.5) * 1.6, big = 0.8 + hash2(col, row, seed + 1334) * 0.45;
-  const dx = wx + 0.5 - cx, dy = wy + 0.5 - cy - dx * tilt * 0.5;
-  // a pointed oval, about 2.6 px either way and 1.4 up and down
-  const u = dx / (2.6 * big), v = dy / (1.4 * big * (1 - Math.abs(u) * 0.4));
-  if (u * u + v * v > 1) return -0.1;
-  return v < -0.35 ? 0.55 : v > 0.45 ? -0.4 : 0.1;
-}
-
 /** A spruce's needles: fine strokes slanting down and outward from the trunk (-0.4 in a stroke's shadow .. 0.3). */
 function needleAt(x: number, y: number, mid: number, seed: number): number {
   const side = x < mid ? 1 : -1, d = x + y * side, k = ((d % 7) + 7) % 7;
@@ -126,43 +103,100 @@ function lean(p: RGB[], warm: boolean): RGB[] {
 /** A broad brush stroke of warmer or cooler colour laid across a crown (in crown units, -1..1). */
 interface Stroke { x: number; y: number; ux: number; uy: number; len: number; wide: number; soft: number; warm: boolean }
 
+/** Numbers kept for shading are rounded to this, so they pack into 16 bits. */
+const Q = 4096;
+const fix = (v: number) => Math.max(-32768, Math.min(32767, Math.round(v * Q)));
+/** A lit pixel's flags: it is one, a leaf (else bark), on a puff's rim, mossy. */
+const SET = 8, LEAF = 1, RIM = 2, MOSSY = 4;
 /**
- * What a pixel needs to be shaded again: a leaf knows its palette, which way
- * its clump curves there (nx, ny) and where the clump sits in the crown (cx,
- * cy), plus fixed noise; bark knows where across the trunk it is.
+ * While a tree is drawn, a lit pixel is only marked (this alpha), and shaded once at the end: puffs
+ * of leaves lie over each other many times. Anything else drawn over it (alpha 255) unmarks it.
  */
-export type LitPixel =
-  | { leaf: true; pal: RGB[]; nx: number; ny: number; cx: number; cy: number; jit: number; speck: number; rim: boolean }
-  | { leaf: false; u: number; g: number; moss: boolean };
+const LIT = 254, UNSHADED: RGB = [0, 0, 0];
 
-/** A leaf's tone (0 highlight .. 3 dark) in light L. */
-function leafTone(p: Extract<LitPixel, { leaf: true }>, L: ScreenLight): number {
-  const facing = p.nx * L.x + p.ny * L.y;
-  // the soft dark rim of a clump, on its side away from the light
-  if (p.rim && facing < 0.15) return 3;
-  const l = facing * L.k + (p.cx * L.x + p.cy * L.y) * 0.8 * L.k + p.jit;
-  let tone = l > 0.55 ? 0 : l > 0.05 ? 1 : l > -0.45 ? 2 : 3;
-  // leaf speckle
-  // (pale dabs where the leaves turn up to the sky)
-  if ((p.speck < 0.07 || (p.speck < 0.16 && p.ny < -0.25)) && tone > 0) tone--;
-  else if (p.speck > 0.95 && tone < 3) tone++;
-  return tone;
-}
-
-/** A bark colour in light L: the trunk is round, lit on the side towards the light. */
-function barkColour(p: Extract<LitPixel, { leaf: false }>, L: ScreenLight): RGB {
-  // (round across, and rough: the ridges of the bark (g > 0) stand into the light, the furrows (g < 0) sink from it)
-  const v = (p.u - 0.5) * 2 * L.x * L.k + p.g;
-  if (p.moss) return MOSS[v > 0.3 ? 0 : v > -0.1 ? 1 : v > -0.5 ? 2 : 3];
-  if (p.g < -0.45) return BARK_CRACK;
+/**
+ * What a pixel needs to be shaded again, packed as 16-bit fixed point at f[o..o+5]: a leaf knows
+ * its palette, which way its puff curves there (nx, ny), where it sits in the crown (cx, cy), its
+ * texture and speck; bark knows where across the trunk it is (u) and how rough it is there (g).
+ */
+function shade(fl: number, pal: RGB[] | undefined, f: Int16Array, o: number, L: ScreenLight): RGB {
+  if (fl & LEAF) {
+    const nx = f[o] / Q, ny = f[o + 1] / Q, speck = f[o + 5] / Q;
+    const facing = nx * L.x + ny * L.y;
+    // the soft dark rim of a puff, on its side away from the light
+    if (fl & RIM && facing < 0.15) return pal![3];
+    const l = facing * L.k + ((f[o + 2] / Q) * L.x + (f[o + 3] / Q) * L.y) * 0.8 * L.k + f[o + 4] / Q;
+    let tone = l > 0.55 ? 0 : l > 0.05 ? 1 : l > -0.45 ? 2 : 3;
+    // leaf speckle (pale dabs where the leaves turn up to the sky)
+    if ((speck < 0.07 || (speck < 0.16 && ny < -0.25)) && tone > 0) tone--;
+    else if (speck > 0.95 && tone < 3) tone++;
+    return pal![tone];
+  }
+  // bark: round across, and rough: the ridges (g > 0) stand into the light, the furrows (g < 0) sink from it
+  const u = f[o] / Q, g = f[o + 1] / Q, v = (u - 0.5) * 2 * L.x * L.k + g;
+  if (fl & MOSSY) return MOSS[v > 0.3 ? 0 : v > -0.1 ? 1 : v > -0.5 ? 2 : 3];
+  if (g < -0.45) return BARK_CRACK;
   return v > 0.55 ? BARK_SHINE : v > 0.12 ? BARK[0] : v > -0.35 ? BARK[1] : BARK[2];
 }
 
-const litColour = (p: LitPixel, L: ScreenLight): RGB => (p.leaf ? p.pal[leafTone(p, L)] : barkColour(p, L));
+/** The lit pixels of a picture being drawn, one slot for each of its pixels. */
+class Lit {
+  readonly fl: Uint8Array;
+  readonly pi: Uint8Array;
+  readonly f: Int16Array;
+  readonly pals: RGB[][] = [];
 
-/** Numbers kept for shading are rounded to this, so they pack into 16 bits and shade the same packed as not. */
-const Q = 4096;
-const q = (v: number) => Math.max(-32768, Math.min(32767, Math.round(v * Q))) / Q;
+  constructor(n: number) {
+    this.fl = new Uint8Array(n);
+    this.pi = new Uint8Array(n);
+    this.f = new Int16Array(n * 6);
+  }
+
+  /** Pal's number among this picture's palettes. */
+  palIndex(pal: RGB[]): number {
+    let k = this.pals.indexOf(pal);
+    if (k < 0) k = this.pals.push(pal) - 1;
+    return k;
+  }
+
+  leaf(i: number, pal: RGB[], nx: number, ny: number, cx: number, cy: number, jit: number, speck: number, rim: boolean): void {
+    const f = this.f, o = i * 6;
+    this.fl[i] = SET | LEAF | (rim ? RIM : 0);
+    this.pi[i] = this.palIndex(pal);
+    f[o] = fix(nx); f[o + 1] = fix(ny); f[o + 2] = fix(cx); f[o + 3] = fix(cy); f[o + 4] = fix(jit); f[o + 5] = fix(speck);
+  }
+
+  bark(i: number, u: number, g: number, moss: boolean): void {
+    const f = this.f, o = i * 6;
+    this.fl[i] = SET | (moss ? MOSSY : 0);
+    f[o] = fix(u); f[o + 1] = fix(g);
+  }
+
+  /** The palette of the leaf at pixel i (null: no leaf there). */
+  palette(i: number): RGB[] | null {
+    return this.fl[i] & LEAF ? this.pals[this.pi[i]] : null;
+  }
+
+  colour(i: number, L: ScreenLight): RGB {
+    return shade(this.fl[i], this.pals[this.pi[i]], this.f, i * 6, L);
+  }
+
+  /** Just those still lit (and in `keep`, if given), packed. */
+  pack(keep?: Uint8Array): LitPixels {
+    let n = 0;
+    for (let i = 0; i < this.fl.length; i++) if (this.fl[i] && (!keep || keep[i])) n++;
+    const out = new LitPixels(n, this.pals);
+    for (let i = 0, k = 0; i < this.fl.length; i++) {
+      if (!this.fl[i] || (keep && !keep[i])) continue;
+      out.at[k] = i;
+      out.flags[k] = this.fl[i];
+      out.pal[k] = this.pi[i];
+      out.f.set(this.f.subarray(i * 6, i * 6 + 6), k * 6);
+      k++;
+    }
+    return out;
+  }
+}
 
 /**
  * A prop's lit pixels, packed (a park has hundreds of trees with thousands of
@@ -170,47 +204,49 @@ const q = (v: number) => Math.max(-32768, Math.min(32767, Math.round(v * Q))) / 
  */
 export class LitPixels {
   readonly at: Int32Array;
-  private readonly flags: Uint8Array;
-  private readonly pal: Uint8Array;
-  private readonly pals: RGB[][] = [];
-  private readonly f: Int16Array;
+  readonly flags: Uint8Array;
+  readonly pal: Uint8Array;
+  readonly f: Int16Array;
+  readonly pals: RGB[][];
 
-  constructor(lit: Map<number, LitPixel>) {
-    const n = lit.size;
+  constructor(n: number, pals: RGB[][]) {
     this.at = new Int32Array(n);
     this.flags = new Uint8Array(n);
     this.pal = new Uint8Array(n);
     this.f = new Int16Array(n * 6);
-    let k = 0;
-    for (const [i, p] of lit) {
-      this.at[k] = i;
-      const f = this.f, o = k * 6;
-      if (p.leaf) {
-        let pi = this.pals.indexOf(p.pal);
-        if (pi < 0) pi = this.pals.push(p.pal) - 1;
-        this.pal[k] = pi;
-        this.flags[k] = 1 | (p.rim ? 2 : 0);
-        [p.nx, p.ny, p.cx, p.cy, p.jit, p.speck].forEach((v, j) => (f[o + j] = Math.round(v * Q)));
-      } else {
-        this.flags[k] = p.moss ? 4 : 0;
-        f[o] = Math.round(p.u * Q);
-        f[o + 1] = Math.round(p.g * Q);
-      }
-      k++;
-    }
+    this.pals = pals;
   }
 
   get size(): number {
     return this.at.length;
   }
 
-  /** The k-th pixel, unpacked. */
-  pixel(k: number): LitPixel {
-    const f = this.f, o = k * 6, fl = this.flags[k];
-    return fl & 1
-      ? { leaf: true, pal: this.pals[this.pal[k]], nx: f[o] / Q, ny: f[o + 1] / Q, cx: f[o + 2] / Q, cy: f[o + 3] / Q, jit: f[o + 4] / Q, speck: f[o + 5] / Q, rim: !!(fl & 2) }
-      : { leaf: false, u: f[o] / Q, g: f[o + 1] / Q, moss: !!(fl & 4) };
+  /** The k-th pixel's colour in light L. */
+  colour(k: number, L: ScreenLight): RGB {
+    return shade(this.flags[k], this.pals[this.pal[k]], this.f, k * 6, L);
   }
+}
+
+/** The sheet of puffs the trees are made from, each size in a row, shaded as they'd be in the middle of a crown. */
+export function puffSheet(pal: RGB[] = CANOPIES[0].c): Raster {
+  const PAD = 4, rows = PUFF_SIZES.map((r) => Array.from({ length: PUFF_SHAPES }, (_, k) => puff(r, k)));
+  const W = Math.max(...rows.map((row) => row.reduce((a, p) => a + p.w + PAD, PAD)));
+  const out = new Raster(W, rows.reduce((a, row) => a + row[0].w + PAD, PAD));
+  const lit = new Lit(1);
+  let y = PAD;
+  for (const row of rows) {
+    let x = PAD;
+    for (const p of row) {
+      for (let i = 0; i < p.w * p.w; i++)
+        if (p.on[i]) {
+          lit.leaf(0, pal, p.nx[i], p.ny[i], 0, 0, p.jit[i], p.speck[i], p.rim[i] === 1);
+          out.set(x + (i % p.w), y + Math.floor(i / p.w), lit.colour(0, DEFAULT_LIGHT));
+        }
+      x += p.w + PAD;
+    }
+    y += row[0].w + PAD;
+  }
+  return out;
 }
 
 /** Shade a prop's lit pixels for light L (in place). */
@@ -220,7 +256,7 @@ export function relightProp(prop: Prop, L: ScreenLight): void {
     const w = raster.w;
     for (let k = 0; k < lit.size; k++) {
       const i = lit.at[k];
-      raster.set(i % w, Math.floor(i / w), litColour(lit.pixel(k), L));
+      raster.set(i % w, Math.floor(i / w), lit.colour(k, L));
     }
   }
 }
@@ -228,9 +264,7 @@ export function relightProp(prop: Prop, L: ScreenLight): void {
 /** One of a tree's two pictures being drawn. */
 interface Layer {
   r: Raster;
-  lit: Map<number, LitPixel>;
-  /** Which palette each leafy pixel was painted from, for its outline. */
-  painted: Map<number, RGB[]>;
+  lit: Lit;
 }
 
 /** A cloud of leaves to draw in three goes: its back, its middle (on the branches), its front. */
@@ -245,8 +279,7 @@ class Sketch {
   /** Which of them is being drawn on. */
   private cur = 0;
   get r(): Raster { return this.layers[this.cur].r; }
-  get lit(): Map<number, LitPixel> { return this.layers[this.cur].lit; }
-  get painted(): Map<number, RGB[]> { return this.layers[this.cur].painted; }
+  get lit(): Lit { return this.layers[this.cur].lit; }
   readonly W: number;
   readonly H: number;
   /** The trunk's middle. */
@@ -264,7 +297,7 @@ class Sketch {
     this.W = t.w;
     this.H = t.h;
     this.cx = t.w / 2;
-    const layer = (): Layer => ({ r: new Raster(t.w, t.h), lit: new Map(), painted: new Map() });
+    const layer = (): Layer => ({ r: new Raster(t.w, t.h), lit: new Lit(t.w * t.h) });
     this.layers = [layer(), layer()];
     this.rnd = mulberry32(t.seed * 977 + t.colour * 13);
   }
@@ -346,7 +379,7 @@ class Sketch {
   }
 
   /** The palette a leaf pixel at (x, y) takes: its own, unless a stroke lies over it. */
-  private stroked(x: number, y: number, pal: RGB[]): RGB[] {
+  stroked(x: number, y: number, pal: RGB[]): RGB[] {
     // (only on green leaves and needles: blossom and autumn colours have their own)
     const greens = [CANOPIES[0].c, CANOPIES[1].c, CANOPIES[3].c, NEEDLES];
     if (!greens.some((g) => g === pal || backs.get(g) === pal)) return pal;
@@ -362,47 +395,35 @@ class Sketch {
     return pal;
   }
 
-  /** A shaded leaf pixel. */
+  /** A shaded needle pixel (a spruce's: their fine grain, no speckle, drawn in broad strokes). */
   leaf(x: number, y: number, pal: RGB[], nx: number, ny: number, rim: boolean, salt: number): void {
-    if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
-    pal = this.stroked(x, y, pal);
     const { crown, t } = this;
-    const px: LitPixel = {
-      leaf: true, pal, nx: q(nx), ny: q(ny), cx: q((x - crown.x) / crown.rx), cy: q((y - crown.y) / crown.ry),
-      // (needles keep their fine grain; leaves come in dabs, little clusters of them catching the light)
-      jit: q(this.bias + (t.shape === 'pine' ? needleAt(x, y, crown.x, t.seed) + (hash2(x >> 1, y >> 1, t.seed + salt) - 0.5) * 0.1 : dab(x, y, t.seed + salt) * 0.45 + leafAt(x, y, t.seed) * 0.35)),
-      // (needles without speckle: a spruce is drawn in broad strokes)
-      speck: q(t.shape === 'pine' ? 0.5 : hash2(x, y, t.seed * 7 + salt)), rim,
-    };
-    this.lit.set(y * this.W + x, px);
-    this.r.set(x, y, litColour(px, DEFAULT_LIGHT));
-    this.painted.set(y * this.W + x, pal);
+    this.leafPx(x, y, pal, nx, ny, rim, needleAt(x, y, crown.x, t.seed) + (hash2(x >> 1, y >> 1, t.seed + salt) - 0.5) * 0.1, 0.5);
   }
 
-  /** A round clump of leaves; nothing above row `cut` (a cushion's flat top). */
+  /** A shaded leaf pixel, its texture `jit` and speck given. */
+  private leafPx(x: number, y: number, pal: RGB[], nx: number, ny: number, rim: boolean, jit: number, speck: number): void {
+    if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
+    const { crown } = this;
+    this.lit.leaf(y * this.W + x, pal, nx, ny, (x - crown.x) / crown.rx, (y - crown.y) / crown.ry, this.bias + jit, speck, rim);
+    this.r.set(x, y, UNSHADED, LIT);
+  }
+
+  /** A puff of leaves off the sheet (art/leaves.ts), stamped at c; nothing above row `cut` (a cushion's flat top). */
   clump(c: Clump, pal: RGB[], cut = -Infinity, seam = false): void {
-    const salt = this.clumps * 31;
-    // (ragged, leafy edges: the outline goes in and out round the clump, leaf tips poking out)
-    const n = Math.max(8, Math.round(c.r * 2.2)), jag = Math.min(2.5, c.r * 0.3);
-    // (and, for leaves, swelling and pinched in broad lobes, so no patch is quite round)
-    const lobes = pal === NEEDLES ? 0 : 1, p2 = hash2(salt, 1, 1321) * 6.3, p3 = hash2(salt, 2, 1321) * 6.3;
-    const edge = (dx: number, dy: number) => {
-      const t = Math.atan2(dy, dx), u = ((t / (Math.PI * 2) + 1) * n) % n, k = Math.floor(u), f = u - k;
-      const a = hash2(k, salt, 1320), b = hash2((k + 1) % n, salt, 1320);
-      return c.r * (1 + lobes * (0.17 * Math.sin(2 * t + p2) + 0.11 * Math.sin(3 * t + p3))) + (a + (b - a) * f - 0.5) * jag * 2;
-    };
-    const R = c.r * 1.3 + jag;
-    for (let y = Math.floor(c.y - R); y <= c.y + R; y++) {
-      if (y < cut) continue;
-      for (let x = Math.floor(c.x - R); x <= c.x + R; x++) {
-        const dx = x + 0.5 - c.x, dy = y + 0.5 - c.y, d = Math.hypot(dx, dy);
-        const e = edge(dx, dy);
-        if (d > e) continue;
-        // a flat top faces up
-        const flat = y === cut ? 0.6 : 0;
-        this.leaf(x, y, pal, (dx / e) * (1 - flat), (dy / e) * (1 - flat) - flat, d > e - 1.2, salt);
+    const p = puff(c.r, Math.floor(hash2(this.clumps, this.t.seed, 1322) * PUFF_SHAPES)), R = (p.w - 1) / 2;
+    const ox = Math.round(c.x) - R, oy = Math.round(c.y) - R;
+    for (let y = 0; y < p.w; y++) {
+      const Y = oy + y;
+      if (Y < cut) continue;
+      // a flat top faces up
+      const flat = Y === cut ? 0.6 : 0;
+      for (let x = 0; x < p.w; x++) {
+        const i = y * p.w + x;
+        if (!p.on[i]) continue;
+        this.leafPx(ox + x, Y, pal, p.nx[i] * (1 - flat), p.ny[i] * (1 - flat) - flat, p.rim[i] === 1, p.jit[i], p.speck[i]);
         // a puff in front of others shows its round underside against them
-        if (seam && d > e - 1 && dy > e * 0.35 && Math.abs(dx) < e * 0.8) this.r.set(x, y, pal[3]);
+        if (seam && p.seam[i]) this.r.set(ox + x, Y, pal[3]);
       }
     }
   }
@@ -431,9 +452,8 @@ class Sketch {
     g -= deep * 0.55;
     // moss on the shady side, in soft patches, thicker low down (ragged at its edges)
     const m = patch(x, y, seed + 1375, 12) + (u - 0.5) * 0.9 + mossy * 0.35 + dab(x, y, seed + 1376) * 0.25;
-    const px: LitPixel = { leaf: false, u: q(u), g: q(g), moss: mossy > 0 && m > 0.62 && !crack };
-    this.lit.set(y * this.W + x, px);
-    this.r.set(x, y, litColour(px, DEFAULT_LIGHT));
+    this.lit.bark(y * this.W + x, u, g, mossy > 0 && m > 0.62 && !crack);
+    this.r.set(x, y, UNSHADED, LIT);
   }
 
   /** The trunk from the ground up to height `top`, `half` px wide either side at height z, flaring into roots. */
@@ -696,33 +716,38 @@ class Sketch {
     const [base, front] = this.layers.map((l) => this.finishLayer(l));
     return {
       raster: base.r, lit: base.lit, front: front.r.data.some((v, i) => i % 4 === 3 && v > 0) ? { raster: front.r, lit: front.lit } : undefined,
-      mid: this.midMask ? this.cutMiddle(base, this.midMask) : undefined,
+      mid: this.midMask ? this.cutMiddle(base.r, this.layers[0].lit, this.midMask) : undefined,
       x: t.x - W / 2, y: t.y - (H - 1) - t.elev, depthY: t.y, kind: t.shape === 'pine' ? 4 : t.colour, plan: t,
     };
   }
 
   /** The tree's middle, out of the finished tree from the back. */
-  private cutMiddle(base: { r: Raster; lit: LitPixels }, mask: Uint8Array): { raster: Raster; lit: LitPixels } {
-    const { W, H } = this, r = new Raster(W, H), lit = new Map<number, LitPixel>();
-    for (let i = 0; i < W * H; i++) if (mask[i]) for (let k = 0; k < 4; k++) r.data[i * 4 + k] = base.r.data[i * 4 + k];
-    for (let k = 0; k < base.lit.size; k++) if (mask[base.lit.at[k]]) lit.set(base.lit.at[k], base.lit.pixel(k));
-    return { raster: r, lit: new LitPixels(lit) };
+  private cutMiddle(base: Raster, lit: Lit, mask: Uint8Array): { raster: Raster; lit: LitPixels } {
+    const { W, H } = this, r = new Raster(W, H);
+    for (let i = 0; i < W * H; i++) if (mask[i]) for (let k = 0; k < 4; k++) r.data[i * 4 + k] = base.data[i * 4 + k];
+    return { raster: r, lit: lit.pack(mask) };
   }
 
   /** Outline a layer's leaves, lay snow on it, and keep what is still as shaded. */
-  private finishLayer({ r, lit, painted }: Layer): { r: Raster; lit: LitPixels } {
+  private finishLayer({ r, lit }: Layer): { r: Raster; lit: LitPixels } {
     const { W, H, season, t } = this;
-    const leafy = (x: number, y: number) => painted.has(y * W + x) && r.isSet(x, y);
+    // what is still as drawn stays lit (not where branches, fruit or the house went over it), its leaves
+    // in the colour strokes across the crown
+    for (let i = 0; i < W * H; i++) {
+      if (!lit.fl[i]) continue;
+      if (r.data[i * 4 + 3] !== LIT) lit.fl[i] = 0;
+      else if (lit.fl[i] & LEAF) lit.pi[i] = lit.palIndex(this.stroked(i % W, Math.floor(i / W), lit.pals[lit.pi[i]]));
+    }
+    const leafy = (x: number, y: number) => lit.fl[y * W + x] & LEAF;
     const edge: [number, number][] = [];
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++)
         // (shaded along the lower and the far edges, the way the light falls; no hard outline)
         if (leafy(x, y) && (!r.isSet(x + 1, y) || !r.isSet(x, y + 1) || (!r.isSet(x - 1, y) && !r.isSet(x, y - 1) && hash2(x, y, 1333) < 0.3))) edge.push([x, y]);
     for (const [x, y] of edge) {
-      const k = (y * W + x) * 4, pal = painted.get(y * W + x)!;
-      // (only over leaves still showing: not over a branch or the house drawn on top)
-      const c = litColour(lit.get(y * W + x) ?? { leaf: false, u: 0, g: 0, moss: false }, DEFAULT_LIGHT);
-      if (r.data[k] === c[0] && r.data[k + 1] === c[1] && r.data[k + 2] === c[2]) r.set(x, y, pal[t.shape === 'pine' ? 4 : 3]);
+      const pal = lit.palette(y * W + x)!;
+      r.set(x, y, pal[t.shape === 'pine' ? 4 : 3]);
+      lit.fl[y * W + x] = 0;
     }
     // snow lying along the tops of the branches, the boughs and the roofs
     if (season.snow > 0)
@@ -733,11 +758,13 @@ class Sketch {
             if (r.isSet(x, y + 1) && hash2(x, y, t.seed + 1305) < 0.5) r.set(x, y + 1, SNOW[1]);
           }
     // only what is still as it was shaded stays lit (outlines, branches, fruit and snow were painted over it)
-    for (const [i, px] of lit) {
-      const c = litColour(px, DEFAULT_LIGHT), k = i * 4;
-      if (r.data[k] !== c[0] || r.data[k + 1] !== c[1] || r.data[k + 2] !== c[2]) lit.delete(i);
+    // and shaded, at last
+    for (let i = 0; i < W * H; i++) {
+      if (!lit.fl[i]) continue;
+      if (r.data[i * 4 + 3] !== LIT) lit.fl[i] = 0;
+      else r.set(i % W, Math.floor(i / W), lit.colour(i, DEFAULT_LIGHT));
     }
-    return { r, lit: new LitPixels(lit) };
+    return { r, lit: lit.pack() };
   }
 }
 
@@ -754,7 +781,7 @@ function bough(s: Sketch, p: Perch, thick: number): void {
 
 /** Apples or blossom dotted over the leaves. */
 function dots(s: Sketch): void {
-  const { t, season, r, painted, W } = s;
+  const { t, season, r, lit, W } = s;
   // (and now and then a green tree in leaf is sprinkled with little blossoms of its own)
   const whimsy = t.colour < 2 && season.leaves > 0.6 && season.turn < 0.3 && hash2(t.seed, 4, 1360) < 0.35;
   const colours = t.colour === 3 ? (season.appleBlossom > 0.3 ? [hex('#ffffff'), hex('#f8d8e8')] : season.apples > 0.3 ? CANOPIES[3].dots : undefined)
@@ -762,9 +789,9 @@ function dots(s: Sketch): void {
   if (!colours) return;
   for (let k = 0; k < (W * s.H) / (whimsy ? 400 : 120); k++) {
     const x = Math.floor(s.rnd() * W), y = Math.floor(s.rnd() * s.H);
-    if (!painted.has(y * W + x - 1) || !painted.has((y + 2) * W + x + 2)) continue;
+    if (!lit.palette(y * W + x - 1) || !lit.palette((y + 2) * W + x + 2)) continue;
     const c = colours[k % colours.length];
-    r.set(x, y, c); r.set(x + 1, y, c); r.set(x, y + 1, c); r.set(x + 1, y + 1, painted.get(y * W + x)?.[3] ?? c);
+    r.set(x, y, c); r.set(x + 1, y, c); r.set(x, y + 1, c); r.set(x + 1, y + 1, lit.palette(y * W + x)?.[3] ?? c);
   }
 }
 
