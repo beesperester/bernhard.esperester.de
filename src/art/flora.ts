@@ -7,6 +7,7 @@ import { UNDERGROWTH } from './undergrowth.ts';
 import { SEASON } from '../world/season.ts';
 import { drabFor } from './tiles.ts';
 import { groundOf, isPond } from '../world/legend.ts';
+import { trackside } from '../world/track.ts';
 
 export const LEANS = 5;
 
@@ -180,6 +181,8 @@ export function placeFlora(): Plant[] {
 function undergrowth(tx: number, ty: number, h: number, at: (kind: number, tx: number, ty: number, k: number) => void): boolean {
   const biome = biomeAt(tx, ty);
   if (!biome) return false;
+  // (none by the railway: they'd stand over the rails)
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (trackside(tx + dx, ty + dy)) return false;
   const n = (size: number, s: number) => noise(tx / size, ty / size, s);
   const wall = nearClearing(tx, ty), key = ty * MAP_W + tx;
   if (n(5, 503) > (wall ? 0.42 : 0.68) && h < (wall ? 0.85 : 0.6)) {

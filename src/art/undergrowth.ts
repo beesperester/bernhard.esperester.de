@@ -47,7 +47,7 @@ function frond(r: Raster, ox: number, w: number, h: number, lean: number, pts: [
     const nx = -dy / L, ny = dx / L;
     const X = Math.round(x + sway(y)), Y = Math.round(y);
     put(r, ox, w, X, Y, col(0.25 + t * 0.2, X, Y));
-    if (s % every || t < 0.12) continue;
+    if (s % every || t < 0.06) continue;
     const n = Math.max(1, Math.round(leaf * (1 - t) + 0.8));
     for (const side of [1, -1])
       for (let j = 1; j <= n; j++) {
@@ -69,15 +69,15 @@ function fern(key: string, w: number, h: number, fronds: Frond[], greens: readon
       const col = (v: number, x: number, y: number) => mix(tone(greens, v + dab(x, y, seed) * 0.35), tone(RUST, v + dab(x, y, seed) * 0.35), rust);
       // the outer fronds first, the upright ones over them
       for (const f of [...fronds].sort((a, b) => Math.abs(b.tx) - Math.abs(a.tx)))
-        frond(r, ox, w, h, lean, [cx, foot, cx + f.tx * 0.3, foot - f.bow, cx + f.tx, foot - f.ty], 2.4, 3, col);
+        frond(r, ox, w, h, lean, [cx, foot, cx + f.tx * 0.45, foot - f.bow, cx + f.tx, foot - f.ty], 2.4, 3, col);
     },
   };
 }
 
-/** Bracken: a clump of bare stems standing up, each holding a broad frond out level to one side, its leaflets hanging. */
+/** Bracken: a low clump of short stems, each holding a broad frond out and down to one side, its leaflets hanging: wide at the foot. */
 function bracken(key: string, w: number, h: number): FloraKind {
   // each stem: where it stands (from the middle), how high, and which way its frond reaches
-  const stems: [number, number, number][] = [[-2, 10, -1], [2, 12, 1], [0, 15, -1], [1, 8, 1]];
+  const stems: [number, number, number][] = [[-3, 4, -1], [3, 5, 1], [-1, 8, -1], [1, 9, 1], [0, 6, 1]];
   return {
     key, w, h,
     draw: (r, ox, lean) => {
@@ -89,7 +89,7 @@ function bracken(key: string, w: number, h: number): FloraKind {
           const X = Math.round(sx + lean * 1.3 * ((foot - y) / h) ** 2);
           put(r, ox, w, X, y, col(0.18, X, y));
         }
-        frond(r, ox, w, h, lean, [sx, top, sx + side * 3, top - 3, sx + side * 10, top + 1], 3.2, 2, col);
+        frond(r, ox, w, h, lean, [sx, top, sx + side * 4, top - 2, sx + side * 10, top + 4], 3.4, 2, col);
       }
     },
   };
@@ -168,10 +168,10 @@ const bramble: FloraKind = {
 
 export const UNDERGROWTH: FloraKind[] = [
   fern('fern', 23, 14, [
-    { tx: -10, ty: 3, bow: 11 }, { tx: 10, ty: 4, bow: 12 }, { tx: -7, ty: 8, bow: 14 },
-    { tx: 7, ty: 9, bow: 14 }, { tx: -3, ty: 12, bow: 14 }, { tx: 3, ty: 12, bow: 14 },
+    { tx: -10, ty: 1, bow: 5 }, { tx: 10, ty: 2, bow: 5 }, { tx: -8, ty: 5, bow: 8 },
+    { tx: 8, ty: 5, bow: 9 }, { tx: -4, ty: 9, bow: 11 }, { tx: 4, ty: 10, bow: 11 }, { tx: 0, ty: 12, bow: 12 },
   ], FERN),
-  bracken('bracken', 23, 19),
+  bracken('bracken', 25, 15),
   shrub('shrub', 30, 22, [[8, 15, 7], [21, 15, 7], [15, 11, 8], [10, 8, 5], [20, 8, 5], [15, 17, 6]], false),
   shrub('shrub-berries', 26, 19, [[8, 12, 6], [18, 12, 6], [13, 9, 7], [13, 14, 6]], true),
   bramble,

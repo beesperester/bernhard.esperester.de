@@ -4,6 +4,7 @@ import { MAP_H, MAP_W, biomeAt, inClearing, tileAt } from './map.ts';
 import { treeSizeAt } from './layout.ts';
 import { BRAMBLE, FERN, placeFlora, thicketAt } from '../art/flora.ts';
 import { TILE } from './size.ts';
+import { trackside } from './track.ts';
 
 describe('the woods', () => {
   it('are pine, leafy or mixed by a field, their trees after it', () => {
@@ -39,10 +40,15 @@ describe('the woods', () => {
     }
   });
 
-  it('grow ferns, bracken and thickets on their floor, and only there; thickest round the clearings', () => {
+  it('grow ferns, bracken and thickets on their floor, and only there (not by the railway); thickest round the clearings', () => {
     const plants = placeFlora().filter((p) => p.kind >= FERN && p.kind <= BRAMBLE);
     expect(plants.length).toBeGreaterThan(1000);
-    for (const p of plants) expect(biomeAt(Math.floor(p.x / TILE), Math.floor(p.y / TILE))).not.toBeNull();
+    for (const p of plants) {
+      const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
+      expect(biomeAt(tx, ty)).not.toBeNull();
+      // (none over the rails)
+      expect(trackside(tx, ty), `undergrowth on the track at ${tx},${ty}`).toBe(false);
+    }
     let wall = 0, thick = 0;
     for (const c of CLEARINGS)
       for (let j = -c.r - 3; j <= c.r + 3; j++)
