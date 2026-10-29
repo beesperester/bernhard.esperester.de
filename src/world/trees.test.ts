@@ -50,7 +50,7 @@ function climbable(t: TreePlan): Set<number> {
 describe('trees', () => {
   it('has broadleaves, pines and the tree house', () => {
     const shapes = new Set(TREES.map((t) => t.shape));
-    expect([...shapes].sort()).toEqual(['broadleaf', 'pine', 'treehouse']);
+    expect([...shapes].sort()).toEqual(['broadleaf', 'pine']);
     expect(TREES.filter((t) => t.birdhouse).length).toBeGreaterThan(2);
   });
 
@@ -59,8 +59,8 @@ describe('trees', () => {
       const zs = [...new Set(t.perches.map((p) => p.z))].sort((a, b) => a - b);
       expect(zs[0]).toBe(FORK_Z);
       for (let i = 1; i < zs.length; i++) expect(zs[i] - zs[i - 1]).toBeLessThanOrEqual(Math.min(RISE, LEAP));
-      // two to four levels, the top included (a bird house or the hut's roof in between)
-      expect(t.perches.filter((p) => p.kind !== 'birdhouse' && p.kind !== 'roof').length).toBeGreaterThanOrEqual(2);
+      // a level at least (a small tree's crown is low: its fork may be all there is to sit on)
+      expect(t.perches.filter((p) => p.kind !== 'birdhouse' && p.kind !== 'roof').length).toBeGreaterThanOrEqual(1);
       // the lowest perch spans the trunk, so nothing ends up standing on it
       expect(t.perches[0].x0).toBeLessThanOrEqual(-8);
       expect(t.perches[0].x1).toBeGreaterThanOrEqual(8);

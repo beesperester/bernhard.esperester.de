@@ -86,6 +86,9 @@ export function remember<K, V>(map: Map<K, V>, key: K, value: V, max: number, on
 }
 
 /** Reuses images instead of creating and destroying them every frame. */
+/** How much shows (0..1) of a critter at world (x, y) drawn at `depth` (up a tree with a hole cut round our cat, less). */
+export const sight = { through: (_x: number, _y: number, _depth: number): number => 1 };
+
 export class Pool {
   private imgs: Img[] = [];
   private used = 0;
@@ -99,5 +102,11 @@ export class Pool {
     this.used++;
     return img.setVisible(true).setTexture(texture, frame).setAlpha(1).setRotation(0).setFlipX(false).setOrigin(0.5).setScale(1);
   }
-  end(): void { for (let i = this.used; i < this.imgs.length; i++) this.imgs[i].setVisible(false); }
+  end(): void {
+    for (let i = 0; i < this.used; i++) {
+      const img = this.imgs[i], k = sight.through(img.x, img.y, img.depth);
+      if (k < 1) img.setAlpha(img.alpha * k);
+    }
+    for (let i = this.used; i < this.imgs.length; i++) this.imgs[i].setVisible(false);
+  }
 }

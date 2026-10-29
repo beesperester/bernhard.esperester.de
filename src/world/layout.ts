@@ -138,8 +138,8 @@ export function layOut(seed: number): Layout {
     }
   }
 
-  // the tree house, in a park
-  {
+  // the tree house, in a park (not for now: it's to be drawn anew with the big trees)
+  if (TREE_HOUSE) {
     const fits = ([x, y]: Pt) => clear(x, y, 3) && flatFree(x - 2, y - 1, 5, 3, 0);
     const spot = order.find((p) => zone(...p) === 'g' && fits(p)) ?? order.find(fits);
     if (spot) T[spot[1]][spot[0]] = 'H';
@@ -176,9 +176,15 @@ export function layOut(seed: number): Layout {
   // trees: thick in the woods, here and there in the parkland, few out on the meadows; some pines
   const trees: Pt[] = [];
   /** Trees by their tile, to keep the next one off them. */
-  const treeAt = new Set<number>();
+  const treeAt = new Map<number, number>();
+  // (each tree keeps room round it as big as it grows, the next tree's room besides: across more than in depth)
   const crowded = (x: number, y: number) => {
-    for (let j = -4; j <= 4; j++) for (let i = -6; i <= 6; i++) if (treeAt.has((y + j) * W + x + i)) return true;
+    const r = TREE_ROOM[treeSizeAt(x, y)], R = r + TREE_ROOM[2];
+    for (let j = -R; j <= R; j++)
+      for (let i = -R; i <= R; i++) {
+        const other = treeAt.get((y + j) * W + x + i);
+        if (other !== undefined && Math.abs(i) < r + other && Math.abs(j) < Math.ceil((r + other) * 0.6)) return true;
+      }
     return false;
   };
   for (const [x, y] of order) {
@@ -195,7 +201,7 @@ export function layOut(seed: number): Layout {
     const pine = hash(x, y, 63) < (z === 'o' ? 0.45 : z === 'g' ? 0.3 : 0.15) || noise(x, y, 12, 64) > 0.78;
     T[y][x] = pine ? 'P' : 'T';
     trees.push([x, y]);
-    treeAt.add(y * W + x);
+    treeAt.set(y * W + x, TREE_ROOM[treeSizeAt(x, y)]);
   }
 
   // bushes and rocks, here and there on the lawns
@@ -231,11 +237,24 @@ export function layOut(seed: number): Layout {
   return { rows: T.map((r) => r.join('')), furniture, zones };
 }
 
-/** Half the width of the trunk of a tree (tile ch) on tile (tx, ty) at its foot: stout old trees, up to two tiles across. */
-export function trunkHalfOf(ch: string, tx: number, ty: number): number {
+/** How big the tree on tile (tx, ty) grows: 0 small (most of them), 1 medium, 2 one of the few really big old ones. */
+export function treeSizeAt(tx: number, ty: number): 0 | 1 | 2 {
   const u = hash2(tx, ty, 58);
-  return ch === 'H' ? 16 : ch === 'P' ? 8 + Math.floor(u * 4) : 9 + Math.floor(u * 8);
+  return u < 0.55 ? 0 : u < 0.88 ? 1 : 2;
 }
+
+/** Half the width of the trunk of a tree (tile ch) on tile (tx, ty) at its foot: the big old ones up to two tiles across. */
+export function trunkHalfOf(ch: string, tx: number, ty: number): number {
+  if (ch === 'H') return 16;
+  const size = treeSizeAt(tx, ty), u = hash2(tx, ty, 59);
+  return ch === 'P' ? [5, 7, 10][size] + Math.floor(u * 2) : [5, 8, 13][size] + Math.floor(u * (size === 2 ? 4 : 3));
+}
+
+/** Whether the park has its tree house (left out while the trees are drawn anew). */
+const TREE_HOUSE = false;
+
+/** Room a tree of each size keeps round it (tiles). */
+const TREE_ROOM = [2, 3, 5];
 
 /** Trunks this stout (half-width, px) stand into the tiles either side of their own. */
 const FAT = 11;

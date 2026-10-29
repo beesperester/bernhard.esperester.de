@@ -11,9 +11,13 @@ import { toCanvas } from './textures.ts';
 // while the camera is near it: those in view straight away, those just
 // beyond it a few at a time, and the far ones are let go again.
 //
-// A tree standing in front of your cat (its foot lower down the screen, its
-// picture over the cat) fades away as a whole, dithered, together with any
-// cat sitting up in it; only the tree your cat is up in stays.
+// Each tree is two pictures: the tree from the back (the leaves at the back,
+// trunk, branches and the small leaves along them) and the leaves hanging in
+// front of the branches, drawn in front of a cat sitting in the tree. Where a
+// tree stands in front of your cat, a dithered hole opens in it round your
+// cat (and in anything sitting in that tree). Up a tree, it opens round your
+// cat as if a ball were round it: wide through the leaves in front, narrower
+// through the tree behind, so you see a little past it too.
 
 /** Trees this far (px) beyond the view are drawn ahead of the camera... */
 const AHEAD = 200;
@@ -23,32 +27,65 @@ const KEEP = 600;
 const BUDGET_MS = 6;
 /** The trees are looked up in square cells this big. */
 const CELL = 256;
-/** A fade takes this long (ms), in this many dithered steps. */
-const FADE_MS = 280, STEPS = 8;
-/** Room round the cat that a tree in front of it must leave clear (px). */
-const CLEAR = 10;
+/** A hole opens over this long (ms). */
+const FADE_MS = 280;
+/** The hole round your cat: this wide (px), clear out to this much of it and dithered beyond. */
+const HOLE_R = 80, CLEAR = 0.6;
+/** Up a tree, the hole through the tree behind your cat is this much as wide: the far side of the ball round it. */
+const BEHIND = 0.45;
+/** Above its feet, the middle of a cat. */
+const CAT_MID = 8;
+/** A front picture is drawn this far in front of its tree (a cat up in it is at +0.6, the birds at +0.5). */
+const FRONT = 0.8;
 
-interface Live {
-  p: Prop;
+interface Pic {
   canvas: HTMLCanvasElement;
   tex: Phaser.Textures.CanvasTexture;
   img: Phaser.GameObjects.Image;
-  /** The tree as shaded (the fade is cut from a copy of it). */
+  /** The picture as shaded (what's shown is cut from a copy of it). */
   orig: ImageData;
   work: ImageData;
-  /** How faded it is (0 there .. 1 gone), and the dithered step drawn. */
-  fade: number;
-  step: number;
+}
+
+interface Live {
+  p: Prop;
+  base: Pic;
+  front: Pic | null;
+  /** How far the hole round your cat is open in it (0..1, it's in front of your cat)... */
+  hole: number;
+  /** ...or round your cat up it (0..1); and where each picture was cut last. */
+  open: number;
+  cut: string;
+  cutFront: string;
   /** Shaded again for another sun: redraw it. */
   dirty: boolean;
+}
+
+/** The hole round your cat: its middle and how wide it is now. */
+export interface Hole { x: number; y: number; r: number }
+
+/** How much of a pixel at world (x, y) shows through a hole (0 cut away .. 1 all there). */
+export function holeKeeps(h: Hole, x: number, y: number): boolean {
+  const d = Math.hypot(x - h.x, y - h.y);
+  if (d >= h.r) return true;
+  if (d < h.r * CLEAR) return false;
+  return bayer(x, y) >= (h.r - d) / (h.r * (1 - CLEAR));
+}
+
+/** Cut hole h out of picture `data` (w × h px) standing at world (ox, oy). */
+export function cutHole(data: Uint8ClampedArray, w: number, ht: number, ox: number, oy: number, h: Hole): void {
+  const x0 = Math.max(0, Math.floor(h.x - h.r - ox)), x1 = Math.min(w, Math.ceil(h.x + h.r - ox));
+  const y0 = Math.max(0, Math.floor(h.y - h.r - oy)), y1 = Math.min(ht, Math.ceil(h.y + h.r - oy));
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) if (!holeKeeps(h, ox + x, oy + y)) data[(y * w + x) * 4 + 3] = 0;
 }
 
 /** Hears when a tree's picture comes and goes (sunlit rims are drawn round it, for one). */
 export interface TreeWatcher {
   added(i: number, p: Prop, canvas: HTMLCanvasElement): void;
   removed(i: number): void;
-  /** It is fading out in front of your cat (0 there .. 1 gone). */
-  faded(i: number, fade: number): void;
+  /** The hole round your cat is cut in it (null: no longer). */
+  holed(i: number, hole: Hole | null): void;
 }
 
 export class Trees {
@@ -56,6 +93,9 @@ export class Trees {
   private readonly live = new Map<number, Live>();
   private readonly cells = new Map<number, number[]>();
   private readonly watchers: TreeWatcher[] = [];
+  /** The trees with a hole in them this frame, and the hole. */
+  private holed: Live[] = [];
+  private hole: { x: number; y: number } = { x: 0, y: 0 };
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -73,24 +113,29 @@ export class Trees {
 
   watch(w: TreeWatcher): void {
     this.watchers.push(w);
-    for (const [i, t] of this.live) w.added(i, t.p, t.canvas);
+    for (const [i, t] of this.live) w.added(i, t.p, t.base.canvas);
   }
 
-  /** Tree i's picture, if it is drawn now. */
-  get(i: number): { p: Prop; canvas: HTMLCanvasElement } | undefined {
-    return this.live.get(i);
+  /** Tree i's pictures, if it is drawn now. */
+  get(i: number): { p: Prop; canvas: HTMLCanvasElement; front: HTMLCanvasElement | null } | undefined {
+    const t = this.live.get(i);
+    return t && { p: t.p, canvas: t.base.canvas, front: t.front?.canvas ?? null };
   }
 
   /** Every tree drawn now. */
-  each(f: (i: number, p: Prop, canvas: HTMLCanvasElement) => void): void {
-    for (const [i, t] of this.live) f(i, t.p, t.canvas);
+  each(f: (i: number, p: Prop) => void): void {
+    for (const [i, t] of this.live) f(i, t.p);
   }
 
-  /** Tree i has been shaded for another sun: show it from the next update. */
-  relight(i: number, img: ImageData): void {
+  /** Tree i has been shaded for another sun (relightProp): show it from the next update. */
+  relight(i: number): void {
     const t = this.live.get(i);
     if (!t) return;
-    t.orig.data.set(img.data);
+    for (const [pic, r] of [[t.base, t.p.raster], [t.front, t.p.front?.raster]] as const) {
+      if (!pic || !r) continue;
+      pic.orig.data.set(r.data);
+      pic.canvas.getContext('2d')!.putImageData(pic.orig, 0, 0);
+    }
     t.dirty = true;
   }
 
@@ -98,55 +143,80 @@ export class Trees {
   covers(x: number, y: number, feetY: number): boolean {
     for (const i of this.cells.get(cellKey(Math.floor(x / CELL), Math.floor(y / CELL))) ?? []) {
       const t = this.live.get(i);
-      if (!t || feetY >= t.p.depthY || t.fade > 0.5) continue;
-      const lx = Math.round(x) - t.p.x, ly = Math.round(y) - t.p.y, { orig } = t;
+      if (!t || feetY >= t.p.depthY) continue;
+      if (t.hole > 0 && !holeKeeps({ ...this.hole, r: HOLE_R * t.hole }, Math.round(x), Math.round(y))) continue;
+      const lx = Math.round(x) - t.p.x, ly = Math.round(y) - t.p.y, { orig } = t.base;
       if (lx < 0 || ly < 0 || lx >= orig.width || ly >= orig.height) continue;
       if (orig.data[(ly * orig.width + lx) * 4 + 3] > 0) return true;
     }
     return false;
   }
 
-  /** How faded tree i is now (0 there .. 1 gone): a cat up in it fades with it. */
-  fadeOf(i: number): number {
-    return this.live.get(i)?.fade ?? 0;
+  /**
+   * How much shows (0..1) of something at world (x, y) drawn at `depth`: up
+   * a tree with a hole in it round your cat (drawn just in front of that
+   * tree), it is cut away with it.
+   */
+  seeThrough(x: number, y: number, depth: number): number {
+    for (const t of this.holed) {
+      if (depth < t.p.depthY || depth >= t.p.depthY + 1) continue;
+      const r = HOLE_R * t.hole, d = Math.hypot(x - this.hole.x, y - this.hole.y);
+      return Math.max(0, Math.min(1, (d - r * CLEAR) / (r * (1 - CLEAR))));
+    }
+    return 1;
   }
 
-  /** Draw the trees round the view, let go of the far ones, and fade those in front of `me`. */
+  /** Draw the trees round the view, let go of the far ones, and open the hole round `me`. */
   update(me: CatView, view: Phaser.Geom.Rectangle, dt: number): void {
     this.show(view);
     const mine = treeHolding(me.x, me.y, me.z);
-    // the cat's body on screen
-    const cx = Math.round(me.x), cy = Math.round(me.y - me.z - 7);
+    const hx = Math.round(me.x), hy = Math.round(me.y - me.z - CAT_MID);
+    this.hole = { x: hx, y: hy };
+    this.holed = [];
+    const ease = (v: number, want: number) => (want > v ? Math.min(want, v + dt / FADE_MS) : Math.max(want, v - dt / FADE_MS));
     for (const [i, t] of this.live) {
-      const { p, orig } = t, w = orig.width, h = orig.height;
+      const { p } = t, { width: w, height: h } = t.base.orig;
       if (p.x + w < view.x || p.x > view.right || p.y > view.bottom || p.y + h < view.y) continue;
-      const want = i !== mine && p.depthY > me.y && this.over(t, cx - p.x, cy - p.y) ? 1 : 0;
-      t.fade = want > t.fade ? Math.min(want, t.fade + dt / FADE_MS) : Math.max(want, t.fade - dt / FADE_MS);
-      const step = Math.round(t.fade * STEPS);
-      if (step === t.step && !t.dirty) continue;
-      t.step = step;
+      // in front of our cat (as drawn), and drawn round it
+      const ahead = i !== mine && p.depthY > me.depth && this.near(t, hx, hy);
+      t.hole = ease(t.hole, ahead ? 1 : 0);
+      t.open = ease(t.open, i === mine ? 1 : 0);
+      if (t.hole > 0) this.holed.push(t);
+      // (in front: the same hole through all of it; up it: wide in front of the cat, narrow behind)
+      const r = HOLE_R * Math.max(t.hole, t.open), rb = HOLE_R * Math.max(t.hole, t.open * BEHIND);
+      const hole: Hole | null = rb > 0 ? { x: hx, y: hy, r: rb } : null, front: Hole | null = r > 0 ? { x: hx, y: hy, r } : null;
+      const cut = hole ? `${hx},${hy},${hole.r.toFixed(1)}` : '', cutFront = front ? `${hx},${hy},${front.r.toFixed(1)}` : '';
+      if (cut !== t.cut || t.dirty) {
+        this.draw(t.base, p, hole);
+        for (const wt of this.watchers) wt.holed(i, hole);
+      }
+      if (t.front && (cutFront !== t.cutFront || t.dirty)) this.draw(t.front, p, front);
+      t.cut = cut;
+      t.cutFront = cutFront;
       t.dirty = false;
-      const src = orig.data, dst = t.work.data;
-      dst.set(src);
-      // world-space dither, so the pattern stays put while the camera moves
-      if (step > 0)
-        for (let y = 0; y < h; y++)
-          for (let x = 0; x < w; x++) if (bayer(p.x + x, p.y + y) < step / STEPS) dst[(y * w + x) * 4 + 3] = 0;
-      t.tex.getContext().putImageData(t.work, 0, 0);
-      t.tex.refresh();
-      t.img.setVisible(step < STEPS);
-      for (const w of this.watchers) w.faded(i, step / STEPS);
     }
   }
 
-  /** Whether tree t's leaves (or trunk) are drawn round picture point (x, y). */
-  private over(t: Live, x: number, y: number): boolean {
-    const { orig } = t, w = orig.width, h = orig.height;
-    for (let dy = -CLEAR; dy <= CLEAR; dy += 4)
-      for (let dx = -CLEAR; dx <= CLEAR; dx += 4) {
-        const px = x + dx, py = y + dy;
-        if (px >= 0 && py >= 0 && px < w && py < h && orig.data[(py * w + px) * 4 + 3] > 0) return true;
-      }
+  /** Show picture `pic` of tree p as shaded, with the hole cut in it. */
+  private draw(pic: Pic, p: Prop, hole: Hole | null): void {
+    const { width: w, height: h } = pic.orig, dst = pic.work.data;
+    dst.set(pic.orig.data);
+    if (hole) cutHole(dst, w, h, p.x, p.y, hole);
+    pic.tex.getContext().putImageData(pic.work, 0, 0);
+    pic.tex.refresh();
+  }
+
+  /** Whether tree t is drawn round world point (x, y) (within the hole's reach). */
+  private near(t: Live, x: number, y: number): boolean {
+    for (const pic of [t.base, t.front]) {
+      if (!pic) continue;
+      const { orig } = pic, w = orig.width, h = orig.height, lx = x - t.p.x, ly = y - t.p.y;
+      for (let dy = -HOLE_R * 0.6; dy <= HOLE_R * 0.6; dy += 4)
+        for (let dx = -HOLE_R * 0.6; dx <= HOLE_R * 0.6; dx += 4) {
+          const px = Math.round(lx + dx), py = Math.round(ly + dy);
+          if (px >= 0 && py >= 0 && px < w && py < h && orig.data[(py * w + px) * 4 + 3] > 0) return true;
+        }
+    }
     return false;
   }
 
@@ -180,26 +250,35 @@ export class Trees {
     return [...out].sort((a, b) => Math.hypot(TREES[a].x - mx, TREES[a].y - my) - Math.hypot(TREES[b].x - mx, TREES[b].y - my));
   }
 
-  private make(i: number): void {
-    const p = buildProp(i);
-    // (in the light as it is now)
-    relightProp(p, sunLight);
-    const canvas = toCanvas(p.raster);
+  private pic(key: string, r: Raster, x: number, y: number, depth: number): Pic {
+    const canvas = toCanvas(r);
     const { width: w, height: h } = canvas;
-    const key = `tree-${i}`;
     const tex = this.scene.textures.createCanvas(key, w, h)!;
     const orig = canvas.getContext('2d')!.getImageData(0, 0, w, h);
     tex.getContext().putImageData(orig, 0, 0);
     tex.refresh();
-    const img = this.scene.add.image(p.x, p.y, key).setOrigin(0).setDepth(p.depthY);
-    this.live.set(i, { p, canvas, tex, img, orig, work: new ImageData(w, h), fade: 0, step: 0, dirty: false });
-    for (const w of this.watchers) w.added(i, p, canvas);
+    const img = this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth);
+    return { canvas, tex, img, orig, work: new ImageData(w, h) };
+  }
+
+  private make(i: number): void {
+    const p = buildProp(i);
+    // (in the light as it is now)
+    relightProp(p, sunLight);
+    const base = this.pic(`tree-${i}`, p.raster, p.x, p.y, p.depthY);
+    const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.x, p.y, p.depthY + FRONT) : null;
+    this.live.set(i, { p, base, front, hole: 0, open: 0, cut: '', cutFront: '', dirty: false });
+    for (const w of this.watchers) w.added(i, p, base.canvas);
   }
 
   private drop(i: number): void {
     const t = this.live.get(i)!;
-    t.img.destroy();
+    t.base.img.destroy();
     this.scene.textures.remove(`tree-${i}`);
+    if (t.front) {
+      t.front.img.destroy();
+      this.scene.textures.remove(`tree-front-${i}`);
+    }
     this.live.delete(i);
     for (const w of this.watchers) w.removed(i);
   }

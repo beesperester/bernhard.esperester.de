@@ -86,7 +86,8 @@ export class PondReflection {
     // (only those drawn now: the others are too far off to be seen)
     for (const i of this.trees) {
       const t = this.park.get(i);
-      if (t) this.flipped(t.canvas, 0, 0, t.canvas.width, t.canvas.height, t.p.x, t.p.y, t.p.depthY + 1);
+      if (!t) continue;
+      for (const c of [t.canvas, t.front]) if (c) this.flipped(c, 0, 0, c.width, c.height, t.p.x, t.p.y, t.p.depthY + 1);
     }
     raw.globalAlpha = 1;
     for (const p of this.plants) {

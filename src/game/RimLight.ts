@@ -6,7 +6,7 @@ import { LEVEL, MAP_H, MAP_W, TILE, WORLD_H, WORLD_W, levelAt } from '../world/m
 import { hasUpright } from '../art/tiles.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
-import type { TreeWatcher } from './Trees.ts';
+import { cutHole, type Hole, type TreeWatcher } from './Trees.ts';
 
 /** The sun's direction is rounded to one of this many, so rims are only redrawn now and then. */
 const DIRECTIONS = 16;
@@ -18,8 +18,9 @@ const OUTER = 255, INNER = 110;
 type Solid = (x: number, y: number) => boolean;
 interface Overlay {
   img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; w: number; h: number; rim: (out: Uint8ClampedArray) => void;
-  /** How much of the rim shows (a tree fading out takes its rim with it). */
-  k: number;
+  /** Where it stands in the world, and the hole round your cat cut in it (a tree's, with the tree). */
+  x: number; y: number;
+  hole: Hole | null;
 }
 
 /**
@@ -126,7 +127,7 @@ export class RimLight implements TreeWatcher {
   private overlay(key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']): Overlay {
     const tex = this.scene.textures.createCanvas(key, w, h)!;
     const img = cullerFor(this.scene).add(this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
-    return { img, tex, w, h, rim, k: 1 };
+    return { img, tex, w, h, rim, x, y, hole: null };
   }
 
   /** A rim round the outline of a picture standing at (x, y). */
@@ -160,12 +161,12 @@ export class RimLight implements TreeWatcher {
     this.scene.textures.remove(o.tex);
   }
 
-  /** A tree is fading out (0 there .. 1 gone), its rim with it. */
-  faded(i: number, fade: number): void {
+  /** The hole round your cat has been cut in a tree: and in its rim. */
+  holed(i: number, hole: Hole | null): void {
     const o = this.trees.get(i);
-    if (!o) return;
-    o.k = 1 - fade;
-    o.img.setVisible(this.strength > 0 && o.k > 0).setAlpha(this.strength * o.k);
+    if (!o || (!hole && !o.hole)) return;
+    o.hole = hole;
+    if (this.dir >= 0) this.paint(o);
   }
 
   private paint(o: Overlay): void {
@@ -173,6 +174,7 @@ export class RimLight implements TreeWatcher {
     img.data.fill(255);
     for (let k = 3; k < img.data.length; k += 4) img.data[k] = 0;
     o.rim(img.data);
+    if (o.hole) cutHole(img.data, o.w, o.h, o.x, o.y, o.hole);
     o.tex.getContext().putImageData(img, 0, 0);
     o.tex.refresh();
   }
@@ -199,7 +201,7 @@ export class RimLight implements TreeWatcher {
     this.colour = colour;
     if (key === this.shown) return;
     this.shown = key;
-    for (const o of this.overlays) o.img.setVisible(this.strength > 0 && o.k > 0).setAlpha(s * o.k).setTint(colour);
+    for (const o of this.overlays) o.img.setVisible(this.strength > 0).setAlpha(s).setTint(colour);
   }
 
   private redraw(q: number): void {

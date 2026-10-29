@@ -38,6 +38,7 @@ import { FLOOR_H, NOTCHES, SPEEDS, aboard, inCab, local, poses, startState, trai
 import { DASH_MS, DASH_SPEED, STEP_UP, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, jumpRise, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
+import { sight } from './fauna/kit.ts';
 import { PEER, theNet, type Net, type NetEvents } from '../net/net.ts';
 import { Referee } from './Referee.ts';
 import { sound } from '../audio/sound.ts';
@@ -282,7 +283,8 @@ export class GardenScene extends Phaser.Scene {
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
     this.lighting = new Lighting(this, this.trees, canvases.terrain, this.ground);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
-    catLight.treeFade = (i) => this.trees.fadeOf(i);
+    catLight.seeThrough = (x, y, depth) => this.trees.seeThrough(x, y, depth);
+    sight.through = catLight.seeThrough;
     catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
     const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)

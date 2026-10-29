@@ -31,8 +31,8 @@ export const catLight = {
   shade: (_x: number, _y: number): number => 0,
   /** True if something stands in front of world point (x, y) for a cat whose feet are at feetY. */
   occluded: (_x: number, _y: number, _feetY: number): boolean => false,
-  /** How faded tree i is (0 there .. 1 gone): a cat up in a tree fades out with it. */
-  treeFade: (_tree: number): number => 0,
+  /** How much shows (0..1) of something at world (x, y) drawn at `depth` (up a tree with a hole cut round our cat, less). */
+  seeThrough: (_x: number, _y: number, _depth: number): number => 1,
 };
 
 /** Walking into shade, a cat takes this long to darken fully. */
@@ -157,8 +157,8 @@ export class CatView {
     // cliff from behind, it stands a hair short of the cliff's row and must stay behind it)
     const d = this.ride ?? (tree >= 0 ? TREES[tree].y + 0.6 : folly !== null ? folly + 0.6 : this.y);
     this.depth = d;
-    // (up a tree that has faded away in front of our cat, it is gone with it)
-    const seen = tree >= 0 ? 1 - catLight.treeFade(tree) : 1;
+    // (up a tree in front of our cat, where the hole round it is cut, it is cut away with the tree)
+    const seen = tree >= 0 && !this.local ? catLight.seeThrough(this.x, this.y - z - 8, d) : 1;
     // the shadow lies on whatever surface is below the cat (riding, the floor of its car)
     const below = Math.round(this.ride !== null ? z : surfaceAt(this.x, this.y, z));
     this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft * seen).setScale(Math.min(1, k + 0.15));

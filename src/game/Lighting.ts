@@ -56,12 +56,10 @@ export class Lighting {
 
   private relightTrees(): void {
     // (only those drawn now: the others are drawn in the light as it is when they come into view)
-    this.trees.each((i, p, canvas) => {
+    this.trees.each((i, p) => {
       if (!p.lit) return;
       relightProp(p, sunLight);
-      const img = new ImageData(p.raster.data, p.raster.w, p.raster.h);
-      canvas.getContext('2d')!.putImageData(img, 0, 0);
-      this.trees.relight(i, img);
+      this.trees.relight(i);
     });
   }
 
