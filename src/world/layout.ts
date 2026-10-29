@@ -24,13 +24,17 @@ import { PIECE_SIZE, carveZones, furnishZone, type ThemedZone, type ZonePiece } 
 type Pt = [number, number];
 
 /** The garden furniture, and what the themed zones put up (themes.ts). */
-export type FurnitureKind = 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath' | 'box' | 'pump' | 'catnip' | 'bed' | 'barrow' | 'hotel' | ZonePiece;
+export type FurnitureKind = 'bench' | 'picnic' | 'bistro' | 'blanket' | 'birdbath' | 'box' | 'pump' | 'catnip' | 'bed' | 'barrow' | 'hotel' | Woodland | ZonePiece;
+
+/** What lies about in the woods: fallen logs, old stumps, and the standing stones in some clearings. */
+export type Woodland = 'log' | 'stump' | 'stone';
 
 /** Tiles each kind of furniture takes up. */
 export const FURNITURE_SIZE: Record<FurnitureKind, [number, number]> = {
   bench: [2, 1], picnic: [4, 3], bistro: [3, 2], blanket: [4, 3], birdbath: [1, 1],
   // (the pump's puddle takes the tile to its right)
   box: [2, 1], pump: [2, 1], catnip: [2, 1], bed: [3, 2], barrow: [2, 1], hotel: [1, 1],
+  log: [3, 1], stump: [1, 1], stone: [2, 2],
   ...PIECE_SIZE,
 };
 
@@ -39,6 +43,12 @@ const WANT: [FurnitureKind, number][] = [
   ['picnic', 8], ['blanket', 8], ['bistro', 6], ['birdbath', 12], ['bench', 40],
   ['bed', 6], ['pump', 6], ['hotel', 8], ['catnip', 10], ['barrow', 6], ['box', 10],
 ];
+
+/** Below a clearing no tree grows for this many tiles past its edge (its crown would cover the clearing). */
+const APRON = 6;
+
+/** How many of each lie about in the woods. */
+const WOODLAND: [Woodland, number][] = [['log', 70], ['stump', 90]];
 
 const MAZE_W = 17, MAZE_H = 13;
 
@@ -233,6 +243,8 @@ export function layOut(seed: number): Layout {
     if ([[1, 0], [-1, 0], [0, 1], [0, -1], [0, 2]].some(([dx, dy]) => !'.,f'.includes(at(x + dx, y + dy)) || E[y + dy]?.[x + dx] !== E[y][x])) continue;
     if (E[y - 1][x] !== E[y][x] || at(x, y + 1) === 'S') continue;
     if (maze && x >= maze[0] && x < maze[2] && y >= maze[1] && y < maze[3]) continue;
+    // (nor just below a clearing, where its crown would hang over the clearing and hide it: thickets wall it there)
+    if (CLEARINGS.some((c) => Math.abs(x - c.tx) <= c.r + 2 && y > c.ty && y - c.ty <= c.r + APRON)) continue;
     const z = zone(x, y), wall = ring.has(y * W + x);
     const p = wall ? 0.8 : z === 'g' ? 0.55 : z === 'o' ? 0.015 : 0.03 + 0.2 * Math.max(0, noise(x, y, 9, 7) - 0.6) * 4;
     if (hash(x, y, 62) > p) continue;
@@ -269,6 +281,31 @@ export function layOut(seed: number): Layout {
       const byPath = kind === 'bench' ? [0, 1].every((i) => at(x + i, y + 1) === 'p') : nearest([x, y], (px, py) => at(px, py) === 'p', 3) !== null;
       if (!byPath || furniture.some((f) => Math.abs(f.tx - x) < 8 && Math.abs(f.ty - y) < 6)) continue;
       furniture.push({ kind, tx: x, ty: y });
+      placed++;
+    }
+  }
+
+  // in the woods: fallen logs and old stumps here and there, well apart, clear of the trunks;
+  // and the standing stone in the middle of a clearing that has no big old tree
+  for (const c of CLEARINGS) if (c.heart === 'stone') furniture.push({ kind: 'stone', tx: c.tx - 1, ty: c.ty - 1 });
+  const lying: Pt[] = [];
+  for (const [kind, count] of WOODLAND) {
+    let placed = 0;
+    for (const [x, y] of order) {
+      if (placed >= count) break;
+      if (zone(x, y) !== 'g') continue;
+      const [w, h] = FURNITURE_SIZE[kind];
+      let ok = true;
+      for (let j = -1; j <= h && ok; j++) for (let i = -1; i <= w && ok; i++) if (!'.,'.includes(at(x + i, y + j)) || E[y + j][x + i] !== E[y][x]) ok = false;
+      if (!ok || lying.some(([lx, ly]) => Math.abs(lx - x) < 6 && Math.abs(ly - y) < 5)) continue;
+      if (furniture.some((f) => {
+        const [fw, fh] = FURNITURE_SIZE[f.kind];
+        return x - 1 < f.tx + fw && x + w + 1 > f.tx && y - 1 < f.ty + fh && y + h + 1 > f.ty;
+      })) continue;
+      // (on the bare floor: no long grass under it)
+      fillRect(x, y, w, h, '.');
+      furniture.push({ kind, tx: x, ty: y });
+      lying.push([x, y]);
       placed++;
     }
   }

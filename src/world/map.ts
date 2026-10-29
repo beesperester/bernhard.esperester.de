@@ -305,6 +305,8 @@ export function furnished(tx: number, ty: number): boolean {
   return FURNITURE.some((f) => on(f.tx, f.ty, FURNITURE_SIZE[f.kind])) || LANDMARK_SPOTS.some((l) => on(l.tx, l.ty, LANDMARK_SIZE[l.kind]));
 }
 
+/** How tall the standing stone in a clearing stands (a jump from the boulder at its foot). */
+export const STONE_H = 22;
 /** Height of the bird bath's rim. */
 export const BATH_H = 13;
 /** Height of the cardboard box's walls, and of the wheelbarrow's tub. */
@@ -331,6 +333,10 @@ const FURNITURE_SOLIDS: Record<FurnitureKind, [number, number, number, number, n
   barrow: [[8, 6, 26, 13, BARROW_H]],
   // the post
   hotel: [[6, 10, 10, 14, 30]],
+  // in the woods: a log lying across, a stump; the standing stone, and the boulder at its foot to climb it by
+  log: [[2, 1, 44, 11, 9]],
+  stump: [[3, 4, 14, 11, 10]],
+  stone: [[6, 17, 26, 27, STONE_H], [1, 24, 15, 31, 9]],
   // a funfair's: a tent's round wall (its roof is out of reach anyway), a booth's counter, a bunting pole
   tent: [[4, 14, 60, 44, 32]],
   booth: [[4, 14, 44, 26, 9]],

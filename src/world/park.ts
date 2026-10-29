@@ -42,7 +42,7 @@ export interface Park {
 export interface Clearing { tx: number; ty: number; r: number; heart: 'tree' | 'stone' }
 
 /** The most clearings a park has, how far apart they are (tiles), and how much wood stands round one (tiles). */
-const CLEARINGS_MOST = 10, CLEARING_APART = 28, CLEARING_WALL = 3;
+const CLEARINGS_MOST = 10, CLEARING_APART = 28, CLEARING_WALL = 3, CLEARING_FROM_HUB = 14;
 
 const W = MAP_W, H = MAP_H;
 const SIDES: Pt[] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
@@ -238,6 +238,10 @@ export function generatePark(seed: number): Park {
   const forest = (x: number, y: number) => ZONES[y][x] === 'g';
   const land0 = (x: number, y: number) => x > 3 && y > 3 && x < W - 4 && y < H - 4 && T[y][x] === '.' && E[y][x] === 0 && !rail[idx(x, y)];
 
+  // where cats arrive and the paths start: the middle of the park
+  const centre: Pt = [W >> 1, H >> 1];
+  const hub = nearestTile(centre, (x, y) => land0(x, y) && !forest(x, y) && distToWet[idx(x, y)] > 3) ?? centre;
+
   // ---- the secret clearings: deep in the woods, away from the water, and kept clear of the paths ----
   const inWood = bfsDistance((x, y) => !inside(x, y) || !forest(x, y));
   const CLEARINGS: Clearing[] = [];
@@ -249,9 +253,11 @@ export function generatePark(seed: number): Park {
     spots.sort((a, b) => hash(a[0], a[1], 91) - hash(b[0], b[1], 91));
     for (const [x, y] of spots) {
       if (CLEARINGS.length >= CLEARINGS_MOST) break;
-      const r = 4 + Math.floor(hash(x, y, 92) * 3);
+      const r = 5 + Math.floor(hash(x, y, 92) * 3);
       if (inWood[idx(x, y)] < r + CLEARING_WALL || distToWet[idx(x, y)] < r + CLEARING_WALL + 2) continue;
       if (CLEARINGS.some((c) => Math.hypot(c.tx - x, c.ty - y) < CLEARING_APART)) continue;
+      // (not where cats arrive: the paths start there)
+      if (Math.hypot(hub[0] - x, hub[1] - y) < r + CLEARING_WALL + CLEARING_FROM_HUB) continue;
       let ok = true;
       for (let j = -r; j <= r && ok; j++) for (let i = -r; i <= r && ok; i++) if (T[y + j][x + i] !== '.' || E[y + j][x + i] !== 0 || near(rail, 2, x + i, y + j)) ok = false;
       if (!ok) continue;
@@ -260,9 +266,7 @@ export function generatePark(seed: number): Park {
       for (let j = -R; j <= R; j++) for (let i = -R; i <= R; i++) if (i * i + j * j <= R * R && inside(x + i, y + j)) secret[idx(x + i, y + j)] = 1;
     }
   }
-  // where they start from: the middle of the park...
-  const centre: Pt = [W >> 1, H >> 1];
-  const hub = nearestTile(centre, (x, y) => land0(x, y) && !forest(x, y) && distToWet[idx(x, y)] > 3) ?? centre;
+  // the paths join it...
   const pois: Pt[] = [hub];
   // ...the lakes' and ponds' shores...
   for (const b of bodies) {

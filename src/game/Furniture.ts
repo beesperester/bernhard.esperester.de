@@ -5,6 +5,7 @@ import {
   buildPicnicTable, buildPump, buildPumpPuddle, buildRaisedBed, dressForSeason,
 } from '../art/furniture.ts';
 import { buildBooth, buildPlatform, buildPole, buildTent } from '../art/funfair.ts';
+import { buildBoulder, buildLog, buildStone, buildStump } from '../art/woodland.ts';
 import { PLATFORM } from '../world/coaster.ts';
 import { paintOver } from '../art/paint.ts';
 import { FURNITURE, TILE } from '../world/map.ts';
@@ -79,6 +80,12 @@ export class Furniture {
         case 'bed': sprite('bed', buildRaisedBed, ox, oy - 4, oy + 6); break;
         case 'barrow': sprite('barrow', buildBarrow, ox - 1, oy - 5, oy + 5); break;
         case 'hotel': sprite('hotel', buildInsectHotel, ox, oy - 16, oy + 13); break;
+        case 'log': sprite('log', buildLog, ox, oy - 4, oy + 11, (f.tx + f.ty) % 2 === 1); break;
+        case 'stump': sprite('stump', buildStump, ox - 1, oy - 6, oy + 10); break;
+        case 'stone':
+          sprite('stone', buildStone, ox + 3, oy - 11, oy + 27);
+          sprite('boulder', buildBoulder, ox, oy + 21, oy + 31);
+          break;
         case 'tent': sprite('tent', buildTent, ox + 2, oy - 13, oy + 44); break;
         case 'booth': sprite('booth', buildBooth, ox + 2, oy - 21, oy + 26); break;
         case 'pole': sprite('pole', buildPole, ox + 5, oy - 18, oy + 13); break;
