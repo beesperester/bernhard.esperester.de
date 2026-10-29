@@ -1,68 +1,63 @@
-// Where shafts of light fall into the woods: through gaps in the canopy, onto
-// open ground among the trees (not under a crown, not on water), well apart.
-// Laid out from the garden's seed; game/Shafts.ts draws them, slanting away
-// from the sun (or the moon).
+// Where rays of light come down through the trees: from up in a leafy crown,
+// a few to a tree (not every tree has any), each its own width and length
+// (none reaches lower than the tree's foot). game/Shafts.ts draws them,
+// slanting down away from the sun (or the moon) just as the trees' shadows
+// fall, from behind the crown they come through.
+// Laid out from the garden's seed.
 import { hash2 } from '../art/raster.ts';
 import { worldSeed } from './seed.ts';
 import { TREES } from './trees.ts';
-import { TILE, WORLD_H, WORLD_W, tileAt } from './map.ts';
-import { isOpenGround, isTree } from './legend.ts';
 
 export interface Shaft {
-  /** Where it lands (world px). */
+  /** The tree it comes through. */
+  tree: number;
+  /** Where in the crown it starts: the crown's middle across (world px) and half its width (on the side the ray
+   * slants to, `side` of the way from its middle to its edge), and the ground line under that (the tree's foot)... */
   x: number;
+  rx: number;
+  side: number;
   y: number;
-  /** Its width where it lands (px). */
+  /** ...and how high above that ground (px). */
+  h: number;
+  /** How wide it is (px). */
   w: number;
-  /** For its own slow breathing (0..1). */
+  /** How far down it reaches: this much of the way to the tree's foot (0..1). */
+  reach: number;
+  /** For its own slow breathing and shimmer (0..1). */
   phase: number;
 }
 
-/** Candidate spots are tried on a grid this fine (px)... */
-const STEP = 40;
-/** ...a spot needs this many trees within this far (px) to be in the woods... */
-const WOODS = 4, AROUND = 150;
-/** ...and the shafts keep this far apart (px). */
-const APART = 120;
-
-/** Trees by grid cell, to find those near a spot. */
-function nearTrees(): (x: number, y: number, r: number) => number[] {
-  const C = 128, cells = new Map<number, number[]>();
-  TREES.forEach((t, i) => {
-    const k = Math.floor(t.y / C) * 1000 + Math.floor(t.x / C);
-    const list = cells.get(k);
-    if (list) list.push(i);
-    else cells.set(k, [i]);
-  });
-  return (x, y, r) => {
-    const out: number[] = [];
-    for (let cy = Math.floor((y - r) / C); cy <= Math.floor((y + r) / C); cy++)
-      for (let cx = Math.floor((x - r) / C); cx <= Math.floor((x + r) / C); cx++)
-        for (const i of cells.get(cy * 1000 + cx) ?? []) if (Math.hypot(TREES[i].x - x, TREES[i].y - y) < r) out.push(i);
-    return out;
-  };
-}
-
-/** Whether a tree's crown hangs over ground point (x, y) (its leaves' footprint round its foot). */
-function under(i: number, x: number, y: number): boolean {
-  const t = TREES[i];
-  return t.crown.some((b) => Math.abs(x - (t.x + b.x)) < b.rx * 0.85 && Math.abs(y - t.y) < b.rx * 0.5);
-}
+/** The most rays through one tree... */
+const MOST = 3;
+/** ...and the share of trees that have any. */
+const SOME = 0.6;
 
 function layOutShafts(): Shaft[] {
-  const seed = worldSeed().seed, near = nearTrees(), out: Shaft[] = [];
-  for (let gy = STEP; gy < WORLD_H - STEP; gy += STEP)
-    for (let gx = STEP; gx < WORLD_W - STEP; gx += STEP) {
-      if (hash2(gx, gy, seed + 2101) < 0.35) continue;
-      const x = Math.round(gx + (hash2(gx, gy, seed + 2102) - 0.5) * STEP), y = Math.round(gy + (hash2(gx, gy, seed + 2103) - 0.5) * STEP);
-      const ch = tileAt(Math.floor(x / TILE), Math.floor(y / TILE));
-      if (!isOpenGround(ch) || isTree(ch)) continue;
-      const trees = near(x, y, AROUND);
-      if (trees.length < WOODS || trees.some((i) => under(i, x, y))) continue;
-      if (out.some((s) => Math.hypot(s.x - x, s.y - y) < APART)) continue;
-      out.push({ x, y, w: 12 + Math.round(hash2(gx, gy, seed + 2104) * 14), phase: hash2(gx, gy, seed + 2105) });
+  const seed = worldSeed().seed, out: Shaft[] = [];
+  TREES.forEach((t, tree) => {
+    // (through broad leaves: a pine's needles are too dense)
+    if (t.shape === 'pine' || hash2(tree, 1, seed + 2101) > SOME) return;
+    const c = t.crown[0], base = c.base ?? c.z - c.rz;
+    const n = 1 + Math.floor(hash2(tree, 2, seed + 2102) * MOST);
+    for (let k = 0; k < n; k++) {
+      const r = (j: number) => hash2(tree, k * 8 + j, seed + 2103);
+      // up in the top of the crown, inside its sides
+      const top = c.z + c.rz;
+      const h = t.elev + base + (top - base) * (0.6 + r(2) * 0.3);
+      out.push({ tree, x: Math.round(t.x + c.x), rx: c.rx, side: 0.3 + r(1) * 0.5, y: t.y, h: Math.round(h), w: 3 + Math.round(r(3) * 5), reach: 0.55 + r(5) * 0.45, phase: r(4) });
     }
+  });
   return out;
 }
 
 export const SHAFTS: Shaft[] = layOutShafts();
+
+/** The rays by 256 px cell of the ground they start over, to find those near the view. */
+export const SHAFT_CELL = 256;
+export const SHAFTS_BY_CELL = new Map<number, number[]>();
+SHAFTS.forEach((s, i) => {
+  const k = Math.floor(s.y / SHAFT_CELL) * 4096 + Math.floor(s.x / SHAFT_CELL);
+  const list = SHAFTS_BY_CELL.get(k);
+  if (list) list.push(i);
+  else SHAFTS_BY_CELL.set(k, [i]);
+});
