@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { MAP_H, MAP_W, WORLD_H, WORLD_W, tileAt } from '../world/map.ts';
 import { isPond, isWaterway } from '../world/legend.ts';
 import { COMMON } from './gpu.ts';
+import { hash2 } from '../art/raster.ts';
 
 // Banks of fog lying low over the ground (how thick: world/fog.ts), drifting
 // slowly, gathered over the water. Things stand in it: it is drawn in thin
@@ -11,11 +12,15 @@ import { COMMON } from './gpu.ts';
 // a quad drawn by a shader (a Phaser Shader).
 
 /** A slice for every this many rows (px)... */
-const STEP = 10;
-/** ...each the fog this high (px) over its row. */
+const STEP = 15;
+/** ...each the fog this high (px) over its row (two slices overlap). */
 const FOG_H = 30;
-/** The most one slice adds (alpha), in this many dithered steps (a few slices overlap). */
-const MAX_ALPHA = 0.3, STEPS = 4;
+/** The most one slice adds (alpha), in this many dithered steps. */
+const MAX_ALPHA = 0.4, STEPS = 4;
+/** The noise the banks are made of: a tiling texture this big (px, a power of two), CELLS lattice cells across. */
+const NOISE = 128, CELLS = 8;
+/** One noise cell is this big in the world (px), across and down: the banks' long, low shape (and a finer one curling in them). */
+const BANK = [110, 30], CURL = [28, 12];
 /** How far (tiles) fog gathers round the water. */
 const WET_REACH = 3;
 
@@ -30,18 +35,18 @@ uniform float uFog;
 uniform vec3 uColour;
 uniform vec2 uWorld;
 uniform sampler2D uWet;
+uniform sampler2D uNoise;
 varying vec2 outTexCoord;
 ${COMMON.replace(/vec2 worldPx\(\)[^\n]*\n/, '')}
 void main() {
   vec2 w = uBox.xy + floor(vec2(outTexCoord.x, 1.0 - outTexCoord.y) * uBox.zw);
   // (the same all the way up its slice: the slices overlap evenly over open ground, and a thing standing in the
   // fog has fewer of them over it the higher up it is)
-  if (w.y + 0.5 > uGround) discard;
   // the banks: long and low, drifting slowly sideways, curling as they go; thicker by the water
   // (where on the ground this pixel's fog is: the same for every slice over it, so they don't step)
   vec2 g = vec2(w.x, w.y + ${(FOG_H / 2).toFixed(1)});
-  float n = vnoise(vec2(g.x / 110.0 - uTime * 0.012, g.y / 30.0), 11.0) * 0.7
-          + vnoise(vec2(g.x / 28.0 + uTime * 0.025, g.y / 12.0 + uTime * 0.008), 12.0) * 0.3;
+  float n = texture2D(uNoise, vec2(g.x / ${BANK[0].toFixed(1)} - uTime * 0.012, g.y / ${BANK[1].toFixed(1)}) / ${CELLS.toFixed(1)}).r * 0.7
+          + texture2D(uNoise, vec2(g.x / ${CURL[0].toFixed(1)} + uTime * 0.025, g.y / ${CURL[1].toFixed(1)} + uTime * 0.008) / ${CELLS.toFixed(1)} + 0.37).r * 0.3;
   float wet = texture2D(uWet, g / uWorld).r;
   float a = uFog * smoothstep(0.47, 0.66, n + wet * 0.3);
   float q = floor(a * ${STEPS.toFixed(1)} + bayer(w)) / ${STEPS.toFixed(1)} * ${MAX_ALPHA.toFixed(3)};
@@ -84,6 +89,9 @@ export class Fog {
     }
     g.putImageData(img, 0, 0);
     scene.textures.addCanvas('fog-wet', canvas)!.setFilter(Phaser.Textures.FilterMode.LINEAR);
+    const noise = scene.textures.addCanvas('fog-noise', noiseCanvas())!;
+    noise.setFilter(Phaser.Textures.FilterMode.LINEAR);
+    noise.setWrap(Phaser.Textures.WrapMode.REPEAT, Phaser.Textures.WrapMode.REPEAT);
   }
 
   /** `fog`: how thick it lies (world/fog.ts). */
@@ -119,10 +127,30 @@ export class Fog {
         set('uColour', COLOUR);
         set('uWorld', [WORLD_W, WORLD_H]);
         set('uWet', 0);
+        set('uNoise', 1);
       },
-    }, 0, 0, 1, 1, ['fog-wet']).setOrigin(0);
+    }, 0, 0, 1, 1, ['fog-wet', 'fog-noise']).setOrigin(0);
     return s;
   }
+}
+
+/** Smooth value noise that tiles: CELLS random heights across and down, eased between (0..255 in red). */
+function noiseCanvas(): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = NOISE;
+  const g = canvas.getContext('2d')!, img = g.createImageData(NOISE, NOISE);
+  const at = (i: number, j: number) => hash2(((i % CELLS) + CELLS) % CELLS, ((j % CELLS) + CELLS) % CELLS, 2301);
+  const ease = (t: number) => t * t * (3 - 2 * t), cell = NOISE / CELLS;
+  for (let y = 0; y < NOISE; y++)
+    for (let x = 0; x < NOISE; x++) {
+      const i = Math.floor(x / cell), j = Math.floor(y / cell), u = ease(x / cell - i), v = ease(y / cell - j);
+      const top = at(i, j) + (at(i + 1, j) - at(i, j)) * u, bottom = at(i, j + 1) + (at(i + 1, j + 1) - at(i, j + 1)) * u;
+      const k = (y * NOISE + x) * 4;
+      img.data[k] = img.data[k + 1] = img.data[k + 2] = Math.round((top + (bottom - top) * v) * 255);
+      img.data[k + 3] = 255;
+    }
+  g.putImageData(img, 0, 0);
+  return canvas;
 }
 
 /** A box blur of a map-sized grid, r tiles each way. */
