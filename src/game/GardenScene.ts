@@ -10,6 +10,8 @@ import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow } from './Meadow.ts';
 import { Shafts } from './Shafts.ts';
+import { Fog } from './Fog.ts';
+import { fogAt } from '../world/fog.ts';
 import { Clouds } from './Clouds.ts';
 import { PondReflection } from './PondReflection.ts';
 import { Trees, outlineCanvas } from './Trees.ts';
@@ -140,6 +142,7 @@ export class GardenScene extends Phaser.Scene {
   private garden = 1;
   private meadow!: Meadow;
   private shafts!: Shafts;
+  private fog!: Fog;
   private clouds!: Clouds;
   private ponds: PondReflection[] = [];
   private readonly catSounds = new CatSounds();
@@ -265,6 +268,7 @@ export class GardenScene extends Phaser.Scene {
     this.ponds = waterBoxes().map((box) => new PondReflection(this, box, reflect));
     this.clouds = new Clouds(this, toCanvas);
     this.shafts = new Shafts(this);
+    this.fog = new Fog(this);
     // soft glow: bright areas (path, blossom, sunlight, white fur) bleed light into their surroundings
     // (snow is bright all over: only the brightest bits glow then)
     Phaser.Actions.AddEffectBloom(this.cameras.main, { threshold: SEASON.snow > 0.3 ? 0.82 : 0.55, blurRadius: 3, blurSteps: 4, blurQuality: 0, blendAmount: 0.35 });
@@ -662,6 +666,7 @@ export class GardenScene extends Phaser.Scene {
     this.clouds.update(gt);
     this.clouds.setDaylight(light.day);
     this.shafts.update(light, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), time, view);
+    this.fog.update(fogAt(gt), time, view);
     this.lanterns.update(light, time);
     this.train.light(light);
     this.zones.light(light, time);
