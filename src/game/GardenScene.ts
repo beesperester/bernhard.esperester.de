@@ -286,7 +286,6 @@ export class GardenScene extends Phaser.Scene {
     this.vignette = new Vignette(this);
     // time of day: tint, sunlit rims, lanterns, and stars and moon in the water
     this.daylight = new Daylight(Date.now());
-    this.lightMap = new LightMap(this);
     // which pixels of the ground art stand up from it: for sunlit rims, and for where shadows can't fall
     const upright = uprightAt;
     this.rims = new RimLight(this, {
@@ -306,6 +305,7 @@ export class GardenScene extends Phaser.Scene {
       ...canvases.terrain.map((t, i) => ({ canvas: source(`terrain-${i}`), x: t.x, y: t.y, w: t.raster.w, h: t.raster.h, depth: t.depth })),
     ];
     this.glows = new Glows(this, this.trees, occluders);
+    this.lightMap = new LightMap(this, this.trees);
     this.lanterns = new Lanterns(this, this.glows, this.lightMap);
     this.lilies = new Lilies(this, toCanvas, this.glows);
     this.shadows = this.makeShadows(canvases, furniture, upright);
