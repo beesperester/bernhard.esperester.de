@@ -21,10 +21,14 @@ export const RISE = 52;
 /** The steepest a branch a cat can walk along (degrees from level). */
 export const MAX_SLOPE = 35;
 const WALKABLE = Math.tan((MAX_SLOPE * Math.PI) / 180);
-/** Stumps up a trunk or a steep limb are this far apart in height (a jump goes about 14 px)... */
-export const STUMP_STEP = 9;
-/** ...the lowest this high: out of a kitten's jump, in a young cat's. */
+/** Stumps up a trunk or a steep limb are this far apart in height, and a few px more (a jump goes about 14 px)... */
+export const STUMP_STEP = 11, STUMP_VARY = 2;
+/** ...the lowest this high: out of a kitten's jump, in a young cat's... */
 export const STUMP_LOW = 10;
+/** ...and each clear of the one below it, its middle at most this far across from it (px): never straight above, a jump to one side. */
+export const HOP_MAX = 16;
+/** A cat's paws hang this far over the end of a stump (not much: a stump is a small thing to land on). */
+const STUMP_HANG = 1;
 /** Perches lower than the trunk's solid top (FORK_Z) are stood on this far in front of the trunk. */
 export const TRUNK_FRONT = 6;
 /** The perches' band in depth: this far behind and in front of the trunk's foot. */
@@ -143,21 +147,41 @@ function walkable(l: Limb, kind: PerchKind): Perch[] {
 
 /**
  * Stumps up a column from height z0 to z1, its middle at x(z), half(z) wide:
- * every STUMP_STEP, on alternate sides, each a short stub (some with a leaf)
- * whose perch reaches in a little past the middle, so a cat can climb
- * straight up from one to the next. Returns the height the next would be at.
+ * every STUMP_STEP or so, each to one side of the one below it (HOP_MIN to
+ * HOP_MAX across), so a cat zig-zags up, jumping across from one to the next.
+ * Out at the column's edge a stump is a short stub sticking out of it (some
+ * with a leaf); on the face of a wide trunk, a knot of an old branch.
+ * `below`: the stump below the first (across, from the trunk's middle), if any. Returns the height the
+ * next would be at, and the last stump.
  */
-function ladder(rnd: () => number, x: (z: number) => number, half: (z: number) => number, z0: number, z1: number, limbs: Limb[], perches: Perch[]): number {
-  let side = rnd() < 0.5 ? -1 : 1, z = z0;
-  for (; z <= z1; z += STUMP_STEP) {
-    const mx = x(z), h = half(z), long = 4 + Math.round(rnd() * 3), th = 2.5;
-    const root = mx + side * (h - 1), tip = mx + side * (h + long);
-    limbs.push({ x0: root, z0: z, x1: tip, z1: z + 1, th0: th, th1: 2, bend: 0, seed: 0, stump: true, leaf: rnd() < 0.4 });
-    const inner = mx - side * 3;
-    perches.push({ x0: Math.min(inner, tip), z0: z + th / 2, x1: Math.max(inner, tip), z1: z + th / 2, kind: 'stump' });
-    side = -side;
+type Rung = { z: number; last: [number, number] | null };
+function ladder(rnd: () => number, x: (z: number) => number, half: (z: number) => number, z0: number, z1: number, limbs: Limb[], perches: Perch[], below: [number, number] | null = null): Rung {
+  let z = z0, last = below;
+  for (; z <= z1; z += STUMP_STEP + Math.floor(rnd() * (STUMP_VARY + 1))) {
+    const mx = x(z), h = half(z), reach = h + 7, th = 2.5;
+    // (the stump round u: a knot on a wide trunk's face, or a stub out of its edge)
+    const span = (u: number): [number, number] => {
+      if (Math.abs(u) < h - 3) return [u - 2, u + 2];
+      const side = Math.sign(u) || 1, root = side * (h - 1), tip = side * Math.max(h + 3, Math.abs(u) + 2);
+      return [Math.min(root, tip), Math.max(root, tip)];
+    };
+    // (somewhere across the column, clear of the last and not too far from it)
+    const prev = last && ([last[0] - mx, last[1] - mx] as const);
+    const fits = ([a, b]: [number, number]) => !prev || ((b <= prev[0] - 2 || a >= prev[1] + 2) && Math.abs((a + b) / 2 - (prev[0] + prev[1]) / 2) <= HOP_MAX);
+    let u = (rnd() * 2 - 1) * reach;
+    for (let k = 0; k < 16 && !fits(span(u)); k++) u = (rnd() * 2 - 1) * reach;
+    // (or the other side of the column from it)
+    if (!fits(span(u)) && prev) u = (prev[0] + prev[1]) / 2 > 0 ? Math.min(-(h + 2), prev[0] - 6) : Math.max(h + 2, prev[1] + 6);
+    const [a, b] = span(u);
+    if (Math.abs(u) < h - 3) limbs.push({ x0: mx + a, z0: z, x1: mx + b, z1: z, th0: th, th1: th, bend: 0, seed: 0, stump: true });
+    else {
+      const side = Math.sign(u) || 1, root = side * (h - 1), tip = side * Math.max(h + 3, Math.abs(u) + 2);
+      limbs.push({ x0: mx + root, z0: z, x1: mx + tip, z1: z + 1, th0: th, th1: 2, bend: 0, seed: 0, stump: true, leaf: rnd() < 0.4 });
+    }
+    perches.push({ x0: mx + a, z0: z + th / 2, x1: mx + b, z1: z + th / 2, kind: 'stump' });
+    last = [mx + a, mx + b];
   }
-  return z;
+  return { z, last };
 }
 
 /** The height along limb l at which it reaches z (its first crossing), as how far along it is; null if it never does. */
@@ -166,11 +190,11 @@ function along(l: Limb, z: number): number | null {
   return null;
 }
 
-/** Stumps up limb l from height z0 to its end (or z1); the height the next would be at. */
-function limbLadder(rnd: () => number, l: Limb, z0: number, z1: number, limbs: Limb[], perches: Perch[]): number {
+/** Stumps up limb l from height z0 to its end (or z1), on from the stump `below`. */
+function limbLadder(rnd: () => number, l: Limb, z0: number, z1: number, limbs: Limb[], perches: Perch[], below: [number, number] | null): Rung {
   const top = Math.min(z1, limbAt(l, 0.92)[1]);
   const xAt = (z: number) => limbAt(l, along(l, z) ?? 1)[0], half = (z: number) => limbThick(l, along(l, z) ?? 1) / 2;
-  return ladder(rnd, xAt, half, z0, top, limbs, perches);
+  return ladder(rnd, xAt, half, z0, top, limbs, perches, below);
 }
 
 /**
@@ -233,12 +257,12 @@ function broadleafPlan(seed: number, size: number, trunk: number, birdhouse: boo
   // stumps: up the trunk, and up every limb (the leader all the way to the top)
   // (each carrying on from the one below it without a gap)
   const up = ladder(rnd, () => 0, trunkHalfAt, STUMP_LOW, fork - 4, limbs, perches);
-  let next = 0;
+  let next = up;
   for (const m of mains) {
-    const z = limbLadder(rnd, m, up, Infinity, limbs, perches);
-    if (m === lead) next = z;
+    const r = limbLadder(rnd, m, up.z, Infinity, limbs, perches, up.last);
+    if (m === lead) next = r;
   }
-  limbLadder(rnd, leader, next, top - 4, limbs, perches);
+  limbLadder(rnd, leader, next.z, top - 4, limbs, perches, next.last);
   // the bird house hangs on the front of the trunk, below the fork
   const house = Math.min(FORK_Z + Math.round(RISE / 2), Math.round(fork - 2));
   const hung = birdhouse && house >= 16;
@@ -349,7 +373,8 @@ export function perchUnder(x: number, y: number, z: number, under = Infinity): P
     const t = TREES[i];
     if (!inBand(t, y) || Math.abs(x - t.x) > t.w / 2 + OVERHANG) continue;
     for (const p of PERCHES[i]) {
-      if (x <= p.x0 - OVERHANG || x >= p.x1 + OVERHANG) continue;
+      const hang = p.kind === 'stump' ? STUMP_HANG : OVERHANG;
+      if (x <= p.x0 - hang || x >= p.x1 + hang) continue;
       const pz = zAt(p, x);
       if (pz <= z + CATCH && pz < under && pz > bz) { best = p; bz = pz; }
     }

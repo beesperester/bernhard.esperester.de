@@ -4,18 +4,18 @@ import { DASH_SPEED, JUMP_HEIGHT, STEP_UP, WALK_SPEED, step } from '../game/move
 import { MoveWitness } from '../net/witness.ts';
 import { Act } from '../game/state.ts';
 import { FORK_Z, LEVEL, TILE, WALL, heightUnder, levelAt } from './map.ts';
-import { MAX_SLOPE, STUMP_LOW, STUMP_STEP, TREES, perchUnder, standingOn, surfaceAt, treeHolding, zAt, type TreePlan } from './trees.ts';
+import { MAX_SLOPE, STUMP_LOW, STUMP_STEP, STUMP_VARY, TREES, perchUnder, standingOn, surfaceAt, treeHolding, zAt, type TreePlan } from './trees.ts';
 import { STAGE_JUMP, Stage } from '../game/growth.ts';
 import { HILLS } from './park.ts';
 
 const DT = 1 / 60;
 
-/** A jump from (x, y, z) running at vx (a leap, at a tree): where the cat comes down (as the game moves it). */
-function leap(x: number, y: number, z: number, vx: number): { x: number; y: number; z: number } {
+/** A jump from (x, y, z) running at vx for the first `frames` frames of it (then letting go): where the cat comes down (as the game moves it). */
+function leap(x: number, y: number, z: number, vx: number, frames = Infinity): { x: number; y: number; z: number } {
   const body = { x, y, z, airborne: true };
   let vz = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT);
   for (let i = 0; i < 240; i++) {
-    step(body, vx * DT, 0);
+    if (i < frames) step(body, vx * DT, 0);
     const ground = surfaceAt(body.x, body.y, body.z);
     body.z += vz * DT - (GRAVITY * DT * DT) / 2;
     vz -= GRAVITY * DT;
@@ -32,8 +32,10 @@ function climbable(t: TreePlan): Set<number> {
   const seen = new Set<string>();
   while (starts.length) {
     const s = starts.pop()!;
-    for (const vx of [0, -WALK_SPEED, WALK_SPEED, -DASH_SPEED, DASH_SPEED]) {
-      const end = leap(s.x, s.y, s.z, vx);
+    // (straight up, or running one way or the other, all the way or letting go part way)
+    for (const [vx, frames] of [0, -WALK_SPEED, WALK_SPEED, -DASH_SPEED, DASH_SPEED].flatMap((vx) => [Infinity, 6, 12, 18].map((f) => [vx, f]))) {
+      if (vx === 0 && frames !== Infinity) continue;
+      const end = leap(s.x, s.y, s.z, vx, frames);
       const p = standingOn(end.x, end.y, end.z);
       if (!p || p.tree !== tree) continue;
       const i = t.perches.findIndex((q) => t.x + q.x0 === p.x0 && t.elev + q.z0 === p.z0);
@@ -65,7 +67,17 @@ describe('trees', () => {
       const low = Math.min(...stumps);
       expect(low).toBeGreaterThan(STAGE_JUMP[Stage.Kitten] + STEP_UP);
       expect(low).toBeLessThan(Math.min(JUMP_HEIGHT, STAGE_JUMP[Stage.Young]) - 1);
-      expect(STUMP_LOW + STUMP_STEP).toBeLessThan(JUMP_HEIGHT + 6);
+    }
+    // never one straight above the last: a jump to one side, a little short of a full jump up
+    expect(STUMP_STEP + STUMP_VARY).toBeLessThan(JUMP_HEIGHT - 0.5);
+    // (up the trunk, from the first)
+    for (const t of TREES.slice(0, 60)) {
+      const s = t.perches.filter((p) => p.kind === 'stump' && p.z0 < Math.min(t.fork - 4, 90));
+      expect(s[0].z0).toBeCloseTo(STUMP_LOW + 1.25);
+      for (let k = 1; k < s.length; k++) {
+        expect(s[k].z0 - s[k - 1].z0).toBeGreaterThanOrEqual(STUMP_STEP);
+        expect(s[k].x1 <= s[k - 1].x0 || s[k].x0 >= s[k - 1].x1, `stumps at ${s[k - 1].z0} and ${s[k].z0} of the ${t.shape} at ${t.tx},${t.ty}`).toBe(true);
+      }
     }
   });
 
@@ -118,13 +130,13 @@ describe('trees', () => {
   it('lets a cat jump up through a branch and land on it from above', () => {
     const t = TREES.find((q) => q.shape === 'pine')!;
     // standing on the ground in front of the trunk, the lowest stump is out of the way
-    expect(perchUnder(t.x, t.y + 6, t.elev)).toBeNull();
-    const up = leap(t.x, t.y + 6, t.elev, 0);
-    const low = Math.min(...t.perches.filter((p) => p.kind === 'stump').map((p) => p.z0));
-    expect(up.z).toBe(t.elev + low);
+    const low = t.perches.filter((p) => p.kind === 'stump').sort((a, b) => a.z0 - b.z0)[0], x = t.x + (low.x0 + low.x1) / 2;
+    expect(perchUnder(x, t.y + 6, t.elev)).toBeNull();
+    const up = leap(x, t.y + 6, t.elev, 0);
+    expect(up.z).toBe(t.elev + low.z0);
     expect(treeHolding(up.x, up.y, up.z)).toBe(TREES.indexOf(t));
     // and dropping through it (perches below `under` only) comes down to the ground
-    expect(surfaceAt(t.x, t.y + 6, up.z, up.z)).toBe(t.elev);
+    expect(surfaceAt(x, t.y + 6, up.z, up.z)).toBe(t.elev);
   });
 
   it.skipIf(!HILLS)("doesn't count a cat walking on a plateau beside a tree down below as up that tree", () => {
@@ -148,9 +160,10 @@ describe('trees', () => {
     const t = TREES.find((q) => q.shape === 'broadleaf' && !q.elev)!;
     const w = new MoveWitness();
     const stump = t.perches.filter((p) => p.kind === 'stump').sort((a, b) => a.z0 - b.z0)[0];
-    expect(w.observe(t.x, t.y + 6, 0, Act.Idle, 0)).toBeNull();
-    expect(w.observe(t.x, t.y + 6, stump.z0 + 2, Act.Jump, 200)).toBeNull();
-    expect(w.observe(t.x, t.y + 6, stump.z0, Act.Idle, 400)).toBeNull();
+    const sx = t.x + (stump.x0 + stump.x1) / 2;
+    expect(w.observe(sx, t.y + 6, 0, Act.Idle, 0)).toBeNull();
+    expect(w.observe(sx, t.y + 6, stump.z0 + 2, Act.Jump, 200)).toBeNull();
+    expect(w.observe(sx, t.y + 6, stump.z0, Act.Idle, 400)).toBeNull();
     // (no jump goes that high)
     expect(new MoveWitness().observe(t.x + 200, t.y + 30, 30, Act.Jump, 0)).toBe('too-high');
     // but hanging in the air beside the tree is
