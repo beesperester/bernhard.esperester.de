@@ -6,6 +6,8 @@
 // ?date=2027-01-15 that day (with its sun and its season), and ?speed=600
 // runs the day 600x faster.
 
+import { mix } from '../art/raster.ts';
+
 const LAT = 52.52, LON = 13.405;
 const RAD = Math.PI / 180;
 
@@ -73,7 +75,6 @@ const smoothstep = (a: number, b: number, x: number) => {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
-const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 function tintFor(el: number): RGB {
   if (el <= TINT[0][0]) return TINT[0][1];
@@ -155,3 +156,6 @@ function berlinShift(now: number, hh: number, mm: number): number {
   const current = (+parts.hour * 3600 + +parts.minute * 60 + +parts.second) * 1000;
   return (hh * 3600 + mm * 60) * 1000 - current;
 }
+
+/** How far the lamps are on (0..1): they come on once the sun is well below the horizon, and go off before sunrise. */
+export const lampsOn = (l: Light): number => Math.max(0, Math.min(1, (-2 - l.elevation) / 4));

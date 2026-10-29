@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { hex, type Mask, type RGB } from '../art/raster.ts';
+import { hex, mix, type Mask, type RGB } from '../art/raster.ts';
 import { buildBed, clarity, shoreDistance, EYE, F0, FRESNEL_POW, SLOPE, WAVES, type Sky } from '../art/water.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
@@ -94,7 +94,6 @@ const RAIN_SKY = { zenith: hex('#86929f'), horizon: hex('#b4bcc4'), cloud: hex('
 /** The colour of the water itself, deep down: a green-brown murk, darker at night. */
 const MURK = hex("#24474a"), MURK_NIGHT = hex('#0e1c22');
 
-const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 export class WaterSurface {
   /** The numbers the surface's shader is given, shared by every patch and set anew each frame. */

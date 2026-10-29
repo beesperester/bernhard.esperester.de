@@ -3,7 +3,7 @@ import type { Raster } from '../art/raster.ts';
 import { buildFlower, buildPad } from '../art/lilies.ts';
 import { FLOWERS, LILIES, PADS } from '../world/lilies.ts';
 import { SEASON } from '../world/season.ts';
-import type { Light } from '../world/sky.ts';
+import { lampsOn, type Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 import type { Glow, Glows } from './Glows.ts';
 
@@ -43,7 +43,7 @@ export class Lilies {
 
   update(light: Light, time: number): void {
     // (they open their glow as the lanterns come on)
-    const on = Math.max(0, Math.min(1, (-2 - light.elevation) / 4));
+    const on = lampsOn(light);
     if (on === 0 && this.lit === 0) return;
     this.lit = on;
     const t = time / 1000;

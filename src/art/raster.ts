@@ -97,6 +97,19 @@ export class Raster {
 }
 
 /** Deterministic PRNG so the garden looks identical for every visitor. */
+/** A dark outline round everything drawn on `r` so far, in `c`. */
+export function outline(r: Raster, c: RGB): void {
+  const edge: [number, number][] = [];
+  for (let y = 0; y < r.h; y++)
+    for (let x = 0; x < r.w; x++)
+      if (!r.isSet(x, y) && (r.isSet(x - 1, y) || r.isSet(x + 1, y) || r.isSet(x, y - 1) || r.isSet(x, y + 1))) edge.push([x, y]);
+  for (const [x, y] of edge) r.set(x, y, c);
+}
+
+/** Colour a mixed towards b by t (0..1). */
+export const mix = (a: readonly number[], b: readonly number[], t: number): [number, number, number] =>
+  [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {

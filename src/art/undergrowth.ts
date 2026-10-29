@@ -4,7 +4,7 @@
 // more, so a cat among them is half or wholly hidden by those in front.
 // Painted in dabs of close tones (paint.ts); the ferns and bracken go rusty
 // in autumn and brown in winter, the shrubs turn a little and thin out.
-import { Raster, hash2, type RGB } from './raster.ts';
+import { Raster, hash2, mix, type RGB } from './raster.ts';
 import { dab, ramp, tone } from './paint.ts';
 import { puff } from './leaves.ts';
 import { SEASON } from '../world/season.ts';
@@ -19,7 +19,6 @@ const CANE = ramp(4, '#2a1624', '#4a2232', '#6e3440', '#94504c');
 const BRAMBLE_LEAF = ramp(5, '#1a3230', '#2c4c38', '#466c3e', '#6c8c46', '#98aa58');
 const BERRY: RGB[] = [[34, 18, 40], [70, 34, 66], [150, 40, 60]];
 
-const mix = (a: RGB, b: RGB, t: number): RGB => [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * t)) as unknown as RGB;
 /** How far the fronds have gone rusty (autumn), and died back to brown (winter). */
 const rusty = () => Math.min(1, SEASON.turn * 0.9 + (1 - SEASON.leaves) * 0.6);
 

@@ -5,7 +5,7 @@ import type { TreePlan } from '../world/trees.ts';
 import { Act } from './state.ts';
 import type { CatView } from './CatView.ts';
 import { BARROW_H, FURNITURE, LANTERNS, TILE, elevAt, furnished, iceAt, levelAt, tileAt } from '../world/map.ts';
-import type { Light } from '../world/sky.ts';
+import { lampsOn, type Light } from '../world/sky.ts';
 import { SEASON, rainfall, snowfall } from '../world/season.ts';
 import { sound, type Playing } from '../audio/sound.ts';
 import { isBridge, isLawnOrTall } from '../world/legend.ts';
@@ -165,7 +165,7 @@ export class Weather {
   update(gt: number, now: number, dt: number, cats: CatView[], view: Phaser.Geom.Rectangle, light: Light): void {
     this.night = light.night;
     // (the lanterns come on as in Lanterns.ts)
-    this.lampsOn = Math.max(0, Math.min(1, (-2 - light.elevation) / 4));
+    this.lampsOn = lampsOn(light);
     this.wind = Math.sin(gt / 9000) * 8 + Math.sin(gt / 2300) * 4;
     this.updateSnow(gt, dt, view);
     this.updateRain(gt, dt, view);

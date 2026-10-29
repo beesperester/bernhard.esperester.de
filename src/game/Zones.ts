@@ -12,7 +12,7 @@ import { buildGlow } from '../art/critters.ts';
 import type { Raster } from '../art/raster.ts';
 import { FURNITURE, TILE, THEMED_ZONES, elevAt } from '../world/map.ts';
 import { buntingStrings, type ThemedZone } from '../world/themes.ts';
-import type { Light } from '../world/sky.ts';
+import { lampsOn, type Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 import type { Glow, Glows } from './Glows.ts';
 import { LAMPLIGHT, type LightMap } from './LightMap.ts';
@@ -71,7 +71,7 @@ export class Zones {
 
   /** The fairy lights come on after dark, like the lanterns along the paths, and twinkle a little. */
   light(light: Light, now: number): void {
-    const on = Math.max(0, Math.min(1, (-2 - light.elevation) / 4));
+    const on = lampsOn(light);
     if (on <= 0 && this.lit <= 0) return;
     this.lit = on;
     this.bulbs.forEach((b, i) => b.set(on * (0.75 + 0.25 * Math.sin(now / 600 + i * 1.7))));

@@ -5,7 +5,7 @@
 // tiled slopes. Moss grows on the tops, ivy down some fronts, and broken
 // things have jagged tops. A roof is drawn on its own (it hangs over a cat
 // up on the folly).
-import { Raster, hex, hash2, type RGB } from './raster.ts';
+import { Raster, hex, hash2, outline, type RGB } from './raster.ts';
 import { dab, paintOver } from './paint.ts';
 import { snowCap } from './furniture.ts';
 import { SEASON, type Season } from '../world/season.ts';
@@ -190,14 +190,6 @@ function overgrow(r: Raster, shapes: Shape[], ox: number, oy: number, seed: numb
   }
 }
 
-/** A dark outline around everything drawn so far. */
-function outline(r: Raster, c: RGB): void {
-  const edge: [number, number][] = [];
-  for (let y = 0; y < r.h; y++)
-    for (let x = 0; x < r.w; x++)
-      if (!r.isSet(x, y) && (r.isSet(x - 1, y) || r.isSet(x + 1, y) || r.isSet(x, y - 1) || r.isSet(x, y + 1))) edge.push([x, y]);
-  for (const [x, y] of edge) r.set(x, y, c);
-}
 
 /** Little touches a shape can't make: a cat's ears and face, the tip of a needle, the lanterns' light. */
 function details(kind: LandmarkKind, r: Raster, ox: number, oy: number): void {

@@ -3,7 +3,7 @@
 // the notch cut in to its middle, lit from the top left; and the flowers,
 // cups of pointed petals with a golden heart, white or pink. In autumn the
 // pads go yellow and brown at their edges.
-import { Raster, hash2, type RGB } from './raster.ts';
+import { Raster, hash2, mix, type RGB } from './raster.ts';
 import { dab, ramp, tone } from './paint.ts';
 import { SEASON, type Season } from '../world/season.ts';
 
@@ -13,7 +13,6 @@ const WHITE = ramp(5, '#8a8aa8', '#c4c4d4', '#e6e2e6', '#fbf6ee', '#ffffff');
 const PINK = ramp(5, '#8a3a5a', '#c45c7c', '#e48aa0', '#f4b4c0', '#ffe0e4');
 const HEART: RGB[] = [[200, 140, 30], [244, 200, 70]];
 
-const mix = (a: RGB, b: RGB, t: number): RGB => [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * t)) as unknown as RGB;
 
 /** The pads' sizes (w, h), one picture each. */
 export const PAD_SIZES: [number, number][] = [[15, 9], [13, 8], [11, 7], [9, 6]];

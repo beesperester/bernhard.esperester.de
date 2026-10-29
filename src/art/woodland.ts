@@ -4,7 +4,7 @@
 // painted style (paint.ts ramps and dabs), lit from the top left, each with
 // a dark outline of itself; the furniture's season dressing puts snow on
 // them in winter.
-import { Raster, hash2, type RGB } from './raster.ts';
+import { Raster, hash2, outline, type RGB } from './raster.ts';
 import { dab, ramp, tone } from './paint.ts';
 
 const BARK = ramp(6, '#20161c', '#3a2622', '#58382a', '#7a5034', '#9a6a40', '#b8885a');
@@ -13,14 +13,6 @@ const MOSS = ramp(5, '#1e3426', '#30502c', '#4c7232', '#72963c', '#a0b84e');
 const STONE = ramp(7, '#1e1e2a', '#34343e', '#4c4a52', '#66626a', '#827c82', '#a09a9c', '#c2bcb8');
 const LICHEN: RGB[] = [[150, 160, 96], [196, 184, 110], [210, 150, 80]];
 
-/** A dark outline round everything drawn so far: the darkest tone of `r`. */
-function outline(r: Raster, c: RGB): void {
-  const edge: [number, number][] = [];
-  for (let y = 0; y < r.h; y++)
-    for (let x = 0; x < r.w; x++)
-      if (!r.isSet(x, y) && (r.isSet(x - 1, y) || r.isSet(x + 1, y) || r.isSet(x, y - 1) || r.isSet(x, y + 1))) edge.push([x, y]);
-  for (const [x, y] of edge) r.set(x, y, c);
-}
 
 /** Moss over the top of whatever is drawn at (x, y), in soft patches: true if it put some. */
 function mossy(r: Raster, x: number, y: number, v: number, seed: number, amount: number): boolean {

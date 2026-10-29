@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { Raster } from '../art/raster.ts';
 import { HEADINGS, buildBeam, buildCar, buildDriverCap } from '../art/train.ts';
 import { buildGlow } from '../art/critters.ts';
-import type { Light } from '../world/sky.ts';
+import { lampsOn, type Light } from '../world/sky.ts';
 import { DEPTH } from './Daylight.ts';
 import { world } from './train.ts';
 import { moving } from '../world/map.ts';
@@ -78,7 +78,7 @@ export class TrainView {
 
   /** The lamps come on after dark, like the lanterns along the paths. */
   light(light: Light): void {
-    this.lit = Math.max(0, Math.min(1, (-2 - light.elevation) / 4));
+    this.lit = lampsOn(light);
   }
 
   get driver(): string | null {

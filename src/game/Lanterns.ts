@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { LANDMARK_SPOTS, LANTERNS, LEVEL, TILE, elevAt, levelAt } from '../world/map.ts';
 import { LANDMARK_LAMPS, LANDMARK_SIZE } from '../world/landmarks.ts';
-import type { Light } from '../world/sky.ts';
+import { lampsOn, type Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 import type { Glow, Glows } from './Glows.ts';
 import { LAMPLIGHT, type LightMap } from './LightMap.ts';
@@ -49,7 +49,7 @@ export class Lanterns {
 
   update(light: Light, time: number): void {
     // only after dark: they come on once the sun is well below the horizon, and go off before sunrise
-    const on = Math.max(0, Math.min(1, (-2 - light.elevation) / 4));
+    const on = lampsOn(light);
     const t = time / 1000;
     if (on === 0 && this.lit === 0) return;
     this.lit = on;

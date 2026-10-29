@@ -3,7 +3,7 @@
 // bath, a cardboard box, a Berlin street pump, pots of catnip, a raised
 // vegetable bed, a wheelbarrow and an insect hotel. Every
 // sprite gets a dark outline at the end, like the trees and critters.
-import { Raster, hex, hash2, type RGB } from './raster.ts';
+import { Raster, hex, hash2, outline, type RGB } from './raster.ts';
 import { SNOW } from './tiles.ts';
 import { SEASON, type Season } from '../world/season.ts';
 
@@ -15,14 +15,6 @@ const SAGE = { o: hex('#1e3428'), d: hex('#3e6a52'), b: hex('#5e927a'), l: hex('
 const WICKER = { o: hex('#3e2618'), d: hex('#7a5232'), b: hex('#a87c4a'), l: hex('#cca46c') };
 const CLOTH = { r: hex('#d84848'), rd: hex('#a83434'), c: hex('#f8ecd8'), cd: hex('#e0ccb0') };
 
-/** A dark outline around everything drawn so far. */
-function outline(r: Raster, c: RGB): void {
-  const edge: [number, number][] = [];
-  for (let y = 0; y < r.h; y++)
-    for (let x = 0; x < r.w; x++)
-      if (!r.isSet(x, y) && (r.isSet(x - 1, y) || r.isSet(x + 1, y) || r.isSet(x, y - 1) || r.isSet(x, y + 1))) edge.push([x, y]);
-  for (const [x, y] of edge) r.set(x, y, c);
-}
 
 /** A park bench seen from the front: two backrest slats, the seat, iron legs. 30×18, feet on the bottom row. */
 export function buildBench(): Raster {

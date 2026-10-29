@@ -2,7 +2,7 @@
 // striped tent with a pennant on top, a booth with a striped awning over its
 // counter, the poles the bunting hangs from, and the bunting itself.
 
-import { Raster, hex, hash2, type RGB } from './raster.ts';
+import { Raster, hex, hash2, outline, type RGB } from './raster.ts';
 
 const RED = { d: hex('#a83434'), b: hex('#d84848'), l: hex('#f06c5c') };
 const CREAM = { d: hex('#d8c4a4'), b: hex('#f8ecd8'), l: hex('#fffaf0') };
@@ -14,13 +14,6 @@ const DARK = hex('#2a1810'), INSIDE = hex('#3a2418'), OUTLINE = hex('#2a1418');
 /** The colours of the bunting's pennants, in the order they hang. */
 export const PENNANTS: RGB[] = [RED.b, YELLOW.b, BLUE.b, CREAM.b, hex('#58b858')];
 
-function outline(r: Raster): void {
-  const edge: [number, number][] = [];
-  for (let y = 0; y < r.h; y++)
-    for (let x = 0; x < r.w; x++)
-      if (!r.isSet(x, y) && (r.isSet(x - 1, y) || r.isSet(x + 1, y) || r.isSet(x, y - 1) || r.isSet(x, y + 1))) edge.push([x, y]);
-  for (const [x, y] of edge) r.set(x, y, OUTLINE);
-}
 
 /** Lit from the left: a stripe's tone across the width (0 left .. 1 right). */
 const tone = (c: { d: RGB; b: RGB; l: RGB }, u: number): RGB => (u < 0.22 ? c.l : u > 0.78 ? c.d : c.b);
@@ -69,7 +62,7 @@ export function buildTent(): Raster {
   r.rect(cx, 0, 1, 7, WOOD.d);
   for (let i = 0; i < 5; i++) for (let j = 0; j <= Math.floor((5 - i) / 2); j++) r.set(cx + 1 + i, 1 + j, i < 2 ? YELLOW.l : YELLOW.b);
   r.set(cx, 0, YELLOW.l);
-  outline(r);
+  outline(r, OUTLINE);
   return r;
 }
 
@@ -146,7 +139,7 @@ export function buildBooth(): Raster {
   for (let y = 1; y < 7; y++) for (let x = cx + 1; x < cx + 9 - (y === 3 || y === 4 ? 2 : 0); x++) r.set(x, y, y === 1 ? RED.l : RED.b);
   r.set(cx + 4, 3, YELLOW.l); r.set(cx + 3, 4, YELLOW.b); r.set(cx + 4, 4, YELLOW.b); r.set(cx + 5, 4, YELLOW.b); r.set(cx + 4, 5, YELLOW.d);
   r.set(cx, 0, YELLOW.l);
-  outline(r);
+  outline(r, OUTLINE);
   return r;
 }
 
@@ -161,7 +154,7 @@ export function buildPole(): Raster {
   r.rect(1, 30, 4, 2, DARK);
   r.rect(2, 1, 2, 2, YELLOW.b);
   r.set(2, 1, YELLOW.l);
-  outline(r);
+  outline(r, OUTLINE);
   return r;
 }
 
@@ -274,7 +267,7 @@ export function buildTrack(bits: TrackBit[], lift: (s: number) => boolean): { r:
     const [x, y] = k.split(',').map(Number);
     r.set(x - x0 + 1, y - y0 + 1, c);
   }
-  outline(r);
+  outline(r, OUTLINE);
   return { r, ox: 1 - x0, oy: 1 - y0 };
 }
 
@@ -295,6 +288,6 @@ export function buildPlatform(w: number, d: number, h: number): Raster {
   r.rect(1, 0, 14, 5, RED.b);
   r.rect(1, 0, 14, 1, RED.l);
   for (let x = 3; x < 13; x += 2) r.set(x, 2, YELLOW.l);
-  outline(r);
+  outline(r, OUTLINE);
   return r;
 }
