@@ -68,9 +68,9 @@ export function buildBed(mask: Bits, dist: Uint8Array, ox = 0, oy = 0): Raster {
 // ---- the surface ----
 
 /** Looking down at the garden from the south, this steeply (the eye's direction from the water, z up). */
-const EYE: [number, number, number] = [0, 0.57, 0.82];
+export const EYE: [number, number, number] = [0, 0.57, 0.82];
 /** How much water mirrors when looked at straight on, and how sharply that rises at a slant. */
-const F0 = 0.3, FRESNEL_POW = 3;
+export const F0 = 0.3, FRESNEL_POW = 3;
 
 /** Fresnel: how much a surface with unit normal n mirrors, seen from the eye. */
 export function reflectance(nx: number, ny: number, nz: number): number {
@@ -90,9 +90,9 @@ export interface Sky {
 }
 
 /** Ripples running over the water: two small trains [dx, dy, wavenumber, amplitude, speed], over a slow wobble of noise. */
-const WAVES = [[0.96, 0.28, 1.1, 0.12, 2.1], [-0.45, 0.89, 1.6, 0.08, 2.9]];
+export const WAVES = [[0.96, 0.28, 1.1, 0.12, 2.1], [-0.45, 0.89, 1.6, 0.08, 2.9]];
 /** How steep the waves look. */
-const SLOPE = 0.5;
+export const SLOPE = 0.5;
 
 /**
  * One pixel of the surface at world (x, y), time t (s): its colour and how

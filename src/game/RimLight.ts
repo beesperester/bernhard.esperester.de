@@ -15,6 +15,8 @@ const DIRECTIONS = 16;
 const CHUNK = 8;
 /** Brightness of the outer rim pixel and of the one inside it. */
 const OUTER = 255, INNER = 110;
+/** Rims are blended over what's under them, not added: this much stronger, to light it as much. */
+const BOOST = 1.25;
 
 type Solid = (x: number, y: number) => boolean;
 interface Overlay {
@@ -127,7 +129,9 @@ export class RimLight implements TreeWatcher {
 
   private overlay(key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']): Overlay {
     const tex = this.scene.textures.createCanvas(key, w, h)!;
-    const img = cullerFor(this.scene).add(this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
+    // (blended normally, a little stronger, rather than added: a sprite blended differently from those either
+    // side of it in depth ends the GPU's batch, and the rims are everywhere; it reads the same)
+    const img = cullerFor(this.scene).add(this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth).setVisible(false));
     return { img, tex, w, h, rim, x, y, hole: null };
   }
 
@@ -149,7 +153,7 @@ export class RimLight implements TreeWatcher {
     this.trees.set(i, o);
     this.overlays.push(o);
     if (this.dir >= 0) this.paint(o);
-    o.img.setVisible(this.strength > 0).setAlpha(this.strength).setTint(this.colour);
+    o.img.setVisible(this.strength > 0).setAlpha(Math.min(1, this.strength * BOOST)).setTint(this.colour);
   }
 
   /** A tree has been let go: and its rim. */
@@ -201,7 +205,7 @@ export class RimLight implements TreeWatcher {
     this.colour = colour;
     if (key === this.shown) return;
     this.shown = key;
-    for (const o of this.overlays) o.img.setVisible(this.strength > 0).setAlpha(s).setTint(colour);
+    for (const o of this.overlays) o.img.setVisible(this.strength > 0).setAlpha(Math.min(1, s * BOOST)).setTint(colour);
   }
 
   private redraw(q: number): void {

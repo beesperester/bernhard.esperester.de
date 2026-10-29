@@ -219,6 +219,14 @@ export class GardenScene extends Phaser.Scene {
   }
 
   create(): void {
+    // (Phaser sorts by depth with a merge sort that goes over the whole list ~12 times; the list is all
+    // but in order already every frame, which the built-in sort, stable as well, makes short work of)
+    const list = this.children;
+    list.depthSort = () => {
+      if (!list.sortChildrenFlag) return;
+      list.list.sort(byDepth);
+      list.sortChildrenFlag = false;
+    };
     const canvases = makeTextures(this);
 
     this.ground = new Ground(this);
@@ -654,7 +662,7 @@ export class GardenScene extends Phaser.Scene {
     this.train.light(light);
     this.zones.light(light, time);
     this.nightWater.update(light, time, view);
-    this.waterSurface.update(light, gt, time, overcast, view);
+    this.waterSurface.update(light, gt, time, overcast);
     // keep the clock in the status line current
     if (time >= this.nextClock) {
       this.nextClock = time + 10000;
@@ -1432,3 +1440,6 @@ function asked(id: string): boolean {
 function setAsked(id: string): void {
   try { localStorage.setItem(`named-${id}`, '1'); } catch { /* storage unavailable */ }
 }
+
+const byDepth = (a: Phaser.GameObjects.GameObject, b: Phaser.GameObjects.GameObject): number =>
+  (a as unknown as { _depth: number })._depth - (b as unknown as { _depth: number })._depth;

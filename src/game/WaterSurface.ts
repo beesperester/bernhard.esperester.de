@@ -1,16 +1,21 @@
 import Phaser from 'phaser';
 import { hex, type Mask, type RGB } from '../art/raster.ts';
-import { buildBed, clarity, shoreDistance, surfacePixel, type Sky } from '../art/water.ts';
+import { buildBed, clarity, shoreDistance, EYE, F0, FRESNEL_POW, SLOPE, WAVES, type Sky } from '../art/water.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 import { TILE, tileAt } from '../world/map.ts';
 import { isBridge, isLilyPad } from '../world/legend.ts';
+import { defineShader, shade, type Uniforms } from './gpu.ts';
 
 // The open water, drawn in two layers. Underneath, the bed: sand, pebbles,
 // weed and mud (still, drawn once). The fish swim over it. On top, the
 // surface: a sky box of blue, sun and drifting clouds mirrored by small
 // moving waves, more where a wave tilts away from the eye (Fresnel), with
 // the bed showing through in the shallows and lost in murk further out.
+//
+// The surface is drawn on the GPU, every frame: each patch's picture only
+// says where there is water and how clear it is (red), and a shader works
+// out the rest (as art/water.ts' surfacePixel() did on the CPU).
 
 type Box = { x: number; y: number; w: number; h: number };
 
@@ -20,12 +25,67 @@ const BED_DEPTH = -99998;
 const MAX_DEPTH = 60;
 /** ...and over them, under the cast shadows (-99993) and the mirrored trees and cats (-99990). */
 const SURFACE_DEPTH = -99994.5;
-/** Redraw the visible surface this often (ms): waves are slow, and it's pixel art. */
-const FRAME_MS = 90;
-/** At most this long (ms) a frame spends redrawing water. */
-const BUDGET_MS = 4;
-/** Water this far (px) outside the view is drawn too, so it's ready when the camera gets there. */
-const MARGIN = 48;
+
+const v3 = (v: readonly number[]) => `vec3(${v.map((n) => n.toFixed(4)).join(', ')})`;
+
+const SURFACE = defineShader('WaterSurface', `
+uniform float uTime;
+/** The sky: blue overhead and at the horizon, the clouds (0..1 rgb), the murk of the water itself. */
+uniform vec3 uZenith;
+uniform vec3 uHorizon;
+uniform vec3 uCloud;
+uniform vec3 uMurk;
+/** Cloud cover (0..1), drift (px), roughness, the sun's glint (0: none) and the way to the sun. */
+uniform float uCover;
+uniform vec2 uDrift;
+uniform float uRough;
+uniform float uGlint;
+uniform vec3 uSun;
+
+const vec3 EYE = ${v3(EYE)};
+
+void main() {
+  vec4 data = texture2D(uMainSampler, outTexCoord);
+  if (data.a < 0.5) { gl_FragColor = vec4(0.0); return; }
+  float clear = data.r / data.a;
+  vec2 w = worldPx();
+  float x = w.x, y = w.y, t = uTime;
+  // the slope of the water here: a lazy, irregular swell (the slope of a drifting noise)...
+  vec2 sw = vec2(x / 11.0 + t * 0.25, y / 7.0 - t * 0.18);
+  float h0 = vnoise(sw, 2120.0);
+  float gx = (vnoise(sw + vec2(0.12, 0.0), 2120.0) - h0) * 2.4, gy = (vnoise(sw + vec2(0.0, 0.12), 2120.0) - h0) * 3.4;
+  // ...and fine ripples on it
+${WAVES.map(([dx, dy, k, a, sp]) => `  { float c = cos((x * ${dx.toFixed(4)} + y * ${dy.toFixed(4)}) * ${k.toFixed(4)} - t * ${sp.toFixed(4)}) * ${(a * k).toFixed(5)} * uRough;
+    gx += c * ${dx.toFixed(4)}; gy += c * ${dy.toFixed(4)}; }`).join('\n')}
+  vec3 n = normalize(vec3(-gx * ${SLOPE.toFixed(4)}, -gy * ${SLOPE.toFixed(4)}, 1.0));
+  float R = ${F0.toFixed(4)} + (1.0 - ${F0.toFixed(4)}) * pow(1.0 - max(0.0, dot(n, EYE)), ${FRESNEL_POW.toFixed(1)});
+  // the eye's ray, bounced off the surface, into the sky
+  vec3 r = reflect(-EYE, n);
+  r.z = max(0.05, r.z);
+  vec3 sky = mix(uHorizon, uZenith, pow(min(1.0, r.z), 0.8));
+  // clouds, where the bounced ray meets them (they sit high: a little sideways shift goes a long way)
+  vec2 cuv = vec2(x - (r.x / r.z) * 26.0, y + (r.y / r.z) * 26.0) + uDrift;
+  float cn = vnoise(cuv / vec2(70.0, 42.0), 2110.0) * 0.7 + vnoise(cuv / vec2(23.0, 15.0), 2111.0) * 0.3;
+  float cloud = clamp((cn - (1.0 - uCover) * 0.9 - 0.05) / 0.18, 0.0, 1.0);
+  sky = mix(sky, uCloud, cloud * 0.85);
+  // what shows over the bed: the sky as much as it mirrors, and the murk as much as the depth hides the bed
+  float A = 1.0 - (1.0 - R) * clear, m = (1.0 - R) * (1.0 - clear);
+  vec3 col = (R * sky + m * uMurk) / A;
+  float alpha = A;
+  // the sun glinting off a wave
+  if (uGlint > 0.0) {
+    float spec = pow(max(0.0, dot(n, normalize(uSun + EYE))), 900.0) * uGlint;
+    if (spec > 0.25) {
+      float s = min(1.0, spec);
+      col = mix(col, vec3(1.0, 0.98, 0.91), s);
+      alpha = max(alpha, s);
+    }
+  }
+  // pixel art: the opacity in a few dithered steps
+  alpha = min(1.0, floor(alpha * 6.0 + bayer(w)) / 6.0);
+  gl_FragColor = vec4(col * alpha, alpha);
+}
+`);
 
 const DAY_SKY = { zenith: hex('#4f8ede'), horizon: hex('#bfe0f7'), cloud: hex('#f6f9fd') };
 const DUSK_SKY = { zenith: hex('#5f6fb4'), horizon: hex('#f4b384'), cloud: hex('#f8d2b4') };
@@ -37,13 +97,11 @@ const MURK = hex("#24474a"), MURK_NIGHT = hex('#0e1c22');
 const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 export class WaterSurface {
-  /** The water cut into patches, each with its picture, how clear it is where, and when it was last redrawn. */
-  private readonly patches: {
-    box: Box; tex: Phaser.Textures.CanvasTexture; img: ImageData; clear: Float32Array; wet: Uint8Array; drawn: number;
-    /** The part of the patch last drawn, in its own px: [x0, y0, x1, y1]. */
-    done: [number, number, number, number];
-  }[] = [];
-  private readonly px = [0, 0, 0, 0];
+  /** The numbers the surface's shader is given, shared by every patch and set anew each frame. */
+  private readonly uniforms: Uniforms = {
+    uTime: 0, uZenith: [0, 0, 0], uHorizon: [0, 0, 0], uCloud: [0, 0, 0], uMurk: [0, 0, 0],
+    uCover: 0, uDrift: [0, 0], uRough: 1, uGlint: 0, uSun: [0, 0, 1],
+  };
 
   constructor(scene: Phaser.Scene, boxes: Box[], mask: Mask) {
     boxes.forEach((box, n) => {
@@ -62,56 +120,36 @@ export class WaterSurface {
       bedTex.getContext().putImageData(new ImageData(bed.data, bed.w, bed.h), wx - box.x, wy - box.y);
       bedTex.refresh();
       cullerFor(scene).add(scene.add.image(box.x, box.y, bedKey).setOrigin(0).setDepth(BED_DEPTH));
+      // the surface's picture: where there is water, and how clear it is (red)
       const key = `water-surface-${n}`;
       const tex = scene.textures.createCanvas(key, box.w, box.h)!;
-      const clear = new Float32Array(box.w * box.h), wet = new Uint8Array(box.w * box.h);
+      const data = new ImageData(box.w, box.h);
       for (let y = 0; y < box.h; y++)
         for (let x = 0; x < box.w; x++) {
-          const d = dist[(box.y - wy + y) * ww + box.x - wx + x];
-          wet[y * box.w + x] = d && mask.isSet(box.x + x, box.y + y) ? 1 : 0;
-          clear[y * box.w + x] = clarity(d);
+          const d = dist[(box.y - wy + y) * ww + box.x - wx + x], i = (y * box.w + x) * 4;
+          if (!d || !mask.isSet(box.x + x, box.y + y)) continue;
+          data.data[i] = Math.round(clarity(d) * 255);
+          data.data[i + 3] = 255;
         }
-      cullerFor(scene).add(scene.add.image(box.x, box.y, key).setOrigin(0).setDepth(SURFACE_DEPTH));
-      this.patches.push({ box, tex, img: tex.getContext().createImageData(box.w, box.h), clear, wet, drawn: -Infinity, done: [0, 0, 0, 0] });
+      tex.getContext().putImageData(data, 0, 0);
+      tex.refresh();
+      shade(cullerFor(scene).add(scene.add.image(box.x, box.y, key).setOrigin(0).setDepth(SURFACE_DEPTH)), SURFACE, this.uniforms);
     });
   }
 
-  /** `overcast` (0..1) greys the sky and roughens the water; `driftX/Y` move the mirrored clouds with the wind. */
-  update(light: Light, gt: number, time: number, overcast: number, view: Phaser.Geom.Rectangle): void {
-    // what to draw: the view and a margin round it
-    const ax = view.x - MARGIN, ay = view.y - MARGIN, bx = view.right + MARGIN, by = view.bottom + MARGIN;
-    const area = (box: Box): [number, number, number, number] => [
-      Math.max(0, Math.floor(ax - box.x)), Math.max(0, Math.floor(ay - box.y)),
-      Math.min(box.w, Math.ceil(bx - box.x)), Math.min(box.h, Math.ceil(by - box.y)),
-    ];
-    // a patch the camera has moved onto past what it last drew can't wait: it would show a hole
-    const behind = ({ box, done }: (typeof this.patches)[number]) =>
-      view.x - box.x < done[0] || view.y - box.y < done[1] || view.right - box.x > done[2] || view.bottom - box.y > done[3];
-    const near = this.patches.filter(({ box }) => box.x <= bx && box.x + box.w >= ax && box.y <= by && box.y + box.h >= ay);
-    const urgent = near.filter((p) => behind(p) && p.box.x <= view.right && p.box.x + p.box.w >= view.x && p.box.y <= view.bottom && p.box.y + p.box.h >= view.y);
-    const due = near.filter((p) => !urgent.includes(p) && time - p.drawn >= FRAME_MS).sort((a, b) => a.drawn - b.drawn);
-    if (!urgent.length && !due.length) return;
-    const sky = this.skyFor(light, gt, overcast);
-    const murk = mix(MURK_NIGHT, MURK, light.day);
-    const t = gt / 1000, px = this.px;
-    // the urgent ones now, then the rest a few each frame, so a big lake doesn't stall one frame in every few
-    const start = performance.now();
-    for (const p of [...urgent, ...due]) {
-      if (!urgent.includes(p) && performance.now() - start > BUDGET_MS) break;
-      p.drawn = time;
-      const { box, img, clear, wet } = p;
-      const d = img.data;
-      const [x0, y0, x1, y1] = (p.done = area(box));
-      for (let y = y0; y < y1; y++)
-        for (let x = x0; x < x1; x++) {
-          const i = y * box.w + x;
-          if (!wet[i]) continue;
-          surfacePixel(box.x + x, box.y + y, t, clear[i], murk, sky, px);
-          d[i * 4] = px[0]; d[i * 4 + 1] = px[1]; d[i * 4 + 2] = px[2]; d[i * 4 + 3] = px[3] * 255;
-        }
-      p.tex.getContext().putImageData(img, 0, 0);
-      p.tex.refresh();
-    }
+  /** `overcast` (0..1) greys the sky and roughens the water. */
+  update(light: Light, gt: number, _time: number, overcast: number): void {
+    const sky = this.skyFor(light, gt, overcast), u = this.uniforms, c = (v: RGB) => v.map((n) => n / 255);
+    u.uTime = gt / 1000;
+    u.uZenith = c(sky.zenith);
+    u.uHorizon = c(sky.horizon);
+    u.uCloud = c(sky.cloud);
+    u.uMurk = c(mix(MURK_NIGHT, MURK, light.day));
+    u.uCover = sky.cover;
+    u.uDrift = [sky.driftX, sky.driftY];
+    u.uRough = sky.rough;
+    u.uGlint = sky.glint;
+    u.uSun = sky.sun;
   }
 
   private skyFor(light: Light, gt: number, overcast: number): Sky {
