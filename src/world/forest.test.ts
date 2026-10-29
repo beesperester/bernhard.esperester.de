@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CLEARINGS } from './garden.ts';
 import { MAP_H, MAP_W, biomeAt, inClearing, tileAt } from './map.ts';
 import { treeSizeAt } from './layout.ts';
+import { BRAMBLE, FERN, placeFlora, thicketAt } from '../art/flora.ts';
+import { TILE } from './size.ts';
 
 describe('the woods', () => {
   it('are pine, leafy or mixed by a field, their trees after it', () => {
@@ -35,5 +37,21 @@ describe('the woods', () => {
         expect(treeSizeAt(c.tx, c.ty)).toBe(2);
       }
     }
+  });
+
+  it('grow ferns, bracken and thickets on their floor, and only there; thickest round the clearings', () => {
+    const plants = placeFlora().filter((p) => p.kind >= FERN && p.kind <= BRAMBLE);
+    expect(plants.length).toBeGreaterThan(1000);
+    for (const p of plants) expect(biomeAt(Math.floor(p.x / TILE), Math.floor(p.y / TILE))).not.toBeNull();
+    let wall = 0, thick = 0;
+    for (const c of CLEARINGS)
+      for (let j = -c.r - 3; j <= c.r + 3; j++)
+        for (let i = -c.r - 3; i <= c.r + 3; i++) {
+          const d = Math.hypot(i, j * 1.15);
+          if (d <= c.r + 0.5 || d > c.r + 3) continue;
+          wall++;
+          if (thicketAt((c.tx + i) * TILE + 8, (c.ty + j) * TILE + 8)) thick++;
+        }
+    expect(thick / wall).toBeGreaterThan(0.2);
   });
 });

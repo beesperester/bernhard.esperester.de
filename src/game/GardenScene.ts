@@ -10,6 +10,7 @@ import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow } from './Meadow.ts';
 import { Shafts } from './Shafts.ts';
+import { isFlower, thicketAt, undergrowthAt } from '../art/flora.ts';
 import { Fog } from './Fog.ts';
 import { fogAt } from '../world/fog.ts';
 import { Clouds } from './Clouds.ts';
@@ -79,6 +80,10 @@ const SETTLE_SPEED = 60;
 const TUMBLE_MS = 900;
 /** Walking down a sloping branch, a cat keeps to it while it drops away no more than this (px) a frame. */
 const STEP_DOWN = 3;
+/** How fast a cat pushes through a thicket of shrubs or brambles (of its pace in the open). */
+const THICKET_PACE = 0.6;
+/** Another cat down in the undergrowth has its name shown only this close to ours (px). */
+const SEEN_IN_UNDERGROWTH = 48;
 /** How often the pond reflections are redrawn, ms. */
 const REFLECTION_MS = 33;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
@@ -303,9 +308,10 @@ export class GardenScene extends Phaser.Scene {
     this.lighting = new Lighting(this, this.trees, canvases.terrain, this.ground);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
     catLight.seeThrough = (x, y, depth) => this.trees.seeThrough(x, y, depth);
+    catLight.lostIn = (x, y, z) => z < 6 && undergrowthAt(x, y) && Math.hypot(x - this.me.x, y - this.me.y) > SEEN_IN_UNDERGROWTH;
     sight.through = catLight.seeThrough;
     catLight.occluded = (x, y, feetY) => this.trees.covers(x, y, feetY) || !!terrainCover(x, feetY, feetY - y - 1, 4, 2);
-    const flowers: [number, number][] = this.meadow.plants.filter((p) => p.kind >= 3).map((p) => [p.x, p.y - 9]);
+    const flowers: [number, number][] = this.meadow.plants.filter((p) => isFlower(p.kind)).map((p) => [p.x, p.y - 9]);
     for (let ty = 0; ty < MAP_H; ty++)
       for (let tx = 0; tx < MAP_W; tx++) if (groundOf(tileAt(tx, ty)) === 'flowers') flowers.push([tx * TILE + 8, ty * TILE + 8]);
     this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: TREES });
@@ -971,7 +977,8 @@ export class GardenScene extends Phaser.Scene {
       if (dx !== 0) me.facing = dx < 0 ? Facing.Left : Facing.Right;
       else me.facing = dy < 0 ? Facing.Up : Facing.Down;
       if (dx !== 0 && dy !== 0 && !this.pounceDir) { dx *= Math.SQRT1_2; dy *= Math.SQRT1_2; }
-      const speed = low ? SNEAK_SPEED : this.dash.active ? DASH_SPEED : WALK_SPEED;
+      // (pushing through a thicket of shrubs or brambles, slowly)
+      const speed = (low ? SNEAK_SPEED : this.dash.active ? DASH_SPEED : WALK_SPEED) * (me.z < 6 && thicketAt(me.x, me.y) ? THICKET_PACE : 1);
       wx = dx * speed;
       wy = dy * speed;
       if (afoot(me.act)) to(low ? Act.Sneak : Act.Walk);

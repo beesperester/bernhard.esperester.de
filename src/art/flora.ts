@@ -1,7 +1,9 @@
 // Swaying plants: each kind is drawn in 5 lean frames (-2..2) so the wind
 // (and passing cats) can bend them.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
-import { TILE, MAP_W, MAP_H, tileAt, furnished, inClearing } from '../world/map.ts';
+import { TILE, MAP_W, MAP_H, biomeAt, tileAt, furnished, inClearing, nearClearing } from '../world/map.ts';
+import { noise } from './paint.ts';
+import { UNDERGROWTH } from './undergrowth.ts';
 import { SEASON } from '../world/season.ts';
 import { drabFor } from './tiles.ts';
 import { groundOf, isPond } from '../world/legend.ts';
@@ -79,7 +81,22 @@ const cattail: FloraKind = {
   },
 };
 
-export const FLORA: FloraKind[] = [tuft, tall, cattail, ...PETALS.map((_, i) => flower(i))];
+export const FLORA: FloraKind[] = [tuft, tall, cattail, ...PETALS.map((_, i) => flower(i)), ...UNDERGROWTH];
+
+/** The kinds of plant (FLORA's order): the wildflowers... */
+export const FLOWER_0 = 3, FLOWER_1 = FLOWER_0 + PETALS.length;
+/** ...and the forest floor's: ferns, bracken, two shrubs, a bramble. */
+export const FERN = FLOWER_1, BRACKEN = FERN + 1, SHRUB = FERN + 2, BERRY_SHRUB = FERN + 3, BRAMBLE = FERN + 4;
+export const isFlower = (kind: number): boolean => kind >= FLOWER_0 && kind < FLOWER_1;
+
+/** The tiles (ty * MAP_W + tx) thick with shrubs and brambles: a cat pushes through them slowly. */
+const THICKET = new Set<number>();
+/** The tiles with any of the forest floor's plants on them (ferns, bracken, thickets). */
+const UNDER = new Set<number>();
+/** Whether world point (x, y) is among the forest floor's plants. */
+export const undergrowthAt = (x: number, y: number): boolean => UNDER.has(Math.floor(y / TILE) * MAP_W + Math.floor(x / TILE));
+/** Whether world point (x, y) is in a thicket of shrubs or brambles. */
+export const thicketAt = (x: number, y: number): boolean => THICKET.has(Math.floor(y / TILE) * MAP_W + Math.floor(x / TILE));
 
 /** A sheet with the 5 lean frames side by side, the green gone straw-coloured in autumn and winter. */
 export function buildFloraSheet(k: FloraKind): Raster {
@@ -118,6 +135,7 @@ export function placeFlora(): Plant[] {
       const ground = groundOf(tileAt(tx, ty));
       if (furnished(tx, ty)) continue;
       const h = hash2(tx, ty, 100);
+      if ((ground === 'lawn' || ground === 'tall') && !inClearing(tx, ty) && undergrowth(tx, ty, h, at)) continue;
       if (ground === 'lawn' && inClearing(tx, ty)) {
         // a clearing: grass and wildflowers, two or three to a tile
         at(0, tx, ty, 0);
@@ -146,8 +164,44 @@ export function placeFlora(): Plant[] {
   const s = SEASON;
   return out.filter((p) => {
     const roll = hash2(p.x, p.y, 1401);
-    if (p.kind >= 3) return roll < s.bloom * (1 - s.snow);
+    if (isFlower(p.kind)) return roll < s.bloom * (1 - s.snow);
     if (p.kind < 2) return roll < 1 - s.snow * 0.85;
+    // (ferns die back under the snow; the shrubs and brambles stand)
+    if (p.kind === FERN || p.kind === BRACKEN) return roll < 1 - s.snow * 0.7;
     return true;
   });
+}
+
+/**
+ * The forest floor on tile (tx, ty), if it is in the woods: patches of ferns (fewer under the pines),
+ * of tall bracken, thickets of shrubs and of brambles (thickest round the clearings, walling them in).
+ * Puts its plants with `at` and says whether it did.
+ */
+function undergrowth(tx: number, ty: number, h: number, at: (kind: number, tx: number, ty: number, k: number) => void): boolean {
+  const biome = biomeAt(tx, ty);
+  if (!biome) return false;
+  const n = (size: number, s: number) => noise(tx / size, ty / size, s);
+  const wall = nearClearing(tx, ty), key = ty * MAP_W + tx;
+  if (n(5, 503) > (wall ? 0.42 : 0.68) && h < (wall ? 0.85 : 0.6)) {
+    // a thicket: a shrub (or, in the leafy woods, a bramble) or two
+    const bramble = biome !== 'pine' && n(7, 504) > 0.55;
+    at(bramble ? BRAMBLE : hash2(tx, ty, 505) < 0.3 ? BERRY_SHRUB : SHRUB, tx, ty, 10);
+    if (h < 0.25) at(FERN, tx, ty, 11);
+    THICKET.add(key);
+    UNDER.add(key);
+    return true;
+  }
+  if (biome !== 'pine' && n(9, 502) > 0.63) {
+    at(BRACKEN, tx, ty, 12);
+    if (h < 0.5) at(BRACKEN, tx, ty, 13);
+    UNDER.add(key);
+    return true;
+  }
+  if (n(6, 501) > (biome === 'pine' ? 0.62 : 0.4)) {
+    at(FERN, tx, ty, 14);
+    if (h < 0.55) at(FERN, tx, ty, 15);
+    UNDER.add(key);
+    return true;
+  }
+  return false;
 }

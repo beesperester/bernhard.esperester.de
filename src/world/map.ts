@@ -275,10 +275,18 @@ for (const [tx, ty] of treeTiles()) {
 
 export { FURNITURE, FURNITURE_SIZE, THEMED_ZONES, type FurnitureKind };
 
-/** The tiles of the clearings in the woods (ty * MAP_W + tx). */
-const CLEARING_TILES = new Set<number>();
+/** The tiles of the clearings in the woods (ty * MAP_W + tx), and of the thick wood round them. */
+const CLEARING_TILES = new Set<number>(), CLEARING_WALLS = new Set<number>();
 for (const c of CLEARINGS)
-  for (let j = -c.r; j <= c.r; j++) for (let i = -c.r; i <= c.r; i++) if (Math.hypot(i, j * 1.15) <= c.r) CLEARING_TILES.add((c.ty + j) * MAP_W + c.tx + i);
+  for (let j = -c.r - 3; j <= c.r + 3; j++)
+    for (let i = -c.r - 3; i <= c.r + 3; i++) {
+      const d = Math.hypot(i, j * 1.15);
+      if (d <= c.r) CLEARING_TILES.add((c.ty + j) * MAP_W + c.tx + i);
+      else if (d <= c.r + 3) CLEARING_WALLS.add((c.ty + j) * MAP_W + c.tx + i);
+    }
+
+/** Whether tile (tx, ty) is in the thick wood round a clearing. */
+export const nearClearing = (tx: number, ty: number): boolean => CLEARING_WALLS.has(ty * MAP_W + tx);
 
 /** Whether tile (tx, ty) is in one of the clearings in the woods (soft grass and wildflowers, fireflies at night). */
 export const inClearing = (tx: number, ty: number): boolean => CLEARING_TILES.has(ty * MAP_W + tx);
