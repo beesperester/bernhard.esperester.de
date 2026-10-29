@@ -11,6 +11,12 @@ import type { Mask } from '../art/raster.ts';
 
 type Box = { x: number; y: number; w: number; h: number };
 let count = 0;
+/**
+ * The reflections are drawn this far (px) past the patch's sides, so the
+ * ripple, shifting rows sideways, brings in what's beside it rather than
+ * nothing (a seam where two patches meet).
+ */
+const PAD = 2;
 
 /**
  * Fakes reflections on one patch of water: anything standing near it is drawn
@@ -49,7 +55,7 @@ export class PondReflection {
     const { x, y, w, h } = box;
     const key = `reflection-${count++}`;
     const raw = document.createElement('canvas');
-    raw.width = w;
+    raw.width = w + PAD * 2;
     raw.height = h;
     this.raw = raw.getContext('2d')!;
     this.tex = scene.textures.createCanvas(key, w, h)!;
@@ -64,7 +70,7 @@ export class PondReflection {
     // an object's reflection hangs from its base line as far down as the object is tall;
     // keep everything whose reflection reaches this patch (tall trees span several)
     const near = (bx: number, base: number, half: number, tall: number) =>
-      bx + half > x && bx - half < x + w && base + tall > y && base < y + h;
+      bx + half > x - PAD && bx - half < x + w + PAD && base + tall > y && base < y + h;
     this.park = opts.trees;
     this.trees = [];
     TREES.forEach((t, i) => { if (near(t.x, t.y + 1, t.w / 2, t.h + t.elev)) this.trees.push(i); });
@@ -74,7 +80,7 @@ export class PondReflection {
   /** Draw `src` region flipped vertically around world line `base`. */
   private flipped(src: CanvasImageSource, sx: number, sy: number, sw: number, sh: number, wx: number, wy: number, base: number): void {
     const { x, y } = this.box;
-    this.raw.setTransform(1, 0, 0, -1, -x, 2 * base - y);
+    this.raw.setTransform(1, 0, 0, -1, PAD - x, 2 * base - y);
     this.raw.drawImage(src, sx, sy, sw, sh, wx, wy, sw, sh);
   }
 
@@ -103,7 +109,7 @@ export class PondReflection {
     const { x, y, w, h } = this.box;
     const near = cats.filter((c) => {
       const cx = Math.round(c.x), cy = Math.round(c.y);
-      return !(cx + 8 < x || cx - 8 > x + w || cy + CAT + 12 < y || cy > y + h);
+      return !(cx + 8 < x - PAD || cx - 8 > x + w + PAD || cy + CAT + 12 < y || cy > y + h);
     });
     if (!near.length && !this.catsShown) return;
     this.catsShown = near.length > 0;
@@ -120,7 +126,7 @@ export class PondReflection {
 
   private begin(): CanvasRenderingContext2D {
     this.raw.setTransform(1, 0, 0, 1, 0, 0);
-    this.raw.clearRect(0, 0, this.box.w, this.box.h);
+    this.raw.clearRect(0, 0, this.box.w + PAD * 2, this.box.h);
     return this.raw;
   }
 
@@ -128,13 +134,13 @@ export class PondReflection {
   private finish(out: CanvasRenderingContext2D, time: number): void {
     const { y, w, h } = this.box;
     this.raw.setTransform(1, 0, 0, 1, 0, 0);
-    // ripple: shift rows left/right
+    // ripple: shift rows left/right (taking in what's just beside the patch)
     out.globalCompositeOperation = 'source-over';
     out.clearRect(0, 0, w, h);
     const t = time / 1000;
     for (let j = 0; j < h; j++) {
       const off = Math.round(Math.sin((y + j) * 0.8 + t * 3) * 0.9);
-      out.drawImage(this.raw.canvas, 0, j, w, 1, off, j, w, 1);
+      out.drawImage(this.raw.canvas, PAD - off, j, w, 1, 0, j, w, 1);
     }
     out.globalCompositeOperation = 'source-atop';
     out.fillStyle = 'rgba(30, 64, 70, 0.4)';
