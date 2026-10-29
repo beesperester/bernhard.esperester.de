@@ -16,10 +16,13 @@ import { COMMON } from './gpu.ts';
 // moonlight, faint and blue. Each is a quad drawn by a shader (a Phaser
 // Shader).
 
-/** Rays standing this far (px) below the view are drawn (they reach up into it)... */
-const BELOW = 160;
+/** Rays standing this far (px) below the view are drawn (they reach up into it), fading out from FADE_BELOW on (so
+ * none pops in or out as the view moves)... */
+const BELOW = 160, FADE_BELOW = 60;
 /** ...at most this many, the nearest the middle of the view. */
-const MOST = 24;
+const MOST = 40;
+/** A ray newly drawn comes in over this long (s). */
+const COME_IN = 0.8;
 /** The sun is taken to be at least this high (degrees), and a ray to slant at most this many px across per px up. */
 const LOW_SUN = 14, SLANT = 1;
 /** The moon is taken to stand this high (degrees). */
@@ -87,6 +90,8 @@ interface Drawn {
   quad: Phaser.GameObjects.Shader;
   /** Its numbers, read by its shader each time it is drawn. */
   u: { box: number[]; top: number[]; foot: number[]; strength: number };
+  /** When it was first drawn (s). */
+  born: number;
 }
 
 export class Shafts {
@@ -123,7 +128,8 @@ export class Shafts {
     this.slant = -side / rise;
     const low = Math.max(0, Math.min(1, 1 - (el - 4) / 26));
     this.colour = byMoon ? MOON : SUN_HIGH.map((c, k) => c + (SUN_LOW[k] - c) * low);
-    this.strength = Math.max(sun, moon);
+    // (handing over from the sun to the moon, the rays fade out and come back leaning the other way)
+    this.strength = Math.max(sun, moon) - Math.min(sun, moon);
 
     // the rays reaching into the view, nearest its middle first
     const want: number[] = [];
@@ -178,7 +184,7 @@ export class Shafts {
         set('uView', this.view);
       },
     }, 0, 0, 1, 1).setOrigin(0).setDepth(s.y - 0.05).setBlendMode(Phaser.BlendModes.ADD);
-    const d = { quad, u };
+    const d = { quad, u, born: this.time };
     this.drawn.set(i, d);
     return d;
   }
@@ -189,7 +195,9 @@ export class Shafts {
     const ty = v.y - 8, tx = s.x + dx * (s.y - ty);
     d.u.foot = [s.x, s.y];
     d.u.top = [tx, ty];
-    d.u.strength = GAIN * this.strength * (0.75 + 0.25 * Math.sin(this.time * 0.35 + s.phase * 6.28));
+    // (coming in when first drawn, and fading as its foot goes down out of the view)
+    const fade = Math.min(1, (this.time - d.born) / COME_IN) * (1 - smooth(FADE_BELOW, BELOW, s.y - v.bottom));
+    d.u.strength = GAIN * this.strength * fade * (0.75 + 0.25 * Math.sin(this.time * 0.35 + s.phase * 6.28));
     const m = s.w + 4;
     const x0 = Math.floor(Math.max(v.x - 8, Math.min(s.x, tx) - m)), x1 = Math.ceil(Math.min(v.right + 8, Math.max(s.x, tx) + m));
     const y0 = Math.floor(ty), y1 = Math.ceil(Math.min(v.bottom + 8, s.y + 2));
@@ -197,4 +205,9 @@ export class Shafts {
     const [, , w, h] = d.u.box;
     if (d.quad.x !== x0 || d.quad.y !== y0 || d.quad.width !== w || d.quad.height !== h) d.quad.setPosition(x0, y0).setSize(w, h);
   }
+}
+
+function smooth(a: number, b: number, v: number): number {
+  const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
 }
