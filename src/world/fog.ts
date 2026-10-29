@@ -9,6 +9,7 @@ import { hash2 } from '../art/raster.ts';
 import { seasonAt } from './season.ts';
 import { skyTime, sunPosition } from './sky.ts';
 import { worldSeed } from './seed.ts';
+import { params } from './params.ts';
 
 const smooth = (a: number, b: number, v: number) => {
   const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
@@ -20,7 +21,7 @@ const AUTUMN_IN: [number, number] = [262, 278], AUTUMN_OUT: [number, number] = [
 /** A day has no fog at all this often... */
 const CLEAR_DAYS = 0.25;
 
-const forced = typeof location !== 'undefined' && new URLSearchParams(location.search).get('fog') === '1';
+const forced = params.get('fog') === '1';
 
 /** How autumnal it is on day of the year `day` (0..1). */
 export function autumn(day: number): number {

@@ -1,25 +1,23 @@
 import Phaser from 'phaser';
 import { SUNLIT_TILES, groundTile } from '../art/tiles.ts';
-import { relightProp } from '../art/trees.ts';
 import { raised, type TerrainPiece } from '../art/terrain.ts';
 import { screenLight, sunLight, type ScreenLight } from '../art/lighting.ts';
 import { LEVEL, MAP_H, MAP_W, TILE, levelAt, tileAt } from '../world/map.ts';
 import type { Light } from '../world/sky.ts';
-import type { Trees } from './Trees.ts';
 import type { Ground } from './Ground.ts';
+import { paintLight } from './Painted.ts';
 
-// Keeps the garden's modelled things lit from where the sun actually is: the
-// tree crowns and trunks, and the bushes and rocks drawn into the ground (and
-// into the raised terrain on the plateaus). They are re-shaded from their
-// normals (art/lighting.ts) whenever the light has moved on a step, which
-// happens a few times an hour.
+// Keeps the garden's modelled things lit from where the sun actually is. The
+// trees are shaded on the GPU (Painted.ts): they are given the light every
+// frame. The bushes and rocks drawn into the ground (and into the raised
+// terrain on the plateaus) are re-shaded from their normals (art/lighting.ts)
+// whenever the light has moved on a step, which happens a few times an hour.
 
 /** Steps the light moves in before everything is re-shaded: degrees round the screen, and contrast. */
 const TURN_STEP = 12, CONTRAST_STEP = 0.1;
 
 export class Lighting {
   private readonly scene: Phaser.Scene;
-  private readonly trees: Trees;
   private readonly terrain: TerrainPiece[];
   private readonly ground: Ground;
   /** The bushes and rocks. */
@@ -28,9 +26,8 @@ export class Lighting {
   private readonly shown = new Map<number, Uint8ClampedArray>();
   private key = '';
 
-  constructor(scene: Phaser.Scene, trees: Trees, terrain: TerrainPiece[], ground: Ground) {
+  constructor(scene: Phaser.Scene, terrain: TerrainPiece[], ground: Ground) {
     this.scene = scene;
-    this.trees = trees;
     this.terrain = terrain;
     this.ground = ground;
     for (let ty = 0; ty < MAP_H; ty++)
@@ -43,6 +40,9 @@ export class Lighting {
 
   update(light: Light): void {
     const L = screenLight(light.sunDir, light.elevation, light.day);
+    paintLight.sun[0] = L.x;
+    paintLight.sun[1] = L.y;
+    paintLight.sun[2] = L.k;
     const turn = Math.round((Math.atan2(L.y, L.x) * 180) / Math.PI / TURN_STEP);
     const contrast = Math.round(L.k / CONTRAST_STEP);
     const key = `${turn},${contrast}`;
@@ -50,17 +50,7 @@ export class Lighting {
     this.key = key;
     const a = (turn * TURN_STEP * Math.PI) / 180;
     Object.assign(sunLight, { x: Math.cos(a), y: Math.sin(a), k: contrast * CONTRAST_STEP } satisfies ScreenLight);
-    this.relightTrees();
     this.relightGround();
-  }
-
-  private relightTrees(): void {
-    // (only those drawn now: the others are drawn in the light as it is when they come into view)
-    this.trees.each((i, p) => {
-      if (!p.lit) return;
-      relightProp(p, sunLight);
-      this.trees.relight(i);
-    });
   }
 
   /** Redraw the bushes and rocks into the ground and the raised terrain. */

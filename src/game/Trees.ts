@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { relightProp, treeOutline, type Prop, type Puffs } from '../art/trees.ts';
+import { paintedMaps, relightProp, treeOutline, type LitPixels, type Prop, type Puffs } from '../art/trees.ts';
 import { Raster } from '../art/raster.ts';
 import { sunLight, type ScreenLight } from '../art/lighting.ts';
 import { TREES, treeHolding } from '../world/trees.ts';
@@ -7,6 +7,7 @@ import type { CatView } from './CatView.ts';
 import { toCanvas } from './textures.ts';
 import type { Painter } from './Painter.ts';
 import { cutIn, type Cut } from './HoleFilter.ts';
+import { addPainted, paint } from './Painted.ts';
 import { CLEAR, kept, reachUp, shows, type Opening } from '../art/fade.ts';
 
 // The park's trees. They are big and there are many, so a tree is only drawn
@@ -23,6 +24,9 @@ import { CLEAR, kept, reachUp, shows, type Opening } from '../art/fade.ts';
 // cat as if a ball were round it: wide through the leaves in front, narrower
 // through the leaves behind, so you see a little past it too; its trunk and
 // branches stay solid (a third picture, of just them, over the tree).
+//
+// The pictures are shaded on the GPU (Painted.ts), in the light as it is each
+// frame, their sunlit rims too.
 
 /** Trees this far (px) beyond the view are drawn ahead of the camera... */
 const AHEAD = 200;
@@ -50,10 +54,10 @@ const FRONT = 0.8;
 const MIDDLE = 0.2;
 
 interface Pic {
+  /** The picture as shaded when it was drawn (for its reflection: PondReflection.ts)... */
   canvas: HTMLCanvasElement;
-  tex: Phaser.Textures.CanvasTexture;
   img: Phaser.GameObjects.Image;
-  /** The picture as shaded (the hole is cut from what's shown on the GPU: HoleFilter.ts). */
+  /** ...and its pixels (the hole is cut from what's shown on the GPU: HoleFilter.ts). */
   orig: ImageData;
 }
 
@@ -74,8 +78,6 @@ interface Live {
   /** The textures of its pictures' puff maps. */
   puffs: string | null;
   frontPuffs: string | null;
-  /** Shaded again for another sun: redraw it. */
-  dirty: boolean;
 }
 
 const NO_HOLE: Opening = { x: 0, y: 0, r: 0, up: 1 };
@@ -129,18 +131,6 @@ export class Trees {
   /** Every tree drawn now. */
   each(f: (i: number, p: Prop) => void): void {
     for (const [i, t] of this.live) f(i, t.p);
-  }
-
-  /** Tree i has been shaded for another sun (relightProp): show it from the next update. */
-  relight(i: number): void {
-    const t = this.live.get(i);
-    if (!t) return;
-    for (const [pic, r] of [[t.base, t.p.raster], [t.front, t.p.front?.raster], [t.mid, t.p.mid?.raster]] as const) {
-      if (!pic || !r) continue;
-      pic.orig.data.set(r.data);
-      pic.canvas.getContext('2d')!.putImageData(pic.orig, 0, 0);
-    }
-    t.dirty = true;
   }
 
   /**
@@ -215,25 +205,17 @@ export class Trees {
       const cut = key(base), cutFront = key(front);
       t.cutBase = base;
       t.cutFrontAs = front;
-      if (t.dirty) for (const pic of [t.base, t.front, t.mid]) if (pic) this.draw(pic);
       if (cut !== t.cut) {
         cutIn(t.base.img, base);
         for (const wt of this.watchers) wt.holed(i, base);
       }
       if (t.front && cutFront !== t.cutFront) cutIn(t.front.img, front);
       // (up it, its trunk and branches over the hole in it)
-      if (t.open > 0 && !t.mid && p.mid) t.mid = this.pic(`tree-mid-${i}`, p.mid.raster, p.x, p.y, p.depthY + MIDDLE);
+      if (t.open > 0 && !t.mid && p.mid) t.mid = this.pic(`tree-mid-${i}`, p.mid.raster, p.mid.lit, p.x, p.y, p.depthY + MIDDLE);
       else if (t.open === 0 && t.mid) this.unpic(t, 'mid', `tree-mid-${i}`);
       t.cut = cut;
       t.cutFront = cutFront;
-      t.dirty = false;
     }
-  }
-
-  /** Show picture `pic` as shaded now. */
-  private draw(pic: Pic): void {
-    pic.tex.getContext().putImageData(pic.orig, 0, 0);
-    pic.tex.refresh();
   }
 
   /** Whether tree t's pictures are over your cat's, its feet at world (x, y) (with some slack, once it has opened). */
@@ -291,15 +273,17 @@ export class Trees {
     return [...out].sort((a, b) => Math.hypot(TREES[a].x - mx, TREES[a].y - my) - Math.hypot(TREES[b].x - mx, TREES[b].y - my));
   }
 
-  private pic(key: string, r: Raster, x: number, y: number, depth: number): Pic {
+  private pic(key: string, r: Raster, lit: LitPixels | undefined, x: number, y: number, depth: number): Pic {
     const { w, h } = r;
-    const tex = this.scene.textures.createCanvas(key, w, h)!;
     const orig = new ImageData(new Uint8ClampedArray(r.data), w, h);
-    tex.getContext().putImageData(orig, 0, 0);
-    tex.refresh();
-    const canvas = tex.getSourceImage() as HTMLCanvasElement;
-    const img = this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth);
-    return { canvas, tex, img, orig };
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d')!.putImageData(orig, 0, 0);
+    const { main, normal } = paintedMaps(r, lit);
+    addPainted(this.scene, key, main, normal, w, h);
+    const img = paint(this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth));
+    return { canvas, img, orig };
   }
 
   /** A puff map as a texture for the GPU (its key; null if there's none, or no leaves in puffs at all). */
@@ -323,10 +307,10 @@ export class Trees {
   private make(i: number, p: Prop, lit: ScreenLight): void {
     // (in the light as it is now: it may have moved on while the tree was being drawn)
     if (lit.x !== sunLight.x || lit.y !== sunLight.y || lit.k !== sunLight.k) relightProp(p, sunLight);
-    const base = this.pic(`tree-${i}`, p.raster, p.x, p.y, p.depthY);
-    const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.x, p.y, p.depthY + FRONT) : null;
+    const base = this.pic(`tree-${i}`, p.raster, p.lit, p.x, p.y, p.depthY);
+    const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.front.lit, p.x, p.y, p.depthY + FRONT) : null;
     const puffs = this.puffMap(`tree-puffs-${i}`, p.puffs, p.raster), frontPuffs = p.front ? this.puffMap(`tree-front-puffs-${i}`, p.front.puffs, p.front.raster) : null;
-    this.live.set(i, { p, base, front, mid: null, hole: 0, open: 0, cutBase: null, cutFrontAs: null, cut: '', cutFront: '', puffs, frontPuffs, dirty: false });
+    this.live.set(i, { p, base, front, mid: null, hole: 0, open: 0, cutBase: null, cutFrontAs: null, cut: '', cutFront: '', puffs, frontPuffs });
     for (const w of this.watchers) w.added(i, p, base.canvas);
   }
 

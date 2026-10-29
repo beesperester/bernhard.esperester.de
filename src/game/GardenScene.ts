@@ -292,7 +292,6 @@ export class GardenScene extends Phaser.Scene {
       things: standing, upright, terrain: canvases.terrain,
       catSheet: canvases.cats[0], catSize: CAT,
     });
-    this.trees.watch(this.rims);
     // what can stand in front of a lantern's light
     const source = (key: string) => this.textures.get(key).getSourceImage() as HTMLCanvasElement;
     const occluders: Occluder[] = [
@@ -311,7 +310,7 @@ export class GardenScene extends Phaser.Scene {
     this.shadows = this.makeShadows(canvases, furniture, upright);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
-    this.lighting = new Lighting(this, this.trees, canvases.terrain, this.ground);
+    this.lighting = new Lighting(this, canvases.terrain, this.ground);
     catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
     catLight.seeThrough = (x, y, depth) => this.trees.seeThrough(x, y, depth);
     catLight.lostIn = (x, y, z) => z < 6 && undergrowthAt(x, y) && Math.hypot(x - this.me.x, y - this.me.y) > SEEN_IN_UNDERGROWTH;

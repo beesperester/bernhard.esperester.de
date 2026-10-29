@@ -7,6 +7,7 @@
 // runs the day 600x faster.
 
 import { mix } from '../art/raster.ts';
+import { params } from './params.ts';
 
 const LAT = 52.52, LON = 13.405;
 const RAD = Math.PI / 180;
@@ -119,7 +120,6 @@ export function lightAt(ms: number): Light {
 
 // ---- looking at other times of day (for testing) ----
 
-const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 const SPEED = Math.max(1, Number(params.get('speed')) || 1);
 const TIME = /^(\d{1,2}):(\d{2})$/.exec(params.get('time') ?? '');
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/.exec(params.get('date') ?? '');

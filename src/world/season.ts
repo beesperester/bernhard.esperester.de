@@ -9,6 +9,7 @@
 // ?weather=rain or ?weather=snow makes it pour or snow right now.
 import { berlinParts, skyTime } from './sky.ts';
 import { hash2 } from '../art/raster.ts';
+import { params } from './params.ts';
 
 export interface Season {
   /** Day of the year, 0 = 1 January (fractional). */
@@ -115,7 +116,7 @@ export const inSeason = (kind: Critter, ms: number, r: number) => r < activity(k
 
 // ---- snowfall ----
 
-const FORCE = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('weather') : null;
+const FORCE = params.get('weather');
 
 /** How hard it is snowing at garden moment `ms` (0..1): on and off through the winter, a few hours at a time. */
 export function snowfall(ms: number): number {

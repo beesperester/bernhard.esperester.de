@@ -1,13 +1,12 @@
 import Phaser from 'phaser';
 import { catFrames } from './textures.ts';
 import type { Prop } from '../art/trees.ts';
+import { paintLight } from './Painted.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
 import { LEVEL, MAP_H, MAP_W, TILE, WORLD_H, WORLD_W, levelAt } from '../world/map.ts';
 import { hasUpright } from '../art/tiles.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
-import type { TreeWatcher } from './Trees.ts';
-import { cutIn, type Cut } from './HoleFilter.ts';
 
 /** The sun's direction is rounded to one of this many, so rims are only redrawn now and then. */
 const DIRECTIONS = 16;
@@ -19,24 +18,18 @@ const OUTER = 255, INNER = 110;
 const BOOST = 1.25;
 
 type Solid = (x: number, y: number) => boolean;
-interface Overlay {
-  img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; w: number; h: number; rim: (out: Uint8ClampedArray) => void;
-  /** Where it stands in the world, and the hole round your cat cut in it (a tree's, with the tree). */
-  x: number; y: number;
-  cut: Cut | null;
-}
+interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; w: number; h: number; rim: (out: Uint8ClampedArray) => void }
 
 /**
  * Sunlit rims on everything standing up (cats, trees, bushes, rocks, hedges,
  * fences, cliffs, stairs): the edge pixels on the side facing the sun light up,
  * so you can tell where the sun is. Each object gets an additive overlay whose
  * texture is redrawn whenever the sun moves to another of the 16 directions.
+ * (The trees light their own rims, on the GPU: Painted.ts is told the light.)
  */
-export class RimLight implements TreeWatcher {
+export class RimLight {
   private readonly scene: Phaser.Scene;
   private readonly overlays: Overlay[] = [];
-  /** The trees' rims, while their pictures are drawn. */
-  private readonly trees = new Map<number, Overlay>();
   private readonly catTex: Phaser.Textures.CanvasTexture;
   private readonly catAlpha: Uint8Array;
   private readonly catW: number;
@@ -132,7 +125,7 @@ export class RimLight implements TreeWatcher {
     // (blended normally, a little stronger, rather than added: a sprite blended differently from those either
     // side of it in depth ends the GPU's batch, and the rims are everywhere; it reads the same)
     const img = cullerFor(this.scene).add(this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth).setVisible(false));
-    return { img, tex, w, h, rim, x, y, cut: null };
+    return { img, tex, w, h, rim };
   }
 
   /** A rim round the outline of a picture standing at (x, y). */
@@ -145,33 +138,6 @@ export class RimLight implements TreeWatcher {
       this.rimInto(rim, w, h, solid, solid);
       for (let k = 0; k < rim.length; k++) out[k * 4 + 3] = rim[k];
     });
-  }
-
-  /** A tree has been drawn: its rim, in the light as it is now. */
-  added(i: number, p: Prop, canvas: HTMLCanvasElement): void {
-    const o = this.outline(`rim-tree-${i}`, canvas, p.x, p.y, p.depthY + 0.002);
-    this.trees.set(i, o);
-    this.overlays.push(o);
-    if (this.dir >= 0) this.paint(o);
-    o.img.setVisible(this.strength > 0).setAlpha(Math.min(1, this.strength * BOOST)).setTint(this.colour);
-  }
-
-  /** A tree has been let go: and its rim. */
-  removed(i: number): void {
-    const o = this.trees.get(i);
-    if (!o) return;
-    this.trees.delete(i);
-    this.overlays.splice(this.overlays.indexOf(o), 1);
-    o.img.destroy();
-    this.scene.textures.remove(o.tex);
-  }
-
-  /** A tree has been cut round your cat: and its rim (it lies over the tree's picture, so the tree's puff map fits it). */
-  holed(i: number, cut: Cut | null): void {
-    const o = this.trees.get(i);
-    if (!o || (!cut && !o.cut)) return;
-    o.cut = cut;
-    cutIn(o.img, cut);
   }
 
   private paint(o: Overlay): void {
@@ -203,6 +169,10 @@ export class RimLight implements TreeWatcher {
     const key = `${s.toFixed(2)}:${colour}`;
     this.strength = s > 0.01 ? s : 0;
     this.colour = colour;
+    paintLight.rim[0] = r / 255;
+    paintLight.rim[1] = g / 255;
+    paintLight.rim[2] = b / 255;
+    paintLight.rim[3] = this.strength;
     if (key === this.shown) return;
     this.shown = key;
     for (const o of this.overlays) o.img.setVisible(this.strength > 0).setAlpha(Math.min(1, s * BOOST)).setTint(colour);
@@ -213,6 +183,7 @@ export class RimLight implements TreeWatcher {
     const ang = (q / DIRECTIONS) * Math.PI * 2;
     this.d1 = [Math.round(Math.cos(ang)), Math.round(Math.sin(ang))];
     this.d2 = [Math.round(Math.cos(ang) * 2), Math.round(Math.sin(ang) * 2)];
+    paintLight.rimDir.splice(0, 4, ...this.d1, ...this.d2);
     for (const o of this.overlays) this.paint(o);
     // cats, frame by frame so rims stop at the frame edges
     const w = this.catW, h = this.catTex.height, S = this.catSize, A = this.catAlpha;

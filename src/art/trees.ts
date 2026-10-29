@@ -9,6 +9,7 @@ import { DEFAULT_LIGHT, type ScreenLight } from './lighting.ts';
 import { SNOW, bayer } from './tiles.ts';
 import { cooler, dab, patch, noise } from './paint.ts';
 import { puff, PUFF_SHAPES, PUFF_SIZES } from './leaves.ts';
+import { C_RANGE, J_RANGE, Kind, N_RANGE, RIM_BIT, SPECK, ramps, toByte } from './painted.ts';
 import { TREES, limbAt, limbThick, type Blob, type Limb, type Perch, type TreePlan } from '../world/trees.ts';
 
 export interface Prop {
@@ -313,6 +314,43 @@ export function relightProp(prop: Prop, L: ScreenLight): void {
       raster.set(i % w, Math.floor(i / w), lit.colour(k, L));
     }
   }
+}
+
+/** Bark as one ramp, light to dark: the shine on its ridges, its three tones, and its cracks. */
+const BARK_RAMP: RGB[] = [BARK_SHINE, ...BARK, BARK_CRACK];
+
+/**
+ * A picture with lit pixels as the GPU shades it (art/painted.ts): the main picture, its colours
+ * where nothing is shaded and each lit pixel's ramp and place in the crown where it is, and its
+ * normal map. The numbers kept are shade()'s, so it comes out the same.
+ */
+export function paintedMaps(raster: Raster, lit?: LitPixels): { main: Uint8ClampedArray; normal: Uint8Array } {
+  const main = new Uint8ClampedArray(raster.data), normal = new Uint8Array(raster.data.length);
+  if (!lit) return { main, normal };
+  const bark = ramps.row(BARK_RAMP, Kind.Bark), moss = ramps.row(MOSS, Kind.Moss);
+  const rows = lit.pals.map((p) => ramps.row(p, Kind.Leaf));
+  for (let k = 0; k < lit.size; k++) {
+    const o = lit.at[k] * 4, fl = lit.flags[k], f = lit.f, q = k * 6;
+    const v = (j: number) => f[q + j] / Q;
+    main[o + 3] = 255;
+    if (fl & LEAF) {
+      main[o] = rows[lit.pal[k]];
+      main[o + 1] = toByte(v(2), C_RANGE);
+      main[o + 2] = toByte(v(3), C_RANGE);
+      normal[o] = toByte(v(0), N_RANGE);
+      normal[o + 1] = toByte(v(1), N_RANGE);
+      normal[o + 2] = toByte(v(4), J_RANGE);
+      normal[o + 3] = 1 + Math.round(Math.max(0, Math.min(1, v(5))) * SPECK) + (fl & RIM ? RIM_BIT : 0);
+    } else {
+      // (bark: where across the trunk, 0..1, and how rough)
+      main[o] = fl & MOSSY ? moss : bark;
+      main[o + 1] = main[o + 2] = 0;
+      normal[o] = toByte(v(0) * 2 - 1, N_RANGE);
+      normal[o + 1] = toByte(v(1), N_RANGE);
+      normal[o + 3] = 1;
+    }
+  }
+  return { main, normal };
 }
 
 /** One of a tree's two pictures being drawn. */

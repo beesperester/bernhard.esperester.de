@@ -12,7 +12,7 @@ type Pixels = { w: number; h: number; data: Uint8ClampedArray<ArrayBuffer> };
 const IN_FLIGHT = 3;
 
 export class Painter {
-  private readonly worker = new Worker(new URL('./painter.worker.ts', import.meta.url), { type: 'module' });
+  private readonly worker = new Worker(new URL('./painter.worker.ts', import.meta.url), { type: 'module', name: location.search });
   private readonly waiting = new Map<number, (data: { parts?: PropParts; layers?: Pixels[] }) => void>();
   private next = 0;
 
