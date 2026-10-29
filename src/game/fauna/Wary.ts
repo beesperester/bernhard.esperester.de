@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
 import { Act, SWIPE_AT_MS } from '../state.ts';
 import type { CatView } from '../CatView.ts';
-import { Pool } from './kit.ts';
+import { Pool, distanceFelt } from './kit.ts';
 import { inBox } from '../../world/map.ts';
 
 // How prey keeps an eye on the cats. Walking, jumping, hissing or dashing up
@@ -55,8 +55,9 @@ export class Wary {
       if (Math.abs(c.z - h) > 24) continue; // a cat up on a ledge is out of the way
       // nor is one keeping still in a cardboard box (until it pounces out)
       if (c.act !== Act.Catch && c.act !== Act.Jump && c.speed <= 5 && inBox(c.x, c.y, c.z)) continue;
-      const d = Math.hypot(c.x - x, c.y - y);
-      if (c.act === Act.Catch && now - c.actStart > SWIPE_AT_MS + 80 && d < s.swipe) return { calm: false, alert: false, cat: c };
+      // (a swipe at it is a swipe whoever makes it; otherwise a small cat seems further off: kit.ts)
+      const d = distanceFelt(c, x, y);
+      if (c.act === Act.Catch && now - c.actStart > SWIPE_AT_MS + 80 && Math.hypot(c.x - x, c.y - y) < s.swipe) return { calm: false, alert: false, cat: c };
       if (c.act === Act.Crouch || c.act === Act.Sneak) {
         if (d < s.notice && !alert) this.alerts.set(id, (alert = { t: gt, x: c.x, y: c.y }));
         else if (alert && d < s.notice && c.speed > 5 && gt - alert.t > FREEZE_MS) return { calm: false, alert: false, cat: c };

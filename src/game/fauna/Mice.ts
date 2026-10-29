@@ -4,7 +4,7 @@ import type { CatView } from '../CatView.ts';
 import { MAP_H, MAP_W, TILE, aroundFurniture, elevAt, furnished, levelAt, tileAt } from '../../world/map.ts';
 import { lightAt } from '../../world/sky.ts';
 import { sound } from '../../audio/sound.ts';
-import { Pool, seedRng, hash2, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
+import { Pool, seedRng, hash2, clamp01, distanceFelt, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
 import { groundOf, isOpenGround } from '../../world/legend.ts';
 
 // Field mice, out after dark. Most sit tucked away in the tall grass, now and
@@ -121,7 +121,7 @@ export class Mice implements Fauna {
     }
     const [x, y] = s.at;
     const flusher = cats.find((c) => {
-      const d = Math.hypot(c.x - x, c.y - y);
+      const d = distanceFelt(c, x, y);
       return (d < FLUSH && c.speed > 5) || (d < FLUSH_LOUD && (c.act === Act.Hiss || c.act === Act.Jump || c.speed > 110));
     });
     if (flusher) {

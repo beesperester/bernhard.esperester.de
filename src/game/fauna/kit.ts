@@ -4,6 +4,7 @@ import type { TreePlan } from '../../world/trees.ts';
 import type { Prey } from '../state.ts';
 import type { CatView } from '../CatView.ts';
 import type { Effects } from './Effects.ts';
+import { Stage } from '../growth.ts';
 
 // What every kind of animal in the garden is built from: the context it gets
 // when the scene starts, the frame it gets every update, and the helpers for
@@ -74,6 +75,11 @@ export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 export const smooth = (t: number) => t * t * (3 - 2 * t);
 export const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
 
+/** How big a threat a cat of each stage is to prey: a kitten only half as scary as a grown cat. */
+const THREAT = { [Stage.Kitten]: 0.5, [Stage.Young]: 0.75, [Stage.Grown]: 1 };
+/** How far off cat `c` seems to prey at (x, y): a small cat is no threat until it is much closer. */
+export const distanceFelt = (c: CatView, x: number, y: number) => Math.hypot(c.x - x, c.y - y) / THREAT[c.stage];
+
 /** A Map that forgets its oldest entries beyond `max` (for per-slot caches). */
 export function remember<K, V>(map: Map<K, V>, key: K, value: V, max: number, onForget?: (key: K) => void): V {
   map.set(key, value);
@@ -85,10 +91,10 @@ export function remember<K, V>(map: Map<K, V>, key: K, value: V, max: number, on
   return value;
 }
 
-/** Reuses images instead of creating and destroying them every frame. */
 /** How much shows (0..1) of a critter at world (x, y) drawn at `depth` (up a tree with a hole cut round our cat, less). */
 export const sight = { through: (_x: number, _y: number, _depth: number): number => 1 };
 
+/** Reuses images instead of creating and destroying them every frame. */
 export class Pool {
   private imgs: Img[] = [];
   private used = 0;

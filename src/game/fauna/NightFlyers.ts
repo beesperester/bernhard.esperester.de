@@ -5,7 +5,7 @@ import { LANTERNS, elevAt, waterBoxes } from '../../world/map.ts';
 import { LANTERN_H } from '../../art/critters.ts';
 import { lightAt } from '../../world/sky.ts';
 import { inSeason } from '../../world/season.ts';
-import { Pool, seedRng, hash2, smooth, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
+import { Pool, seedRng, hash2, smooth, clamp01, distanceFelt, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
 
 // What flies about after dark: bats flitting round the lanterns and over the
 // ponds from dusk on, now and then one hanging upside down under a tree for a
@@ -97,7 +97,7 @@ export class NightFlyers implements Fauna {
   /** Somebody hissing, jumping or dashing near spot `s`, or up level with it. */
   private disturbed(s: Perch, cats: CatView[], reach: number): CatView | null {
     for (const c of cats) {
-      const d = Math.hypot(c.x - s.x, c.y - s.y);
+      const d = distanceFelt(c, s.x, s.y);
       // a cat up at its height wakes it, unless it creeps along the branch
       const creeping = c.act === Act.Crouch || c.act === Act.Sneak || c.act === Act.Catch;
       const level = Math.abs(c.z - s.h) < 16 && d < 28 && !creeping;

@@ -5,7 +5,7 @@ import { PUDDLE } from '../Furniture.ts';
 import { BATH_H, FORK_Z, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../../world/map.ts';
 import { SEASON } from '../../world/season.ts';
 import { zAt } from '../../world/trees.ts';
-import { Pool, seedRng, hash2, lerp, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
+import { Pool, seedRng, hash2, lerp, clamp01, distanceFelt, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
 import type { Effects } from './Effects.ts';
 import { lightAt } from '../../world/sky.ts';
 import { sound } from '../../audio/sound.ts';
@@ -208,7 +208,7 @@ export class Birds implements Fauna {
     if (v.asleep) {
       const s = first, alpha = clamp01(Math.min((gt - v.start) / 3000, (v.end - gt) / 3000));
       for (const c of cats) {
-        const d = Math.hypot(c.x - s.x, c.y - s.y);
+        const d = distanceFelt(c, s.x, s.y);
         const creeping = c.act === Act.Crouch || c.act === Act.Sneak || c.act === Act.Catch;
         if ((c.act === Act.Hiss && d < 40) || (c.speed > DASH_SPEED && d < 40)
           || (Math.abs(c.z - s.h) < TREE_NOTICE_Z && Math.abs(c.x - s.x) < SLEEP_NOTICE && !creeping && c.speed > 5))
@@ -265,7 +265,7 @@ export class Birds implements Fauna {
     const right = hash2(v.id, look, 921) < 0.5;
     this.perched.push({ x: s.x, y: s.y - s.h });
     for (const c of cats) {
-      const d = Math.hypot(c.x - s.x, c.y - s.y);
+      const d = distanceFelt(c, s.x, s.y);
       if ((c.speed > DASH_SPEED && d < 40) || (c.act === Act.Hiss && d < 56)) return this.scare(v, [s.x, s.y, s.h], c, gt);
       const creeping = c.act === Act.Crouch || c.act === Act.Sneak || c.act === Act.Catch;
       if (Math.abs(c.z - s.h) < TREE_NOTICE_Z && Math.abs(c.x - s.x) < TREE_NOTICE && !creeping && c.speed > 5) return this.scare(v, [s.x, s.y, s.h], c, gt);
@@ -291,9 +291,9 @@ export class Birds implements Fauna {
     let alert = this.alert.get(v.id);
     for (const c of cats) {
       if (Math.abs(c.z - s.h) > 20) continue; // a cat up on a ledge is out of the way
-      const d = Math.hypot(c.x - x, c.y - y);
+      const d = distanceFelt(c, x, y);
       // a swipe that missed
-      if (c.act === Act.Catch && now - c.actStart > SWIPE_AT_MS + 80 && d < 32) return this.scare(v, pos, c, gt);
+      if (c.act === Act.Catch && now - c.actStart > SWIPE_AT_MS + 80 && Math.hypot(c.x - x, c.y - y) < 32) return this.scare(v, pos, c, gt);
       if (c.act === Act.Crouch || c.act === Act.Sneak) {
         if (d < NOTICE && !alert) this.alert.set(v.id, (alert = { t: gt, x: c.x, y: c.y }));
         // spotted: freeze, or it's gone
