@@ -6,10 +6,18 @@ import { COAT_H } from '../art/coat.ts';
 // pictures drawn with it are batched as Phaser batches any image, with their
 // normal map beside them (Phaser's lit path) and the ramps as a third
 // texture, and a fragment shader picks each pixel's tone of its ramp from
-// the light. The sunlit rim on their outline is lit in the same pass. The
-// light is a few numbers a frame, set in `paintLight`.
+// the light. The sunlit rim on their outline is lit in the same pass. Near
+// a lamp that is on, the light comes from the lamp instead, more so the
+// closer it is. The light is a few numbers a frame, set in `paintLight`.
 
 const NODE = 'BatchHandlerPainted';
+
+/** Painted pictures are lit by up to this many lamps at once (the nearest ones in view). */
+export const MAX_LAMPS = 8;
+/** A lamp's pool of light on the ground is this much as deep as it is wide (game/LightMap.ts' FLAT). */
+const FLAT = 0.62;
+/** What stands near a lamp is lit from it this much further out than its pool on the ground reaches. */
+const REACH = 1.6;
 
 /** The light the painted pictures are shaded in, set each frame. */
 export const paintLight = {
@@ -19,6 +27,12 @@ export const paintLight = {
   rimDir: [0, -1, 0, -2],
   /** The rims' colour (0..1) and strength (0: none). */
   rim: [1, 1, 1, 0],
+  /** The view: its top-left corner in the world, and 1 / the zoom. */
+  view: [0, 0, 1],
+  /** The lamps on in view: x, y (world, on the ground), reach (px) and strength (0..1) each... */
+  lamps: new Float32Array(MAX_LAMPS * 4),
+  /** ...this many of them. */
+  lampCount: 0,
 };
 
 /** Rims are blended over what's under them: the outer and inner rim pixel this strong, and all of it this much stronger. */
@@ -30,6 +44,9 @@ uniform sampler2D uRamps;
 uniform vec3 uSun;
 uniform vec4 uRimDir;
 uniform vec4 uRim;
+uniform vec3 uView;
+uniform vec4 uLamps[${MAX_LAMPS}];
+uniform int uLampCount;
 const float RAMP_W = ${RAMP_W}.0, RAMP_ROWS = ${RAMP_ROWS}.0;
 float byteOf(float c) { return floor(c * 255.0 + 0.5); }
 /** art/painted.ts' fromByte. */
@@ -48,8 +65,27 @@ vec4 painted(vec4 c, vec2 texCoord) {
   if (c.a < 0.5) return c;
   vec4 n = texture2D(uNormSampler, texCoord);
   float flags = byteOf(n.a);
+  // the light: the sun's, or near lamps theirs, from where they stand
+  vec2 at = uView.xy + outView * uView.z, towards = vec2(0.0);
+  float near = 0.0;
+  for (int i = 0; i < ${MAX_LAMPS}; i++) {
+    if (i >= uLampCount) break;
+    vec4 lamp = uLamps[i];
+    vec2 d = lamp.xy - at;
+    float r = length(vec2(d.x, d.y / ${FLAT})) / (lamp.z * ${REACH.toFixed(2)});
+    if (r >= 1.0) continue;
+    float w = lamp.w * (1.0 - r * r) * (1.0 - r * r);
+    towards += (length(d) > 0.5 ? normalize(d) : vec2(0.0, -1.0)) * w;
+    near += w;
+  }
+  near = min(1.0, near);
   vec2 L = uSun.xy;
   float k = uSun.z;
+  if (near > 0.0) {
+    vec2 mixed = mix(L, length(towards) > 1e-4 ? normalize(towards) : L, near);
+    L = length(mixed) > 1e-4 ? normalize(mixed) : L;
+    k = mix(k, 1.0, near);
+  }
   float facing = (unbyte(n.r, 1.0) * L.x + unbyte(n.g, 1.0) * L.y) * k;
   if (flags == ${COAT}.0) {
     // fur: its colour from the coat, under the frames (art/coat.ts), a tone lighter facing the light, darker away (not the outline)
@@ -117,6 +153,8 @@ class PaintedBatch extends Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad {
       shaderName: 'PAINTED',
       shaderAdditions: [
         M.MakeGetTexCoordOut(),
+        // (where each pixel is on the view, for the lamps)
+        { name: 'ViewOut', additions: { vertexProcess: 'outView = inPosition;', outVariables: 'varying vec2 outView;' }, tags: ['LIGHTING'], disable: true },
         M.MakeGetTexRes(),
         M.MakeDefineTexCount(1),
         M.MakeGetTexture(),
@@ -138,6 +176,9 @@ class PaintedBatch extends Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad {
     pm.setUniform('uSun', paintLight.sun);
     pm.setUniform('uRimDir', paintLight.rimDir);
     pm.setUniform('uRim', paintLight.rim);
+    pm.setUniform('uView', paintLight.view);
+    pm.setUniform('uLamps[0]', paintLight.lamps);
+    pm.setUniform('uLampCount', paintLight.lampCount);
   }
 
   pushCurrentBatchEntry(): void {

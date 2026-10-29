@@ -684,7 +684,7 @@ export class GardenScene extends Phaser.Scene {
     this.lanterns.update(light, time);
     this.lilies.update(light, time);
     this.glows.update(view, dt * 1000, this.cameras.main.zoom);
-    this.lightMap.update(view, this.daylight.tint);
+    this.lightMap.update(view, this.daylight.tint, this.cameras.main.zoom);
     this.train.light(light);
     this.zones.light(light, time);
     this.nightWater.update(light, time, view);

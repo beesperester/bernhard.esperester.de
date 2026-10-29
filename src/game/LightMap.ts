@@ -4,6 +4,7 @@ import { TREES } from '../world/trees.ts';
 import { DEPTH } from './Daylight.ts';
 import type { TreeWatcher, Trees } from './Trees.ts';
 import type { Glow } from './Glows.ts';
+import { MAX_LAMPS, paintLight } from './Painted.ts';
 
 // The light over the garden: a layer the whole scene is multiplied by. By
 // day it is white (nothing changes); at dusk and at night it is the sky's
@@ -19,6 +20,9 @@ import type { Glow } from './Glows.ts';
 // art, a light falls off in a few steps, ordered-dithered from one to the
 // next in world pixels (the same pattern everywhere, so lights that overlap
 // agree).
+//
+// The lamps in view are also handed to the painted shading (game/Painted.ts),
+// so what stands near one is lit from its side.
 
 /** The warm light of a candle or an oil lamp. */
 export const LAMPLIGHT = 0xffc88c;
@@ -109,8 +113,9 @@ export class LightMap implements TreeWatcher {
   }
 
   /** Lay the sky's colour `tint` over the view, and the lamps in it. */
-  update(view: Phaser.Geom.Rectangle, tint: number): void {
+  update(view: Phaser.Geom.Rectangle, tint: number, zoom: number): void {
     const lit = this.lamps.filter((l) => l.alpha > 0 && l.x + l.r > view.x && l.x - l.r < view.right && l.y + l.r > view.y && l.y - l.r < view.bottom);
+    this.shade(view, zoom, lit);
     const on = tint !== 0xffffff || lit.length > 0;
     this.map.setVisible(on);
     if (!on) return;
@@ -124,6 +129,17 @@ export class LightMap implements TreeWatcher {
       this.map.stamp(l.tex!.key, undefined, l.left - x0, l.top - y0, { originX: 0, originY: 0, tint: l.colour, alpha: l.alpha, blendMode: Phaser.BlendModes.ADD });
     }
     this.map.render();
+  }
+
+  /** Hand the painted shading the view and the lamps lit in it (the nearest its middle, if there are too many). */
+  private shade(view: Phaser.Geom.Rectangle, zoom: number, lit: Lamp[]): void {
+    paintLight.view[0] = view.x;
+    paintLight.view[1] = view.y;
+    paintLight.view[2] = 1 / zoom;
+    const near = lit.length <= MAX_LAMPS ? lit
+      : [...lit].sort((a, b) => Math.hypot(a.x - view.centerX, a.y - view.centerY) - Math.hypot(b.x - view.centerX, b.y - view.centerY)).slice(0, MAX_LAMPS);
+    near.forEach((l, i) => paintLight.lamps.set([l.x, l.y, l.r, l.alpha], i * 4));
+    paintLight.lampCount = near.length;
   }
 }
 
