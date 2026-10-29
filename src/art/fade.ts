@@ -73,6 +73,19 @@ export function keeps(o: Opening, x: number, y: number, puffs: Puffs | null, i: 
   return bayer(x, y) >= (o.r - d) / (o.r * (1 - CLEAR));
 }
 
+/** How much of the pixel at world (x, y) is left by hole `o` (0..1): keeps() without the dither. */
+export function kept(o: Opening, x: number, y: number, puffs: Puffs | null, i: number): number {
+  if (o.r <= 0) return 1;
+  if (puffs && puffs[i * 4 + 3]) {
+    const k = i * 4, cx = x + puffs[k] - 128, cy = y + puffs[k + 1] - 128;
+    const d = distance(o, cx, cy) - puffs[k + 2] * PUFF_IN;
+    const reach = o.r * (PUFF_NEAR + (1 - PUFF_NEAR) * stagger(cx, cy));
+    return 1 - Math.max(0, Math.min(1, (reach - d) / PUFF_BAND));
+  }
+  const d = distance(o, x, y);
+  return Math.max(0, Math.min(1, (d - o.r * CLEAR) / (o.r * (1 - CLEAR))));
+}
+
 /** Whether the pixel shows at all: through the hole (keeps()), and through the dither thinning the rest of the tree (0..1). */
 export function shows(o: Opening, rest: number, x: number, y: number, puffs: Puffs | null, i: number): boolean {
   return keeps(o, x, y, puffs, i) && bayer(x, y) >= rest;

@@ -7,7 +7,7 @@ import type { CatView } from './CatView.ts';
 import { toCanvas } from './textures.ts';
 import type { Painter } from './Painter.ts';
 import { cutIn, type Cut } from './HoleFilter.ts';
-import { CLEAR, reachUp, shows, type Opening } from '../art/fade.ts';
+import { CLEAR, kept, reachUp, shows, type Opening } from '../art/fade.ts';
 
 // The park's trees. They are big and there are many, so a tree is only drawn
 // while the camera is near it, nearest first, by the painter off the main
@@ -156,6 +156,22 @@ export class Trees {
       if (t.front && leafAt(t.front, t.cutFrontAs, t.p.front?.puffs ?? null, t.p.x, t.p.y, x, y)) return true;
     }
     return false;
+  }
+
+  /**
+   * How much of world point (x, y) leaves cover (0..1), as covers() asks, but evenly: where a tree is thinned or
+   * its hole fades out, part covered rather than dithered.
+   */
+  coverage(x: number, y: number, feetY: number, above = Infinity): number {
+    let open = 1;
+    for (const i of this.cells.get(cellKey(Math.floor(x / CELL), Math.floor(y / CELL))) ?? []) {
+      const t = this.live.get(i);
+      if (!t || (feetY >= t.p.depthY && t.p.depthY - y < above)) continue;
+      open *= 1 - leafAmount(t.base, t.cutBase, t.p.puffs ?? null, t.p.x, t.p.y, x, y);
+      if (t.front) open *= 1 - leafAmount(t.front, t.cutFrontAs, t.p.front?.puffs ?? null, t.p.x, t.p.y, x, y);
+      if (open === 0) break;
+    }
+    return 1 - open;
   }
 
   /**
@@ -331,6 +347,13 @@ function leafAt(pic: Pic, cut: Cut | null, puffs: Puffs | null, px: number, py: 
   const lx = Math.round(x) - px, ly = Math.round(y) - py, { orig } = pic, k = ly * orig.width + lx;
   if (lx < 0 || ly < 0 || lx >= orig.width || ly >= orig.height || orig.data[k * 4 + 3] === 0) return false;
   return !cut || shows(cut.hole ?? NO_HOLE, cut.rest, Math.round(x), Math.round(y), puffs, k);
+}
+
+/** How much of picture `pic` (placed at px, py; cut as `cut`) shows at world point (x, y) (0..1, undithered). */
+function leafAmount(pic: Pic, cut: Cut | null, puffs: Puffs | null, px: number, py: number, x: number, y: number): number {
+  const lx = Math.round(x) - px, ly = Math.round(y) - py, { orig } = pic, k = ly * orig.width + lx;
+  if (lx < 0 || ly < 0 || lx >= orig.width || ly >= orig.height || orig.data[k * 4 + 3] === 0) return 0;
+  return cut ? kept(cut.hole ?? NO_HOLE, Math.round(x), Math.round(y), puffs, k) * (1 - cut.rest) : 1;
 }
 
 /** Tree i's outline (from its plan, not drawn) as a picture: what it hides of a light. */

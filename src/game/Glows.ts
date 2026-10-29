@@ -13,12 +13,14 @@ import type { TreeWatcher, Trees } from './Trees.ts';
 // front of your cat fades away round it, and the light then shows where it
 // had hidden it).
 //
-// A small light (a flame, a bulb) is a bright core, either seen or not: it
-// dims away behind leaves. The glow round it is made on the GPU: the cores
+// A small light (a flame, a bulb) is a bright core: it dims away behind
+// leaves, as far as they cover it. The glow round it is made on the GPU: the cores
 // are drawn together, blurred, and the blur added back over them (a bloom of
 // the lights alone). A wide light (a pool of light on the ground) has the
-// trees in front cut out of it pixel by pixel (and the crowns of those
-// behind it: it lies on the ground), again whenever one of them changes.
+// trees in front taken out of it pixel by pixel (and the crowns of those
+// behind it: it lies on the ground), again whenever one of them changes;
+// where they are thinned or fading, it dims evenly (not dithered like them:
+// a dithered light is a checkerboard).
 
 /** A pool of light lies on the ground: leaves this far up a tree (px), even behind it, aren't lit by it. */
 const CROWN = 24;
@@ -140,9 +142,9 @@ export class Glows implements TreeWatcher {
     for (const s of this.small) {
       if (!s.img.visible && s.alpha <= 0) continue;
       if (!inView(view, s.x, s.y, 8)) continue;
-      const want = this.trees.covers(s.x, s.y, s.feet) ? 0 : 1;
+      const want = 1 - this.trees.coverage(s.x, s.y, s.feet);
       if (want === s.seen) continue;
-      s.seen = want > s.seen ? Math.min(1, s.seen + step) : Math.max(0, s.seen - step);
+      s.seen = want > s.seen ? Math.min(want, s.seen + step) : Math.max(want, s.seen - step);
       show(s.img, s.alpha * s.seen * (s.hidden ? 0 : 1));
     }
     for (const d of this.wide) if (d.dirty && d.img.visible && this.near(d)) this.cut(d);
@@ -168,7 +170,7 @@ export class Glows implements TreeWatcher {
     for (let v = 0; v < h; v++)
       for (let u = 0; u < w; u++) {
         const k = (v * w + u) * 4;
-        if (img.data[k + 3] && this.trees.covers(d.left + (u + 0.5) * d.scale, d.up + (v + 0.5) * d.scale, d.feet, CROWN)) img.data[k + 3] = 0;
+        if (img.data[k + 3]) img.data[k + 3] *= 1 - this.trees.coverage(d.left + (u + 0.5) * d.scale, d.up + (v + 0.5) * d.scale, d.feet, CROWN);
       }
     d.tex.getContext().putImageData(img, 0, 0);
     d.tex.refresh();
