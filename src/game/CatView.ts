@@ -166,7 +166,8 @@ export class CatView {
     this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft * seen).setScale(Math.min(1, k + 0.15));
     // standing in the shade of something: it darkens step by step (a sliver of shadow crossed
     // on the way barely shows, so the cat doesn't flicker) and brightens at once in the sun
-    const dark = catLight.shade(this.x, this.y);
+    // (riding in a car it is lit like the car: the shadows on the ground below don't reach it)
+    const dark = this.ride !== null ? 0 : catLight.shade(this.x, this.y);
     this.shaded = dark < this.shaded ? dark : Math.min(dark, this.shaded + (dtm > 0 ? dtm / SHADE_IN_MS : 0));
     const shade = this.shaded;
     this.sprite.setPosition(x, y - lift).setDepth(d).setAlpha(seen).setVisible(seen > 0);

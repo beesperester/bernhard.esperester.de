@@ -1068,6 +1068,8 @@ export class GardenScene extends Phaser.Scene {
     const on = me.act === Act.Jump ? null : standingOn(me.x, me.y, me.z);
     if (on && me.y !== on.y) me.y += Math.sign(on.y - me.y) * Math.min(Math.abs(on.y - me.y), SETTLE_SPEED * dt);
 
+    // (at the controls the cat sits, busy driving: it never gets sleepy there, nor all at once when it gets off)
+    if (this.train.driving) this.lastInput = Math.max(this.lastInput, now - SIT_AFTER_MS - 1);
     if (me.act === Act.Idle && now - this.lastInput > SIT_AFTER_MS && Math.abs(this.vel.x) + Math.abs(this.vel.y) < 2) {
       if (me.facing === Facing.Up) me.facing = Facing.Down;
       me.setAct(Act.Sit, now);
