@@ -23,6 +23,7 @@ import { Vignette } from './Vignette.ts';
 import { Daylight } from './Daylight.ts';
 import { RimLight } from './RimLight.ts';
 import { Lanterns, type Occluder } from './Lanterns.ts';
+import { Glows } from './Glows.ts';
 import { NightWater } from './NightWater.ts';
 import { Streams } from './Streams.ts';
 import { Puddles } from './Puddles.ts';
@@ -142,6 +143,7 @@ export class GardenScene extends Phaser.Scene {
   private garden = 1;
   private meadow!: Meadow;
   private shafts!: Shafts;
+  private glows!: Glows;
   private fog!: Fog;
   private clouds!: Clouds;
   private ponds: PondReflection[] = [];
@@ -288,12 +290,13 @@ export class GardenScene extends Phaser.Scene {
       ...TREES.map((t, i) => {
         // (a tree's outline from its plan, only worked out for those that stand in front of a light)
         let canvas: HTMLCanvasElement | null = null;
-        return { get canvas() { return (canvas ??= outlineCanvas(i)); }, x: t.x - t.w / 2, y: t.y - (t.h - 1) - t.elev, w: t.w, h: t.h, depth: t.y };
+        return { get canvas() { return (canvas ??= outlineCanvas(i)); }, x: t.x - t.w / 2, y: t.y - (t.h - 1) - t.elev, w: t.w, h: t.h, depth: t.y, tree: true };
       }),
       ...standing.map(({ p, canvas }) => ({ canvas, x: p.x, y: p.y, w: canvas.width, h: canvas.height, depth: p.depthY })),
       ...canvases.terrain.map((t, i) => ({ canvas: source(`terrain-${i}`), x: t.x, y: t.y, w: t.raster.w, h: t.raster.h, depth: t.depth })),
     ];
-    this.lanterns = new Lanterns(this, occluders);
+    this.glows = new Glows(this, this.trees, occluders);
+    this.lanterns = new Lanterns(this, this.glows);
     this.shadows = this.makeShadows(canvases, furniture, upright);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
@@ -307,7 +310,7 @@ export class GardenScene extends Phaser.Scene {
       for (let tx = 0; tx < MAP_W; tx++) if (groundOf(tileAt(tx, ty)) === 'flowers') flowers.push([tx * TILE + 8, ty * TILE + 8]);
     this.ambient = new Ambient(this, { flowers, water, pond: pondBounds(), trees: TREES });
     this.weather = new Weather(this, TREES, water);
-    this.zones = new Zones(this, toCanvas);
+    this.zones = new Zones(this, toCanvas, this.glows);
     this.streams = new Streams(this, water);
     this.puddles = new Puddles(this, this.ambient.fx);
 
@@ -668,6 +671,7 @@ export class GardenScene extends Phaser.Scene {
     this.shafts.update(light, Math.max(overcast, this.clouds.coverAt(view.centerX, view.centerY)), time, view);
     this.fog.update(fogAt(gt), time, view);
     this.lanterns.update(light, time);
+    this.glows.update(view, dt * 1000, this.cameras.main.zoom);
     this.train.light(light);
     this.zones.light(light, time);
     this.nightWater.update(light, time, view);

@@ -13,8 +13,8 @@ import type { Raster } from '../art/raster.ts';
 import { FURNITURE, TILE, THEMED_ZONES, elevAt } from '../world/map.ts';
 import { buntingStrings, type ThemedZone } from '../world/themes.ts';
 import type { Light } from '../world/sky.ts';
-import { DEPTH } from './Daylight.ts';
 import { cullerFor } from './Culler.ts';
+import type { Glow, Glows } from './Glows.ts';
 
 /** Once in a zone, a cat is still in it until this far out (px): no flicking back and forth at its edge. */
 const LEAVE = 2.5 * TILE;
@@ -25,13 +25,13 @@ export class Zones {
   /** The zone our cat is in. */
   private here: ThemedZone | null = null;
   /** The fairy lights along the bunting, and how far they've come on. */
-  private readonly bulbs: Phaser.GameObjects.Image[] = [];
+  private readonly bulbs: Glow[] = [];
   /** The lanterns on the booths' posts. */
-  private readonly lanterns: Phaser.GameObjects.Image[] = [];
+  private readonly lanterns: Glow[] = [];
   private lit = -1;
 
-  constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement) {
-    BULBS.forEach((c, i) => scene.textures.addCanvas(`fairy-${i}`, toCanvas(buildGlow(7, 7, c))));
+  constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement, glows: Glows) {
+    BULBS.forEach((c, i) => scene.textures.addCanvas(`fairy-${i}`, toCanvas(buildGlow(3, 3, c, 2))));
     let n = 0;
     for (const z of THEMED_ZONES) {
       if (z.theme !== 'funfair') continue;
@@ -44,12 +44,10 @@ export class Zones {
       });
       // a lantern on each of a booth's two posts (art/funfair.ts: the booth is drawn 2 px in, 21 up)
       for (const b of FURNITURE.filter((f) => f.kind === 'booth' && has.has(`${f.tx},${f.ty}`))) {
-        const x = b.tx * TILE + 2, y = b.ty * TILE - 21, lift = elevAt(x, b.ty * TILE + 26);
-        const glow = (key: string, gx: number, gy: number, k: number) =>
-          this.lanterns.push(scene.add.image(gx, gy, key).setScale(k).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
-        // (the flame, and the pool of light it casts on the ground in front of the booth)
-        for (const px of [3, 41]) glow('glow-lamp', x + px, y + 28 - lift, 1.3);
-        glow('glow-lantern', x + 22, b.ty * TILE + 30 - lift, 0.8);
+        const x = b.tx * TILE + 2, y = b.ty * TILE - 21, feet = b.ty * TILE + 26, lift = elevAt(x, feet);
+        // (the flames, and the pool of light they cast on the ground in front of the booth)
+        for (const px of [3, 41]) this.lanterns.push(glows.point('glow-core', x + px, y + 28 - lift, 1, feet));
+        this.lanterns.push(glows.area('glow-lantern', x + 22, b.ty * TILE + 30 - lift, 0.8, feet));
       }
       const strings = buntingStrings(poles.map((p) => [p.tx, p.ty]), (x, y) => has.has(`${x},${y}`));
       for (const [i, j] of strings) {
@@ -60,9 +58,7 @@ export class Zones {
         const depth = Math.max(a.foot, b.foot) + 0.5;
         cullerFor(scene).add(scene.add.image(a.x - ox, a.y - oy, key).setOrigin(0).setDepth(depth));
         buntingLights(b.x - a.x, b.y - a.y).forEach((p, k) => {
-          const bulb = scene.add.image(a.x + p.x, a.y + p.y + 1, `fairy-${(k + n) % BULBS.length}`)
-            .setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
-          this.bulbs.push(bulb);
+          this.bulbs.push(glows.point(`fairy-${(k + n) % BULBS.length}`, a.x + p.x, a.y + p.y + 1, 1, depth));
         });
         n++;
       }
@@ -74,9 +70,9 @@ export class Zones {
     const on = Math.max(0, Math.min(1, (-2 - light.elevation) / 4));
     if (on <= 0 && this.lit <= 0) return;
     this.lit = on;
-    this.bulbs.forEach((b, i) => b.setVisible(on > 0).setAlpha(on * (0.75 + 0.25 * Math.sin(now / 600 + i * 1.7))));
+    this.bulbs.forEach((b, i) => b.set(on * (0.75 + 0.25 * Math.sin(now / 600 + i * 1.7))));
     // (a candle's flicker)
-    this.lanterns.forEach((l, i) => l.setVisible(on > 0).setAlpha(on * (0.85 + 0.15 * Math.sin(now / 170 + i * 2.3) * Math.sin(now / 410 + i))));
+    this.lanterns.forEach((l, i) => l.set(on * (0.85 + 0.15 * Math.sin(now / 170 + i * 2.3) * Math.sin(now / 410 + i))));
   }
 
   /** Which zone our cat (at `p`) is in now: its music plays while it's there. */

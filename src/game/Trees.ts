@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { relightProp, treeOutline, type Prop } from '../art/trees.ts';
+import { relightProp, treeOutline, type Prop, type Puffs } from '../art/trees.ts';
 import { Raster } from '../art/raster.ts';
 import { sunLight, type ScreenLight } from '../art/lighting.ts';
 import { TREES, treeHolding } from '../world/trees.ts';
@@ -68,6 +68,7 @@ interface Live {
   /** ...or round your cat up it (0..1); how each picture is cut now, and as what it was cut last. */
   open: number;
   cutBase: Cut | null;
+  cutFrontAs: Cut | null;
   cut: string;
   cutFront: string;
   /** The textures of its pictures' puff maps. */
@@ -142,15 +143,17 @@ export class Trees {
     t.dirty = true;
   }
 
-  /** True if a tree's leaves are drawn over world point (x, y) for something whose feet are at feetY. */
-  covers(x: number, y: number, feetY: number): boolean {
+  /**
+   * True if a tree's leaves are drawn over world point (x, y) for something whose feet are at feetY: a tree in front
+   * of it, or (`above` px given) any tree that far or more up from its own foot there (its crown, off the ground).
+   */
+  covers(x: number, y: number, feetY: number, above = Infinity): boolean {
     for (const i of this.cells.get(cellKey(Math.floor(x / CELL), Math.floor(y / CELL))) ?? []) {
       const t = this.live.get(i);
-      if (!t || feetY >= t.p.depthY) continue;
-      const lx = Math.round(x) - t.p.x, ly = Math.round(y) - t.p.y, { orig } = t.base, k = ly * orig.width + lx;
-      if (lx < 0 || ly < 0 || lx >= orig.width || ly >= orig.height || orig.data[k * 4 + 3] === 0) continue;
-      const c = t.cutBase;
-      if (!c || shows(c.hole ?? NO_HOLE, c.rest, Math.round(x), Math.round(y), t.p.puffs ?? null, k)) return true;
+      if (!t || (feetY >= t.p.depthY && t.p.depthY - y < above)) continue;
+      // (its leaves behind its trunk, and those in front of it)
+      if (leafAt(t.base, t.cutBase, t.p.puffs ?? null, t.p.x, t.p.y, x, y)) return true;
+      if (t.front && leafAt(t.front, t.cutFrontAs, t.p.front?.puffs ?? null, t.p.x, t.p.y, x, y)) return true;
     }
     return false;
   }
@@ -195,6 +198,7 @@ export class Trees {
       const key = (c: Cut | null) => (c ? `${c.hole ? `${c.hole.x},${c.hole.y},${c.hole.r.toFixed(1)},${c.hole.up.toFixed(1)}` : ''}/${c.rest.toFixed(2)}` : '');
       const cut = key(base), cutFront = key(front);
       t.cutBase = base;
+      t.cutFrontAs = front;
       if (t.dirty) for (const pic of [t.base, t.front, t.mid]) if (pic) this.draw(pic);
       if (cut !== t.cut) {
         cutIn(t.base.img, base);
@@ -306,7 +310,7 @@ export class Trees {
     const base = this.pic(`tree-${i}`, p.raster, p.x, p.y, p.depthY);
     const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.x, p.y, p.depthY + FRONT) : null;
     const puffs = this.puffMap(`tree-puffs-${i}`, p.puffs, p.raster), frontPuffs = p.front ? this.puffMap(`tree-front-puffs-${i}`, p.front.puffs, p.front.raster) : null;
-    this.live.set(i, { p, base, front, mid: null, hole: 0, open: 0, cutBase: null, cut: '', cutFront: '', puffs, frontPuffs, dirty: false });
+    this.live.set(i, { p, base, front, mid: null, hole: 0, open: 0, cutBase: null, cutFrontAs: null, cut: '', cutFront: '', puffs, frontPuffs, dirty: false });
     for (const w of this.watchers) w.added(i, p, base.canvas);
   }
 
@@ -320,6 +324,13 @@ export class Trees {
     this.live.delete(i);
     for (const w of this.watchers) w.removed(i);
   }
+}
+
+/** Whether picture `pic` (placed at px, py; cut as `cut`) shows at world point (x, y). */
+function leafAt(pic: Pic, cut: Cut | null, puffs: Puffs | null, px: number, py: number, x: number, y: number): boolean {
+  const lx = Math.round(x) - px, ly = Math.round(y) - py, { orig } = pic, k = ly * orig.width + lx;
+  if (lx < 0 || ly < 0 || lx >= orig.width || ly >= orig.height || orig.data[k * 4 + 3] === 0) return false;
+  return !cut || shows(cut.hole ?? NO_HOLE, cut.rest, Math.round(x), Math.round(y), puffs, k);
 }
 
 /** Tree i's outline (from its plan, not drawn) as a picture: what it hides of a light. */

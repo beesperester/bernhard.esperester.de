@@ -60,6 +60,7 @@ const tex = scene.textures;
   tex.addCanvas('firefly', toCanvas(buildFirefly()));
   tex.addCanvas('glow-firefly', toCanvas(buildGlow(9, 9, [200, 255, 120])));
   tex.addCanvas('glow-puff', toCanvas(buildGlow(15, 15, [220, 255, 150])));
+  tex.addCanvas('glow-core', toCanvas(buildGlow(5, 5, [255, 230, 165], 3)));
   tex.addCanvas('glow-lamp', toCanvas(buildGlow(11, 11, [255, 220, 130])));
   tex.addCanvas('glow-lantern', toCanvas(buildGlow(76, 40, [255, 190, 100], 6)));
   sheet('frog', buildFrog(), FROG_W, FROG_H);
