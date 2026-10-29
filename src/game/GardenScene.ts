@@ -307,7 +307,7 @@ export class GardenScene extends Phaser.Scene {
     this.lightMap = new LightMap(this, this.trees);
     this.lanterns = new Lanterns(this, this.glows, this.lightMap);
     this.lilies = new Lilies(this, toCanvas, this.glows);
-    this.shadows = this.makeShadows(canvases, furniture, upright);
+    this.shadows = this.makeShadows(furniture);
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
     this.lighting = new Lighting();
@@ -509,32 +509,27 @@ export class GardenScene extends Phaser.Scene {
     }, TICK_MS);
   }
 
-  /** Who casts what shadow: trees, lanterns and furniture by their outlines, and soft blobs under everything for the night. */
-  private makeShadows(canvases: ReturnType<typeof makeTextures>, furniture: Furniture, upright: (x: number, y: number) => boolean): Shadows {
+  /** Who casts what shadow: lanterns, furniture and follies by their outlines (trees from their plans), and soft blobs under everything for the night. */
+  private makeShadows(furniture: Furniture): Shadows {
     const casters: Caster[] = [];
     const blobs: { x: number; y: number; w: number; h: number; depth: number }[] = [];
-    // (a tree's shadow from its plan: it is only drawn near the camera)
-    TREES.forEach((t) => {
-      const lift = t.elev, y = t.y - (t.h - 1) - lift;
-      casters.push({ src: { tree: t }, sx: 0, sy: 0, w: t.w, h: t.h, x: t.x - t.w / 2, y, ground: t.y, lift, cap: Infinity, depth: 'round' });
-      blobs.push({ x: t.x, y: t.y - lift - 1, w: Math.round(t.w * 0.65), h: 18, depth: t.y - 0.01 });
-    });
+    for (const t of TREES) blobs.push({ x: t.x, y: t.y - t.elev - 1, w: Math.round(t.w * 0.65), h: 18, depth: t.y - 0.01 });
     const lantern = this.textures.get('lantern').getSourceImage() as HTMLCanvasElement;
     for (const [x, y] of LANTERNS) {
       const top = y - elevAt(x, y);
-      casters.push({ src: lantern, sx: 0, sy: 0, w: LANTERN_W, h: LANTERN_H, x: x - LANTERN_W / 2, y: top - LANTERN_H, ground: y, lift: elevAt(x, y), cap: LANTERN_H, depth: 1 });
+      casters.push({ src: lantern, sx: 0, sy: 0, w: LANTERN_W, h: LANTERN_H, x: x - LANTERN_W / 2, y: top - LANTERN_H, ground: y, cap: LANTERN_H, depth: 1 });
       blobs.push({ x, y: top - 1, w: 12, h: 5, depth: y - 0.01 });
     }
     for (const { p, canvas } of furniture.pieces) {
       const w = canvas.width, h = canvas.height;
       // the furniture casts their outlines (their tops are deep, not tall)
-      if (h < 40) casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.y + h - 1, lift: 0, cap: 14, depth: 3 });
+      if (h < 40) casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.y + h - 1, cap: 14, depth: 3 });
       blobs.push({ x: p.x + w / 2, y: p.y + h - 2, w: w + 8, h: h < 40 ? 10 : 18, depth: p.depthY - 0.01 });
     }
     // the follies cast their whole outlines, as tall as they are
     for (const { p, canvas, depth } of this.landmarks.pieces) {
       const w = canvas.width, h = canvas.height;
-      casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.depthY + 1, lift: 0, cap: Infinity, depth });
+      casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.depthY + 1, cap: Infinity, depth });
       blobs.push({ x: p.x + w / 2, y: p.depthY, w: w + 8, h: 14, depth: p.depthY - 0.01 });
     }
     // bushes and rocks in the ground art
@@ -544,7 +539,7 @@ export class GardenScene extends Phaser.Scene {
           const l = levelAt(tx, ty);
           blobs.push({ x: tx * TILE + 8, y: ty * TILE + 13 - l * LEVEL, w: 20, h: 8, depth: l ? ty * TILE + 0.0012 : -99992 });
         }
-    return new Shadows(this, { terrain: canvases.terrain, casters, blobs, catSheet: canvases.cats[0], upright });
+    return new Shadows(this, { casters, blobs });
   }
 
   private fitZoom(): void {

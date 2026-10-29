@@ -435,17 +435,17 @@ export function upOnFolly(x: number, y: number, z: number): number | null {
  * lanterns, the furniture and cats cast theirs from their sprites).
  */
 export function casterHeight(x: number, y: number): number {
-  const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
-  const ch = tileAt(tx, ty);
-  let h = 0;
-  const kind = LEGEND[ch];
-  const th = kind?.shadowHeight ?? kind?.height;
-  if (th) {
-    const [l, t, r, b] = kind.inset ?? NO_INSET;
-    const lx = x - tx * TILE, ly = y - ty * TILE;
-    if (lx >= l && lx < TILE - r && ly >= t && ly < TILE - b) h = th;
-  }
-  return h;
+  const box = casterBox(Math.floor(x / TILE), Math.floor(y / TILE));
+  return box && x >= box[0] && x < box[2] && y >= box[1] && y < box[3] ? box[4] : 0;
+}
+
+/** What stands on tile (tx, ty), for shadows, as a box (world px: left, top, right, bottom) and its height; null if nothing does. */
+export function casterBox(tx: number, ty: number): [number, number, number, number, number] | null {
+  const kind = LEGEND[tileAt(tx, ty)];
+  const h = kind?.shadowHeight ?? kind?.height;
+  if (!h) return null;
+  const [l, t, r, b] = kind.inset ?? NO_INSET;
+  return [tx * TILE + l, ty * TILE + t, (tx + 1) * TILE - r, (ty + 1) * TILE - b, h];
 }
 
 // ---- lanterns ----
