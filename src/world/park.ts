@@ -218,7 +218,7 @@ export function generatePark(seed: number): Park {
 
   // ---- hills: a level or two up, away from the water and the railway, every one with stairs ----
   const distToWet = bfsDistance((x, y) => wet(x, y));
-  for (let y = 0; y < H; y++)
+  if (HILLS) for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++) {
       if (x < 6 || y < 6 || x > W - 7 || y > H - 7 || distToWet[idx(x, y)] < 4 || near(rail, 3, x, y) || near(rail, 3, x, y, 2)) continue;
       const n = noise(x, y, 24, 51) * 0.65 + noise(x, y, 8, 52) * 0.35;
@@ -571,6 +571,9 @@ function tidySlivers(T: string[][]): void {
       else if (n === 3) T[y][x] = ',';
     }
 }
+
+/** Whether the park has hills (plateaus a level or two up): off for now, the park is flat. */
+export const HILLS = false;
 
 /** Hills without crumbs: no ledges a tile thin, no tiny knolls, and the second level well inside the first. */
 function tidyHills(E: number[][]): void {

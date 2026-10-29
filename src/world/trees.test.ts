@@ -5,6 +5,7 @@ import { MoveWitness } from '../net/witness.ts';
 import { Act } from '../game/state.ts';
 import { FORK_Z, LEVEL, TILE, WALL, heightUnder, levelAt } from './map.ts';
 import { LEAP, RISE, TREES, leapUp, perchUnder, standingOn, surfaceAt, treeHolding, type TreePlan } from './trees.ts';
+import { HILLS } from './park.ts';
 
 const DT = 1 / 60;
 
@@ -110,7 +111,7 @@ describe('trees', () => {
     expect(surfaceAt(t.x, t.y, t.elev + FORK_Z, t.elev + FORK_Z)).toBe(t.elev);
   });
 
-  it("doesn't count a cat walking on a plateau beside a tree down below as up that tree", () => {
+  it.skipIf(!HILLS)("doesn't count a cat walking on a plateau beside a tree down below as up that tree", () => {
     // (it would be drawn at the tree's depth, behind the plateau it is standing on)
     let checked = 0;
     for (const [i, t] of TREES.entries()) {

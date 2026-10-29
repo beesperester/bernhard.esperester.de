@@ -11,6 +11,7 @@ import { seasonAt } from '../world/season.ts';
 import { MAP_H, MAP_W, TILE, isChannel, tileAt, waterBoxes } from '../world/map.ts';
 import { isWaterway } from '../world/legend.ts';
 import { Raster } from './raster.ts';
+import { HILLS } from '../world/park.ts';
 
 const opaque = (r: Raster) => {
   let n = 0;
@@ -108,7 +109,7 @@ describe('the garden through the seasons', () => {
   });
 
   it('raises the plateaus and scatters the flora', () => {
-    expect(buildTerrain().length).toBeGreaterThan(0);
+    if (HILLS) expect(buildTerrain().length).toBeGreaterThan(0);
     expect(placeFlora().length).toBeGreaterThan(100);
   });
 });

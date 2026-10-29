@@ -1,3 +1,4 @@
+import { HILLS } from './park.ts';
 import { PIECE_SIZE, ZONE_FLOOR } from './themes.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GRAVITY, JUMP_V } from '../game/state.ts';
@@ -61,7 +62,7 @@ describe('the map', () => {
     for (const [tx, ty] of treeTiles()) expect(groundAt(tx * TILE + 8, ty * TILE + 15)).toBe(WALL);
   });
 
-  it('has stairs that climb one level, a pixel at a time', () => {
+  it.skipIf(!HILLS)('has stairs that climb one level, a pixel at a time', () => {
     const [sx, sy] = findTile('S');
     const base = levelAt(sx, sy) * LEVEL;
     const x = sx * TILE + 8;
