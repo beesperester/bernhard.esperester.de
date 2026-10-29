@@ -10,6 +10,9 @@ import { TRACK_LENGTH } from '../world/track.ts';
 import type { TrainMsg } from '../net/protocol.ts';
 import { advance, poses, trainUnder, type CarPose, type TrainState } from './train.ts';
 
+/** Where along the beam (px ahead of the lok's nose) it is checked for trees in front, and how far up a tree its light goes. */
+const BEAM_SAMPLES = [10, 26, 42], BEAM_CROWN = 24;
+
 /** The driver says where the train is this often (ms). */
 const SAY_MS = 200;
 /** Not a word from the driver for this long (ms): it's gone, and the train rolls to a stop. */
@@ -68,6 +71,10 @@ export class TrainView {
     const glow = (key: string) => scene.add.image(0, 0, key).setDepth(DEPTH.glow).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     this.lamps = { lamp: glow('glow-lamp'), beam: glow('__DEFAULT').setOrigin(0), cab: glow('glow-lantern').setScale(0.6), tail: glow('train-tail') };
   }
+
+  /** How much of world (x, y) the trees in front of something with its feet at `feet` hide (0..1): the lamps dim behind leaves.
+   * `above`: only leaves this far up a tree, or less, count (a beam lies on the ground). */
+  covered: (x: number, y: number, feet: number, above?: number) => number = () => 0;
 
   /** The lamps come on after dark, like the lanterns along the paths. */
   light(light: Light): void {
@@ -230,7 +237,9 @@ export class TrainView {
     const nose = world(lok, lok.len / 2 + 1, 0), seat = world(lok, -lok.len / 2 + 5, 0), back = world(last, -last.len / 2 - 1, 0);
     // (a lamp facing up the screen, away from us, is hidden behind its car: the lok's chimney, the last waggon)
     const seen = (dy: number) => Math.max(0, Math.min(1, (dy + 0.7) / 0.4));
-    lamp.setPosition(nose.x, nose.y - 9).setAlpha(on * seen(lok.dy));
+    // (and dimmed by the leaves of trees in front of them)
+    const open = (x: number, y: number, feet: number) => 1 - this.covered(x, y, feet);
+    lamp.setPosition(nose.x, nose.y - 9).setAlpha(on * seen(lok.dy) * open(nose.x, nose.y - 9, nose.y));
     // (made for the heading its picture is, with the lok cut out of it)
     const key = `train-beam-${this.headingOf(lok)}`;
     let at = this.beams.get(key);
@@ -239,9 +248,15 @@ export class TrainView {
       this.scene.textures.addCanvas(key, this.toCanvas(b.r));
       this.beams.set(key, (at = { ox: b.ox, oy: b.oy }));
     }
-    beam.setTexture(key).setPosition(Math.round(lok.x) - at.ox, Math.round(lok.y) - at.oy).setAlpha(on * 0.9);
-    cab.setPosition(seat.x, seat.y - 8).setAlpha(on * 0.45);
-    tail.setPosition(back.x, back.y - 6).setAlpha(on * 0.9 * seen(-last.dy));
+    // (the beam on the ground ahead: as much of it as shows past the trees, a few spots along it)
+    let lit = 0;
+    for (const k of BEAM_SAMPLES) {
+      const p = world(lok, lok.len / 2 + k, 0);
+      lit += 1 - this.covered(p.x, p.y, p.y, BEAM_CROWN);
+    }
+    beam.setTexture(key).setPosition(Math.round(lok.x) - at.ox, Math.round(lok.y) - at.oy).setAlpha(on * 0.9 * (lit / BEAM_SAMPLES.length));
+    cab.setPosition(seat.x, seat.y - 8).setAlpha(on * 0.45 * open(seat.x, seat.y - 8, seat.y));
+    tail.setPosition(back.x, back.y - 6).setAlpha(on * 0.9 * seen(-last.dy) * open(back.x, back.y - 6, back.y));
   }
 
   private tell(gt: number, now: boolean): void {

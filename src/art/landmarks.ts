@@ -9,7 +9,7 @@ import { Raster, hex, hash2, type RGB } from './raster.ts';
 import { dab, paintOver } from './paint.ts';
 import { snowCap } from './furniture.ts';
 import { SEASON, type Season } from '../world/season.ts';
-import { LANDMARK_SHAPES, LANDMARK_SPRITE, LOOKOUT_LANTERNS, ROUND, type LandmarkKind, type Material, type Shape } from '../world/landmarks.ts';
+import { LANDMARK_SHAPES, LANDMARK_SPRITE, LOOKOUT_LANTERNS, PAPER_LANTERNS, ROUND, type LandmarkKind, type Material, type Shape } from '../world/landmarks.ts';
 
 /** Outline, shadow side, front, lit top, highlight. */
 type Tone = { o: RGB; d: RGB; b: RGB; l: RGB; s: RGB };
@@ -231,9 +231,10 @@ function details(kind: LandmarkKind, r: Raster, ox: number, oy: number): void {
       r.rect(wx, wy, 3, 3, LAMP);
     }
   }
-  if (kind === 'pavilion' || kind === 'teahouse') {
+  const paper = PAPER_LANTERNS[kind];
+  if (paper) {
     // a paper lantern hanging from the eaves
-    const [lx, ly] = at(kind === 'pavilion' ? 24 : 32, kind === 'pavilion' ? 40 : 42, kind === 'pavilion' ? 26 : 28);
+    const [lx, ly] = at(...paper);
     r.set(lx, ly - 2, TONES.wood.o);
     for (let k = 0; k < 4; k++) for (let i = -1; i <= 1; i++) r.set(lx + i, ly + k, k === 0 || k === 3 ? TONES.lacquer.d : i < 0 ? TONES.lacquer.s : TONES.lacquer.l);
   }

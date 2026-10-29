@@ -33,7 +33,7 @@ const CELL = 256;
 /** A hole opens over this long (ms). */
 const FADE_MS = 280;
 /** The hole round your cat: this wide (px). */
-const HOLE_R = 80;
+const HOLE_R = 120;
 /** The rest of a tree hiding your cat is dithered this thin (0..1: the part of it left out). */
 const REST = 0.5;
 /** Your cat's picture, round its feet, for whether a tree hides it: this far either side, and this tall (px)... */

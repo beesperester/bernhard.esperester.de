@@ -15,6 +15,10 @@ import { buntingStrings, type ThemedZone } from '../world/themes.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
 import type { Glow, Glows } from './Glows.ts';
+import { LAMPLIGHT, type LightMap } from './LightMap.ts';
+
+/** How far a booth's lanterns light round it (px). */
+const BOOTH_LIGHT = 64;
 
 /** Once in a zone, a cat is still in it until this far out (px): no flicking back and forth at its edge. */
 const LEAVE = 2.5 * TILE;
@@ -30,7 +34,7 @@ export class Zones {
   private readonly lanterns: Glow[] = [];
   private lit = -1;
 
-  constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement, glows: Glows) {
+  constructor(scene: Phaser.Scene, toCanvas: (r: Raster) => HTMLCanvasElement, glows: Glows, lights: LightMap) {
     BULBS.forEach((c, i) => scene.textures.addCanvas(`fairy-${i}`, toCanvas(buildGlow(3, 3, c, 2))));
     let n = 0;
     for (const z of THEMED_ZONES) {
@@ -45,9 +49,9 @@ export class Zones {
       // a lantern on each of a booth's two posts (art/funfair.ts: the booth is drawn 2 px in, 21 up)
       for (const b of FURNITURE.filter((f) => f.kind === 'booth' && has.has(`${f.tx},${f.ty}`))) {
         const x = b.tx * TILE + 2, y = b.ty * TILE - 21, feet = b.ty * TILE + 26, lift = elevAt(x, feet);
-        // (the flames, and the pool of light they cast on the ground in front of the booth)
+        // (the flames, and the light they cast round the booth)
         for (const px of [3, 41]) this.lanterns.push(glows.point('glow-core', x + px, y + 28 - lift, 1, feet));
-        this.lanterns.push(glows.area('glow-lantern', x + 22, b.ty * TILE + 30 - lift, 0.8, feet));
+        this.lanterns.push(lights.add(x + 22, b.ty * TILE + 30 - lift, BOOTH_LIGHT, LAMPLIGHT));
       }
       const strings = buntingStrings(poles.map((p) => [p.tx, p.ty]), (x, y) => has.has(`${x},${y}`));
       for (const [i, j] of strings) {

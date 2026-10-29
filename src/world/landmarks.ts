@@ -92,6 +92,17 @@ function lantern(x: number, y: number, z: number): Shape[] {
 /** Where the lookout's stone lanterns stand (px from the top-left of its tiles; on its first step, 6 px up). */
 export const LOOKOUT_LANTERNS: [number, number][] = [[4, 10], [44, 10], [4, 42], [44, 42]];
 
+/** The paper lanterns hanging under the pavilions' eaves: x, y on the ground, and how high (px from the top-left of its tiles). */
+export const PAPER_LANTERNS: Partial<Record<LandmarkKind, [number, number, number]>> = { pavilion: [24, 40, 26], teahouse: [32, 42, 28] };
+
+/** Where each folly's lamps are lit after dark: their flames, x, y on the ground and how high (px from the top-left of its tiles). */
+export const LANDMARK_LAMPS: Partial<Record<LandmarkKind, [number, number, number][]>> = {
+  pavilion: [[24, 40, 24]],
+  teahouse: [[32, 42, 26]],
+  // (in the stone lanterns' windows)
+  lookout: LOOKOUT_LANTERNS.map(([x, y]): [number, number, number] => [x, y + 1, 14]),
+};
+
 /** Lacquered posts at the corners of x0, y0, x1, y1, standing on z0 up to z1. */
 const posts = (x0: number, y0: number, x1: number, y1: number, z0: number, z1: number): Column[] =>
   [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([x, y]): Column => ({ cyl: [x, y, 2], z: [z0, z1], mat: 'lacquer' }));
