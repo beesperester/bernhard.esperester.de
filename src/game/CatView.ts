@@ -6,6 +6,7 @@ import { WORLD_W, WORLD_H, terrainCover, upOnFolly } from '../world/map.ts';
 import { TREES, surfaceAt, treeHolding } from '../world/trees.ts';
 import { DEPTH } from './Daylight.ts';
 import { STAGE_SIZE, Stage } from './growth.ts';
+import { paint } from './Painted.ts';
 
 /** Growing up: it flickers between its old size and its new one, quicker and quicker, for this long (ms). */
 const GROW_MS = 1600;
@@ -104,12 +105,12 @@ export class CatView {
     this.local = local;
     this.coat = ((coat % COATS.length) + COATS.length) % COATS.length;
     this.shadow = scene.add.image(x, y, 'shadow').setOrigin(0.5, 0.5).setAlpha(0.22);
-    this.sprite = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1);
+    this.sprite = paint(scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1));
     this.bubble = scene.add.image(x, y, 'bubble-hiss').setOrigin(0.5, 1).setVisible(false);
     this.held = scene.add.image(x, y, 'held-fish', 0).setVisible(false);
     this.ghost = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(98000).setVisible(false)
       .setTint(SILHOUETTE).setTintMode(Phaser.TintModes.FILL);
-    this.head = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setVisible(false);
+    this.head = paint(scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setVisible(false));
     this.rim = scene.add.sprite(x, y, 'cat-rim', 0).setOrigin(0.5, 1).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     this.eyes = scene.add.sprite(x, y, 'cat-eyes', 0).setOrigin(0.5, 1).setDepth(DEPTH.glow)
       .setBlendMode(Phaser.BlendModes.ADD).setVisible(false);

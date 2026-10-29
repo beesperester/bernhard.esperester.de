@@ -562,7 +562,7 @@ export const stageRow = (stage: number): number => (2 - stage) * ROW_FRAMES;
 export const framePos = (f: number): [number, number] => [(f % ROW_FRAMES) * CAT, Math.floor(f / ROW_FRAMES) * CAT];
 
 /** A frame for each size: grown, young (a few rows and columns of body taken out), kitten (drawn on its own). */
-const SIZED: ((name: FrameName) => readonly string[])[] = [
+export const SIZED: ((name: FrameName) => readonly string[])[] = [
   (name) => FRAMES[name],
   (name) => youngFrame(name, FRAMES[name]),
   (name) => KITTEN_FRAMES[name],
@@ -596,10 +596,10 @@ export const COATS: Coat[] = [
   { name: 'chocolate', o: '#281810', b: '#7a5440', d: '#563828', k: '#563828', w: '#e8d8c8' },
 ];
 
-const EYES = hex('#a8b830');
-const PINK = hex('#f090a0');
-const MOUTH = hex('#a02838');
-const FUR = ['o', 'b', 'd', 'k', 'w'] as const;
+export const EYES = hex('#a8b830');
+export const PINK = hex('#f090a0');
+export const MOUTH = hex('#a02838');
+export const FUR = ['o', 'b', 'd', 'k', 'w'] as const;
 
 /** The master's placeholder colour for each fur letter: (n, 0, 255), n its place in FUR (nothing else on a cat is drawn so). */
 const MARK: Record<string, RGB> = Object.fromEntries(FUR.map((ch, n) => [ch, [n + 1, 0, 255] as RGB]));

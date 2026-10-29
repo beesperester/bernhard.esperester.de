@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Kind, PLAIN, Ramps, SPECK, fromByte, ramps, toByte } from './painted.ts';
+import { Kind, PLAIN, RIM_BIT, Ramps, SPECK, fromByte, ramps, toByte } from './painted.ts';
 import { buildProp, paintedMaps, relightProp } from './trees.ts';
 import { seasonAt } from '../world/season.ts';
 import { TREES } from '../world/trees.ts';
@@ -16,7 +16,7 @@ function shadeOnGpu(main: Uint8ClampedArray, normal: Uint8Array, o: number, L: S
   let tone: number;
   if (kind === Kind.Leaf) {
     const nx = fromByte(normal[o], 1), ny = fromByte(normal[o + 1], 1), jit = fromByte(normal[o + 2], 2);
-    const rim = flags >= 128, speck = (flags - (rim ? 128 : 0) - 1) / SPECK;
+    const rim = flags >= RIM_BIT, speck = (flags - (rim ? RIM_BIT : 0) - 1) / SPECK;
     const facing = nx * L.x + ny * L.y;
     if (rim && facing < 0.15) tone = 3;
     else {

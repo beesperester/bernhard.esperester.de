@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { PLAIN, RAMP_ROWS, RAMP_W, SPECK, ramps } from '../art/painted.ts';
+import { COAT, PLAIN, RAMP_ROWS, RAMP_W, RIM_BIT, SPECK, ramps } from '../art/painted.ts';
+import { COAT_H } from '../art/coat.ts';
 
 // The engine's painted shading (art/painted.ts says what the pictures hold):
 // pictures drawn with it are batched as Phaser batches any image, with their
@@ -43,15 +44,24 @@ vec4 painted(vec4 c, vec2 texCoord) {
   if (c.a < 0.5) return c;
   vec4 n = texture2D(uNormSampler, texCoord);
   float flags = byteOf(n.a);
+  vec2 L = uSun.xy;
+  float k = uSun.z;
+  if (flags == ${COAT}.0) {
+    // fur: its colour from the coat, under the frames (art/coat.ts), a tone lighter facing the light, darker away
+    vec2 res = getTexRes();
+    vec3 fur = texture2D(uMainSampler[0], vec2((byteOf(c.r) + 0.5) / res.x, (${COAT_H}.0 - byteOf(c.g) - 0.5) / res.y)).rgb;
+    float l = (unbyte(n.r, 1.0) * L.x + unbyte(n.g, 1.0) * L.y) * k;
+    // (not the outline)
+    if (byteOf(c.b) > 0.5) fur = l > 0.35 ? mix(fur, vec3(1.0, 0.95, 0.82), 0.22) : l < -0.3 ? mix(fur, vec3(0.16, 0.1, 0.24), 0.28) : fur;
+    return vec4(fur, 1.0);
+  }
   if (flags > 0.5 && flags < ${PLAIN}.0) {
     float row = byteOf(c.r), kind = byteOf(rampAt(row, RAMP_W - 1.0).r), tone;
-    vec2 L = uSun.xy;
-    float k = uSun.z;
     if (kind < 0.5) {
       // leaves (art/trees.ts' shade())
       float nx = unbyte(n.r, 1.0), ny = unbyte(n.g, 1.0), jit = unbyte(n.b, 2.0);
-      bool rim = flags >= 128.0;
-      float speck = (flags - (rim ? 128.0 : 0.0) - 1.0) / ${SPECK}.0;
+      bool rim = flags >= ${RIM_BIT}.0;
+      float speck = (flags - (rim ? ${RIM_BIT}.0 : 0.0) - 1.0) / ${SPECK}.0;
       float facing = nx * L.x + ny * L.y;
       if (rim && facing < 0.15) tone = 3.0;
       else {
@@ -151,12 +161,13 @@ export function addPainted(scene: Phaser.Scene, key: string, main: Uint8ClampedA
 }
 
 /** Draw img (of a texture from addPainted) with painted shading. */
-export function paint(img: Phaser.GameObjects.Image): Phaser.GameObjects.Image {
+export function paint<T extends Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>(img: T): T {
   const game = img.scene.game, renderer = game.renderer;
   if (!(renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer)) return img;
   if (!ready.has(game)) {
     renderer.renderNodes.addNodeConstructor(NODE, PaintedBatch);
     ready.add(game);
   }
-  return img.setLighting(true).setRenderNodeRole('BatchHandler', NODE);
+  img.setLighting(true).setRenderNodeRole('BatchHandler', NODE);
+  return img;
 }

@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { Raster } from '../art/raster.ts';
 import { buildCatSheet, buildEyeSheet, COATS, CAT, framePos } from '../art/cat.ts';
+import { COAT_H, buildCatMaps, buildCoatMap, withCoat } from '../art/coat.ts';
+import { addPainted } from './Painted.ts';
 import { buildWaterMask } from '../art/tiles.ts';
 import { buildTerrain } from '../art/terrain.ts';
 import { FLORA, buildFloraSheet } from '../art/flora.ts';
@@ -35,10 +37,12 @@ export function catFrames(t: Phaser.Textures.Texture, canvas: { width: number; h
 
 export function makeTextures(scene: Phaser.Scene) {
 const tex = scene.textures;
+  // the cats as the GPU draws them, one sheet in every coat (art/coat.ts); and as painted, for what's drawn on the CPU (reflections, shadows, rims)
+  const maps = buildCatMaps(), sheet0 = { width: maps.w, height: maps.h - COAT_H };
   const cats = COATS.map((_, c) => {
-    const canvas = toCanvas(buildCatSheet(c));
-    catFrames(tex.addCanvas(`cat-${c}`, canvas)!, canvas);
-    return canvas;
+    addPainted(scene, `cat-${c}`, withCoat(maps, buildCoatMap(c)), maps.normal, maps.w, maps.h);
+    catFrames(tex.get(`cat-${c}`), sheet0);
+    return toCanvas(buildCatSheet(c));
   });
   const terrain = buildTerrain().map((t, i) => {
     tex.addCanvas(`terrain-${i}`, toCanvas(t.raster));
