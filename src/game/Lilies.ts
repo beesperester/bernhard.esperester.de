@@ -11,8 +11,8 @@ import type { Glow, Glows } from './Glows.ts';
 const PAD_DEPTH = -99981;
 /** ...and the flowers on the pads. */
 const FLOWER_DEPTH = -99980.5;
-/** The pads are out from spring to late autumn, the flowers in summer (days of the year). */
-const PADS_FROM = 100, PADS_TO = 325, FLOWERS_FROM = 150, FLOWERS_TO = 265;
+/** The lilies are out from spring to late autumn (days of the year), in flower all that time: they are magic. */
+const PADS_FROM = 100, PADS_TO = 325;
 /** How bright the flowers glow at night, breathing slowly. */
 const GLOW = 0.6;
 
@@ -29,12 +29,11 @@ export class Lilies {
     const day = SEASON.day;
     if (SEASON.frozen || day < PADS_FROM || day > PADS_TO) return;
     for (let i = 0; i < PADS; i++) scene.textures.addCanvas(`lily-pad-${i}`, toCanvas(buildPad(i)));
-    const blooming = day >= FLOWERS_FROM && day <= FLOWERS_TO;
-    if (blooming) for (let i = 0; i < FLOWERS; i++) scene.textures.addCanvas(`lily-flower-${i}`, toCanvas(buildFlower(i)));
+    for (let i = 0; i < FLOWERS; i++) scene.textures.addCanvas(`lily-flower-${i}`, toCanvas(buildFlower(i)));
     const culler = cullerFor(scene);
     for (const [k, l] of LILIES.entries()) {
       culler.add(scene.add.image(l.x, l.y, `lily-pad-${l.pad}`).setFlipX(l.flip).setDepth(PAD_DEPTH));
-      if (!blooming || l.flower < 0) continue;
+      if (l.flower < 0) continue;
       // (standing up out of the middle of its pad)
       const fy = l.y - 3;
       culler.add(scene.add.image(l.x, fy, `lily-flower-${l.flower}`).setDepth(FLOWER_DEPTH));
