@@ -6,6 +6,7 @@ import { sunLight } from '../art/lighting.ts';
 import { TREES, treeHolding } from '../world/trees.ts';
 import type { CatView } from './CatView.ts';
 import { toCanvas } from './textures.ts';
+import { holeIn } from './HoleFilter.ts';
 
 // The park's trees. They are big and there are many, so a tree is only drawn
 // while the camera is near it: those in view straight away, those just
@@ -31,7 +32,8 @@ const CELL = 256;
 /** A hole opens over this long (ms). */
 const FADE_MS = 280;
 /** The hole round your cat: this wide (px), clear out to this much of it and dithered beyond. */
-const HOLE_R = 80, CLEAR = 0.6;
+const HOLE_R = 80;
+export const CLEAR = 0.6;
 /** Up a tree, the hole through the tree behind your cat is this much as wide: the far side of the ball round it. */
 const BEHIND = 0.45;
 /** Above its feet, the middle of a cat. */
@@ -45,9 +47,8 @@ interface Pic {
   canvas: HTMLCanvasElement;
   tex: Phaser.Textures.CanvasTexture;
   img: Phaser.GameObjects.Image;
-  /** The picture as shaded (what's shown is cut from a copy of it). */
+  /** The picture as shaded (the hole is cut from what's shown on the GPU: HoleFilter.ts). */
   orig: ImageData;
-  work: ImageData;
 }
 
 interface Live {
@@ -75,14 +76,6 @@ export function holeKeeps(h: Hole, x: number, y: number): boolean {
   if (d >= h.r) return true;
   if (d < h.r * CLEAR) return false;
   return bayer(x, y) >= (h.r - d) / (h.r * (1 - CLEAR));
-}
-
-/** Cut hole h out of picture `data` (w × h px) standing at world (ox, oy). */
-export function cutHole(data: Uint8ClampedArray, w: number, ht: number, ox: number, oy: number, h: Hole): void {
-  const x0 = Math.max(0, Math.floor(h.x - h.r - ox)), x1 = Math.min(w, Math.ceil(h.x + h.r - ox));
-  const y0 = Math.max(0, Math.floor(h.y - h.r - oy)), y1 = Math.min(ht, Math.ceil(h.y + h.r - oy));
-  for (let y = y0; y < y1; y++)
-    for (let x = x0; x < x1; x++) if (!holeKeeps(h, ox + x, oy + y)) data[(y * w + x) * 4 + 3] = 0;
 }
 
 /** Hears when a tree's picture comes and goes (sunlit rims are drawn round it, for one). */
@@ -191,11 +184,12 @@ export class Trees {
       const r = HOLE_R * Math.max(t.hole, t.open), rb = HOLE_R * Math.max(t.hole, t.open * BEHIND);
       const hole: Hole | null = rb > 0 ? { x: hx, y: hy, r: rb } : null, front: Hole | null = r > 0 ? { x: hx, y: hy, r } : null;
       const cut = hole ? `${hx},${hy},${hole.r.toFixed(1)}` : '', cutFront = front ? `${hx},${hy},${front.r.toFixed(1)}` : '';
-      if (cut !== t.cut || t.dirty) {
-        this.draw(t.base, p, hole);
+      if (t.dirty) for (const pic of [t.base, t.front, t.mid]) if (pic) this.draw(pic);
+      if (cut !== t.cut) {
+        holeIn(t.base.img, hole, CLEAR);
         for (const wt of this.watchers) wt.holed(i, hole);
       }
-      if (t.front && (cutFront !== t.cutFront || t.dirty)) this.draw(t.front, p, front);
+      if (t.front && cutFront !== t.cutFront) holeIn(t.front.img, front, CLEAR);
       // (up it, its trunk and branches over the hole in it)
       if (t.open > 0 && !t.mid && p.mid) t.mid = this.pic(`tree-mid-${i}`, p.mid.raster, p.x, p.y, p.depthY + MIDDLE);
       else if (t.open === 0 && t.mid) this.unpic(t, 'mid', `tree-mid-${i}`);
@@ -205,12 +199,9 @@ export class Trees {
     }
   }
 
-  /** Show picture `pic` of tree p as shaded, with the hole cut in it. */
-  private draw(pic: Pic, p: Prop, hole: Hole | null): void {
-    const { width: w, height: h } = pic.orig, dst = pic.work.data;
-    dst.set(pic.orig.data);
-    if (hole) cutHole(dst, w, h, p.x, p.y, hole);
-    pic.tex.getContext().putImageData(pic.work, 0, 0);
+  /** Show picture `pic` as shaded now. */
+  private draw(pic: Pic): void {
+    pic.tex.getContext().putImageData(pic.orig, 0, 0);
     pic.tex.refresh();
   }
 
@@ -266,7 +257,7 @@ export class Trees {
     tex.getContext().putImageData(orig, 0, 0);
     tex.refresh();
     const img = this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth);
-    return { canvas, tex, img, orig, work: new ImageData(w, h) };
+    return { canvas, tex, img, orig };
   }
 
   private unpic(t: Live, which: 'front' | 'mid', key: string): void {

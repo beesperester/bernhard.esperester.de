@@ -23,8 +23,11 @@ export class Meadow {
   readonly plants: LivePlant[];
   private readonly scene: Phaser.Scene;
   private readonly cells = new Map<number, LivePlant[]>();
-  /** The cells whose plants have sprites now. */
+  /** The cells whose plants have sprites now, and those of them in the display list (near the view). */
   private readonly shown = new Set<number>();
+  private readonly listed = new Set<number>();
+  /** The cell range the sprites were last sorted for. */
+  private range = '';
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -51,15 +54,26 @@ export class Meadow {
         }
   }
 
-  /** Give the plants round the view their sprites, and take them from those far off. */
+  /**
+   * Give the plants round the view their sprites, and take them from those far off; those in
+   * between keep theirs, out of the display list (thousands of plants sorted each frame cost).
+   */
   private show(view: Phaser.Geom.Rectangle): void {
     const cx0 = Math.floor((view.x - AHEAD) / CELL), cx1 = Math.floor((view.right + AHEAD) / CELL);
     // (plants hang down from their base: the cells below the view show in it too)
     const cy0 = Math.floor((view.y - AHEAD) / CELL), cy1 = Math.floor((view.bottom + AHEAD + 48) / CELL);
+    const range = `${cx0},${cy0},${cx1},${cy1}`;
+    if (range === this.range) return;
+    this.range = range;
     for (let cy = cy0; cy <= cy1; cy++)
       for (let cx = cx0; cx <= cx1; cx++) {
         const key = cellKey(cx, cy);
-        if (this.shown.has(key)) continue;
+        if (this.listed.has(key)) continue;
+        this.listed.add(key);
+        if (this.shown.has(key)) {
+          for (const p of this.cells.get(key) ?? []) p.img?.addToDisplayList(this.scene.children);
+          continue;
+        }
         this.shown.add(key);
         for (const p of this.cells.get(key) ?? [])
           // plants on raised ground are drawn lifted with it
@@ -68,8 +82,13 @@ export class Meadow {
     const far = Math.ceil(KEEP / CELL);
     for (const key of this.shown) {
       const cx = (key % 4096) - 1, cy = Math.floor(key / 4096) - 1;
-      if (cx >= cx0 - far && cx <= cx1 + far && cy >= cy0 - far && cy <= cy1 + far) continue;
+      if (cx >= cx0 && cx <= cx1 && cy >= cy0 && cy <= cy1) continue;
+      if (cx >= cx0 - far && cx <= cx1 + far && cy >= cy0 - far && cy <= cy1 + far) {
+        if (this.listed.delete(key)) for (const p of this.cells.get(key) ?? []) p.img?.removeFromDisplayList();
+        continue;
+      }
       this.shown.delete(key);
+      this.listed.delete(key);
       for (const p of this.cells.get(key) ?? []) {
         p.img?.destroy();
         p.img = null;

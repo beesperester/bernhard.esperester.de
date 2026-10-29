@@ -1,12 +1,12 @@
 import type Phaser from 'phaser';
 
 // The park is much bigger than the screen, and it is full of things that
-// never move: thousands of grass tufts and flowers, trees, terrain, shadows.
-// Phaser would still push every one of them through the renderer each frame.
-// The culler sorts such static objects into a coarse grid and keeps the
-// renderer from even looking at the ones in cells off screen.
+// never move: terrain, shadows, rims, water, lamps. Phaser would still sort
+// every one of them by depth and push it through the renderer each frame.
+// The culler sorts such static objects into a coarse grid and takes those in
+// cells off screen out of the display list altogether.
 //
-// It works through the camera filter rather than `visible`, so whatever else
+// It works through the display list rather than `visible`, so whatever else
 // switches an object on and off (lanterns at night, say) keeps working.
 
 type Obj = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.GetBounds;
@@ -17,31 +17,32 @@ const CELL = 64;
 const MARGIN = 24;
 
 export class Culler {
-  private readonly camera: Phaser.Cameras.Scene2D.Camera;
+  private readonly list: Phaser.GameObjects.DisplayList;
   private readonly cells = new Map<string, Obj[]>();
-  /** For each object, how many of its cells are in view. */
-  private readonly inView = new Map<Obj, number>();
+  /** For each object, its cells, and how many of them are in view. */
+  private readonly inView = new Map<Obj, { keys: string[]; n: number }>();
   private shownCells = new Set<string>();
   /** The cell range last brought into view. */
   private range = '';
 
-  constructor(camera: Phaser.Cameras.Scene2D.Camera) {
-    this.camera = camera;
+  constructor(list: Phaser.GameObjects.DisplayList) {
+    this.list = list;
   }
 
   /** Cull `obj` from now on; it must not move after this. */
   add<T extends Obj>(obj: T): T {
     const b = obj.getBounds();
-    // hidden until its cell comes into view
-    obj.cameraFilter |= this.camera.id;
-    this.inView.set(obj, 0);
-    for (const key of cellsOver(b.x, b.y, b.right, b.bottom)) {
+    // out of the list until its cell comes into view
+    obj.removeFromDisplayList();
+    const keys = [...cellsOver(b.x, b.y, b.right, b.bottom)];
+    this.inView.set(obj, { keys, n: 0 });
+    for (const key of keys) {
       let list = this.cells.get(key);
       if (!list) this.cells.set(key, (list = []));
       list.push(obj);
     }
     // a cell already in view shows it straight away
-    for (const key of cellsOver(b.x, b.y, b.right, b.bottom)) if (this.shownCells.has(key)) this.reveal(obj);
+    for (const key of keys) if (this.shownCells.has(key)) this.reveal(obj);
     return obj;
   }
 
@@ -52,21 +53,33 @@ export class Culler {
     if (range === this.range) return;
     this.range = range;
     const now = new Set(cellsOver(x0, y0, x1, y1));
-    for (const key of this.shownCells) if (!now.has(key)) for (const obj of this.cells.get(key) ?? []) this.conceal(obj);
-    for (const key of now) if (!this.shownCells.has(key)) for (const obj of this.cells.get(key) ?? []) this.reveal(obj);
+    // (over copies: a destroyed object is struck from its cells on the way)
+    for (const key of this.shownCells) if (!now.has(key)) for (const obj of [...(this.cells.get(key) ?? [])]) this.conceal(obj);
+    for (const key of now) if (!this.shownCells.has(key)) for (const obj of [...(this.cells.get(key) ?? [])]) this.reveal(obj);
     this.shownCells = now;
   }
 
+  /** Whether obj has been destroyed (it went with its tree, say): it is forgotten. */
+  private gone(obj: Obj): boolean {
+    if (obj.scene) return false;
+    for (const key of this.inView.get(obj)?.keys ?? []) {
+      const list = this.cells.get(key)!, i = list.indexOf(obj);
+      if (i >= 0) list.splice(i, 1);
+    }
+    this.inView.delete(obj);
+    return true;
+  }
+
   private reveal(obj: Obj): void {
-    const n = this.inView.get(obj)! + 1;
-    this.inView.set(obj, n);
-    if (n === 1) obj.cameraFilter &= ~this.camera.id;
+    if (this.gone(obj)) return;
+    const o = this.inView.get(obj)!;
+    if (++o.n === 1) obj.addToDisplayList(this.list);
   }
 
   private conceal(obj: Obj): void {
-    const n = this.inView.get(obj)! - 1;
-    this.inView.set(obj, n);
-    if (n === 0) obj.cameraFilter |= this.camera.id;
+    if (this.gone(obj)) return;
+    const o = this.inView.get(obj)!;
+    if (--o.n === 0) obj.removeFromDisplayList();
   }
 }
 
@@ -78,9 +91,9 @@ function* cellsOver(x0: number, y0: number, x1: number, y1: number): Generator<s
 
 const cullers = new WeakMap<Phaser.Scene, Culler>();
 
-/** The scene's culler (made on first use, for its main camera). */
+/** The scene's culler (made on first use). */
 export function cullerFor(scene: Phaser.Scene): Culler {
   let c = cullers.get(scene);
-  if (!c) cullers.set(scene, (c = new Culler(scene.cameras.main)));
+  if (!c) cullers.set(scene, (c = new Culler(scene.children)));
   return c;
 }

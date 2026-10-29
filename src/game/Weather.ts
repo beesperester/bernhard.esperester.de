@@ -9,6 +9,7 @@ import type { Light } from '../world/sky.ts';
 import { SEASON, rainfall, snowfall } from '../world/season.ts';
 import { sound, type Playing } from '../audio/sound.ts';
 import { isBridge, isLawnOrTall } from '../world/legend.ts';
+import { cullerFor } from './Culler.ts';
 
 // What the weather and the season bring down from the sky and out of the
 // trees: showers of rain any time of year (splashing on the ground, ringing
@@ -147,7 +148,7 @@ export class Weather {
           const x = Math.round(bx + side * (14 + hash2(i, k, 1705) * 16)), y = Math.round(by + 4 + hash2(i, k, 1706) * 12);
           const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
           if (!isLawnOrTall(tileAt(tx, ty)) || furnished(tx, ty) || levelAt(tx, ty) !== levelAt(Math.floor(bx / TILE), Math.floor(by / TILE))) continue;
-          const img = scene.add.image(x, y - elevAt(x, y), 'leafpile').setOrigin(0.5, 1).setDepth(y - 2);
+          const img = cullerFor(scene).add(scene.add.image(x, y - elevAt(x, y), 'leafpile').setOrigin(0.5, 1).setDepth(y - 2));
           this.piles.push({ x, y, z: elevAt(x, y), img, scattered: -Infinity });
         }
       });
@@ -156,7 +157,7 @@ export class Weather {
       for (const f of FURNITURE)
         if (f.kind === 'barrow') {
           const x = f.tx * TILE + 17, y = f.ty * TILE + 9, z = elevAt(x, y) + BARROW_H;
-          const img = scene.add.image(x, y - z + 2, 'leafpile').setOrigin(0.5, 1).setDepth(f.ty * TILE + 5.1);
+          const img = cullerFor(scene).add(scene.add.image(x, y - z + 2, 'leafpile').setOrigin(0.5, 1).setDepth(f.ty * TILE + 5.1));
           this.piles.push({ x, y, z, img, scattered: -Infinity });
         }
   }

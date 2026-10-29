@@ -58,7 +58,7 @@ function footprints(n: number, cast: (put: (px: number, py: number, l: number) =
 /** ...and is moved once the view has come within this of its edge. */
 const WINDOW_SLACK = 112;
 /** At most this long (ms) a frame spends casting the next window. */
-const BUDGET_MS = 5;
+const BUDGET_MS = 3;
 
 /** Something whose outline casts a shadow: a sprite (or part of a sheet) and where its foot is. */
 export interface Caster {

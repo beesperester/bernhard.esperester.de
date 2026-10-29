@@ -6,7 +6,8 @@ import { LEVEL, MAP_H, MAP_W, TILE, WORLD_H, WORLD_W, levelAt } from '../world/m
 import { hasUpright } from '../art/tiles.ts';
 import type { Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
-import { cutHole, type Hole, type TreeWatcher } from './Trees.ts';
+import { CLEAR, type Hole, type TreeWatcher } from './Trees.ts';
+import { holeIn } from './HoleFilter.ts';
 
 /** The sun's direction is rounded to one of this many, so rims are only redrawn now and then. */
 const DIRECTIONS = 16;
@@ -166,7 +167,7 @@ export class RimLight implements TreeWatcher {
     const o = this.trees.get(i);
     if (!o || (!hole && !o.hole)) return;
     o.hole = hole;
-    if (this.dir >= 0) this.paint(o);
+    holeIn(o.img, hole, CLEAR);
   }
 
   private paint(o: Overlay): void {
@@ -174,7 +175,6 @@ export class RimLight implements TreeWatcher {
     img.data.fill(255);
     for (let k = 3; k < img.data.length; k += 4) img.data[k] = 0;
     o.rim(img.data);
-    if (o.hole) cutHole(img.data, o.w, o.h, o.x, o.y, o.hole);
     o.tex.getContext().putImageData(img, 0, 0);
     o.tex.refresh();
   }
