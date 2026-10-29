@@ -37,21 +37,16 @@ html, body {
   pointer-events: none;
 }
 
-#status { top: max(12px, env(safe-area-inset-top)); }
-
-#credit {
-  left: auto;
-  right: 12px;
-  bottom: max(12px, env(safe-area-inset-bottom));
-  font-size: 12px;
-  opacity: 0.9;
-}
-/* on touch devices the buttons own the bottom: tuck it under the status line */
-#touch:not([hidden]) ~ #credit {
-  left: 12px;
-  right: auto;
-  bottom: auto;
-  top: calc(max(12px, env(safe-area-inset-top)) + 40px);
+/* where you are, on a plank like the snack board's title (src/art/plank.ts, every pixel doubled) */
+#status {
+  top: max(12px, env(safe-area-inset-top));
+  padding: 6px 16px 6px;
+  font-size: 13px;
+  color: #f4dca8;
+  text-shadow: 1px 1px 0 #120a04;
+  border: 0 solid transparent;
+  border-image: var(--px-plank-walnut) 4 7 fill / 8px 14px stretch;
+  filter: drop-shadow(0 2px 0 rgba(20, 12, 4, 0.45));
 }
 
 /* the snack log: who ate what, bottom left, each line fading after a while */
@@ -301,7 +296,6 @@ html, body {
 #name-dialog button:active, #tab-dialog button:active { border-image-source: var(--px-pill-cream-down); padding: 4px 4px 0; }
 #name-dialog button[type='submit'], #tab-dialog button[type='submit'] { border-image-source: var(--px-pill-pink); color: #fff; text-shadow: 0 1px 0 #401020; }
 #name-dialog button[type='submit']:active, #tab-dialog button[type='submit']:active { border-image-source: var(--px-pill-pink-down); }
-#credit a { color: inherit; pointer-events: auto; }
 
 /* how to play: a wooden sign with the keys on it */
 #help-dialog {
@@ -353,6 +347,8 @@ html, body {
 #help-dialog .item { display: inline-flex; align-items: center; gap: 4px; }
 #help-dialog .what { margin-left: 4px; }
 #help-dialog .grow { margin: 14px 0 0; font-size: 13px; color: #f0dcb0; }
+#help-dialog .credit { margin: 14px 0 0; font-size: 12px; color: #d8c49a; text-align: center; }
+#help-dialog .credit a { color: #ffe08a; }
 /* the collar tag (src/ui/collar.ts) */
 #help-dialog .collar { margin: 14px 0 0; font-size: 13px; color: #f0dcb0; }
 #help-dialog .collar p { margin: 0 0 8px; }

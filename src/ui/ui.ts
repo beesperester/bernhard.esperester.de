@@ -114,8 +114,8 @@ function setupHelp(onTouch: boolean, onOpen: (open: boolean) => void): { nudged:
 export function setupUI(onHelp: (open: boolean) => void = () => {}): UI {
   const status = document.getElementById('status')!;
   const pad = document.getElementById('touch')!;
-  // the park is laid out after Berlin from OpenStreetMap data (ODbL), which asks for this credit
-  const credit = document.getElementById('credit')!;
+  // the park is laid out after Berlin from OpenStreetMap data (ODbL), which asks for this credit (on the help sign)
+  const credit = document.querySelector<HTMLElement>('#help-dialog .credit')!;
   const osm = Object.assign(document.createElement('a'), { href: 'https://www.openstreetmap.org/copyright', target: '_blank', rel: 'noopener', textContent: 'OpenStreetMap contributors' });
   credit.append(`© ${__BUILD_YEAR__} Bernhard Esperester · build ${__BUILD__} · map © `, osm);
 
