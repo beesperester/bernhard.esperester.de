@@ -16,8 +16,10 @@ export interface Prop {
   raster: Raster;
   /** The pixels shaded by the light, and how (relightProp redraws them for another sun). */
   lit?: LitPixels;
+  /** Which puff of leaves each pixel of `raster` belongs to (see Puffs), for opening a hole in the tree a puff at a time. */
+  puffs?: Puffs;
   /** The leaves in front of the branches (drawn in front of a cat sitting in the tree), if any. */
-  front?: { raster: Raster; lit: LitPixels };
+  front?: { raster: Raster; lit: LitPixels; puffs: Puffs };
   /** Just the trunk, the branches and what grows on them, out of `raster` (up the tree, they stay solid round a cat). */
   mid?: { raster: Raster; lit: LitPixels };
   x: number;
@@ -28,6 +30,14 @@ export interface Prop {
   kind: number;
   plan: TreePlan;
 }
+
+/**
+ * Which puff of leaves each pixel of a picture belongs to, 4 bytes a pixel like
+ * the picture (so the GPU can have it as a texture): the way to the puff's
+ * middle (px, +128 each way), the puff's radius, and 255 where it is a leaf (0
+ * elsewhere: bark, a branch, the bird house).
+ */
+export type Puffs = Uint8ClampedArray;
 
 // [highlight, light, mid, dark, outline]
 // (painted, and a little whimsical: the lights a warm lime-yellow, the shadows cool teal, and the
@@ -252,7 +262,7 @@ export function puffSheet(pal: RGB[] = CANOPIES[0].c): Raster {
 /** A tree drawn elsewhere (a worker), sent as plain data: its pictures' pixels and lit pixels, to move rather than copy. */
 export interface PropParts {
   i: number;
-  layers: ({ w: number; h: number; data: Uint8ClampedArray; lit: LitParts | null } | null)[];
+  layers: ({ w: number; h: number; data: Uint8ClampedArray; lit: LitParts | null; puffs: Puffs | null } | null)[];
   x: number; y: number; depthY: number; kind: number;
 }
 type LitParts = { at: Int32Array; flags: Uint8Array; pal: Uint8Array; f: Int16Array; pals: RGB[][] };
@@ -260,13 +270,15 @@ type LitParts = { at: Int32Array; flags: Uint8Array; pal: Uint8Array; f: Int16Ar
 /** Tree i's prop as parts to send, and the buffers to move with them. */
 export function propParts(i: number, p: Prop): [PropParts, ArrayBuffer[]] {
   const moved: ArrayBuffer[] = [];
-  const layer = (r: Raster | undefined, lit: LitPixels | undefined) => {
+  const layer = (r: Raster | undefined, lit: LitPixels | undefined, puffs?: Puffs) => {
     if (!r) return null;
     moved.push(r.data.buffer as ArrayBuffer);
     if (lit) moved.push(...[lit.at, lit.flags, lit.pal, lit.f].map((a) => a.buffer as ArrayBuffer));
-    return { w: r.w, h: r.h, data: r.data, lit: lit ? { at: lit.at, flags: lit.flags, pal: lit.pal, f: lit.f, pals: lit.pals } : null };
+    if (puffs) moved.push(puffs.buffer as ArrayBuffer);
+    return { w: r.w, h: r.h, data: r.data, lit: lit ? { at: lit.at, flags: lit.flags, pal: lit.pal, f: lit.f, pals: lit.pals } : null, puffs: puffs ?? null };
   };
-  return [{ i, layers: [layer(p.raster, p.lit), layer(p.front?.raster, p.front?.lit), layer(p.mid?.raster, p.mid?.lit)], x: p.x, y: p.y, depthY: p.depthY, kind: p.kind }, moved];
+  const layers = [layer(p.raster, p.lit, p.puffs), layer(p.front?.raster, p.front?.lit, p.front?.puffs), layer(p.mid?.raster, p.mid?.lit)];
+  return [{ i, layers, x: p.x, y: p.y, depthY: p.depthY, kind: p.kind }, moved];
 }
 
 /** A prop again, from its parts. */
@@ -280,11 +292,12 @@ export function propFrom(parts: PropParts): Prop {
       lit = new LitPixels(0, l.lit.pals);
       Object.assign(lit, { at: l.lit.at, flags: l.lit.flags, pal: l.lit.pal, f: l.lit.f });
     }
-    return { raster, lit };
+    return { raster, lit, puffs: l.puffs ?? undefined };
   };
   const [base, front, mid] = parts.layers.map(layer);
   return {
-    raster: base!.raster, lit: base!.lit, front: front && { raster: front.raster, lit: front.lit! }, mid: mid && { raster: mid.raster, lit: mid.lit! },
+    raster: base!.raster, lit: base!.lit, puffs: base!.puffs,
+    front: front && { raster: front.raster, lit: front.lit!, puffs: front.puffs! }, mid: mid && { raster: mid.raster, lit: mid.lit! },
     x: parts.x, y: parts.y, depthY: parts.depthY, kind: parts.kind, plan: TREES[parts.i],
   };
 }
@@ -305,6 +318,7 @@ export function relightProp(prop: Prop, L: ScreenLight): void {
 interface Layer {
   r: Raster;
   lit: Lit;
+  puffs: Puffs;
 }
 
 /** A cloud of leaves to draw in three goes: its back, its middle (on the branches), its front. */
@@ -337,9 +351,40 @@ class Sketch {
     this.W = t.w;
     this.H = t.h;
     this.cx = t.w / 2;
-    const layer = (): Layer => ({ r: new Raster(t.w, t.h), lit: new Lit(t.w * t.h) });
+    const layer = (): Layer => {
+      const r = new Raster(t.w, t.h), puffs: Puffs = new Uint8ClampedArray(t.w * t.h * 4), set = r.set;
+      // (anything but leaves drawn over a puff takes the pixel off it)
+      r.set = (x, y, c, a) => {
+        x |= 0;
+        y |= 0;
+        if (!this.leafing && x >= 0 && y >= 0 && x < r.w && y < r.h) puffs[(y * r.w + x) * 4 + 3] = 0;
+        set.call(r, x, y, c, a);
+      };
+      return { r, lit: new Lit(t.w * t.h), puffs };
+    };
     this.layers = [layer(), layer()];
     this.rnd = mulberry32(t.seed * 977 + t.colour * 13);
+  }
+
+  /** Drawing leaves (or what lies on them: their outline, blossom, snow), which keep to their puff. */
+  leafing = false;
+  /** The puff being drawn: its middle and radius in the picture. */
+  private puffAt = { x: 0, y: 0, r: 0 };
+
+  /** The leaves drawn next belong to a puff round (x, y), r px wide. */
+  setPuff(x: number, y: number, r: number): void {
+    this.puffAt = { x: Math.round(x), y: Math.round(y), r: Math.min(255, Math.round(r)) };
+  }
+
+  /** Draw f as leaves. */
+  leafy<T>(f: () => T): T {
+    const was = this.leafing;
+    this.leafing = true;
+    try {
+      return f();
+    } finally {
+      this.leafing = was;
+    }
   }
 
   /** Which pixels of the tree from the back belong to its middle: trunk, branches and what grows on them. */
@@ -444,15 +489,22 @@ class Sketch {
   /** A shaded leaf pixel, its texture `jit` and speck given. */
   private leafPx(x: number, y: number, pal: RGB[], nx: number, ny: number, rim: boolean, jit: number, speck: number): void {
     if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
-    const { crown } = this;
-    this.lit.leaf(y * this.W + x, pal, nx, ny, (x - crown.x) / crown.rx, (y - crown.y) / crown.ry, this.bias + jit, speck, rim);
-    this.r.set(x, y, UNSHADED, LIT);
+    const { crown, puffAt } = this, i = y * this.W + x, k = i * 4, puffs = this.layers[this.cur].puffs;
+    this.lit.leaf(i, pal, nx, ny, (x - crown.x) / crown.rx, (y - crown.y) / crown.ry, this.bias + jit, speck, rim);
+    this.leafy(() => this.r.set(x, y, UNSHADED, LIT));
+    // (needles aren't in puffs: a spruce opens smoothly, its tiers would part in slivers)
+    if (!puffAt.r) return;
+    puffs[k] = puffAt.x - x + 128;
+    puffs[k + 1] = puffAt.y - y + 128;
+    puffs[k + 2] = puffAt.r;
+    puffs[k + 3] = 255;
   }
 
   /** A puff of leaves off the sheet (art/leaves.ts), stamped at c; nothing above row `cut` (a cushion's flat top). */
   clump(c: Clump, pal: RGB[], cut = -Infinity, seam = false): void {
     const p = puff(c.r, Math.floor(hash2(this.clumps, this.t.seed, 1322) * PUFF_SHAPES)), R = (p.w - 1) / 2;
     const ox = Math.round(c.x) - R, oy = Math.round(c.y) - R;
+    this.setPuff(c.x, c.y, c.r);
     for (let y = 0; y < p.w; y++) {
       const Y = oy + y;
       if (Y < cut) continue;
@@ -463,7 +515,7 @@ class Sketch {
         if (!p.on[i]) continue;
         this.leafPx(ox + x, Y, pal, p.nx[i] * (1 - flat), p.ny[i] * (1 - flat) - flat, p.rim[i] === 1, p.jit[i], p.speck[i]);
         // a puff in front of others shows its round underside against them
-        if (seam && p.seam[i]) this.r.set(ox + x, Y, pal[3]);
+        if (seam && p.seam[i]) this.leafy(() => this.r.set(ox + x, Y, pal[3]));
       }
     }
   }
@@ -663,9 +715,13 @@ class Sketch {
         const r = (5 + this.rnd() * 2.5) * k, hump = dome * Math.max(0, 1 - ((x - mx) / b.rx) ** 2);
         row.push({ x: x + (this.rnd() - 0.5) * 3, y: this.row(line) - 1 - this.rnd() * 3 - hump + r, r });
       }
-    // most of the puffs hang in front of the branches; a few sit among them
-    const mid = [...row.sort((a, c) => a.y - c.y)], front: Clump[] = [];
-    for (const c of fronts) (hasFront && this.rnd() < 0.85 ? front : mid).push(c);
+    // the puffs hang in front of the branches (or, with nothing in front, behind them): up the tree, among
+    // its branches, there is bark to see, not leaves
+    const mid = [...row.sort((a, c) => a.y - c.y)], front: Clump[] = [], behind: Clump[] = [];
+    for (const c of fronts) {
+      this.rnd();
+      (hasFront ? front : behind).push(c);
+    }
     // (a cloud turns colour as one, whichever part of it is drawn)
     const group = this.clumps++;
     const draw = (list: Clump[], dark: boolean) => {
@@ -676,7 +732,7 @@ class Sketch {
       }
       this.group = null;
     };
-    return { back: () => draw(backs, true), mid: () => draw(mid, false), front: () => draw(front, false) };
+    return { back: () => { draw(backs, true); draw(behind, false); }, mid: () => draw(mid, false), front: () => draw(front, false) };
   }
 
   /** Little tufts of leaves round the ends of the branches (they show when the leaves in front are gone). */
@@ -753,9 +809,11 @@ class Sketch {
   /** Outline the leaves' silhouette, then snow and the clean-up of the lit pixels. */
   finish(): Prop {
     const { W, H, t } = this;
-    const [base, front] = this.layers.map((l) => this.finishLayer(l));
+    // (outlines and snow lie on the leaves: they keep to their puffs)
+    const [base, front] = this.leafy(() => this.layers.map((l) => this.finishLayer(l)));
     return {
-      raster: base.r, lit: base.lit, front: front.r.data.some((v, i) => i % 4 === 3 && v > 0) ? { raster: front.r, lit: front.lit } : undefined,
+      raster: base.r, lit: base.lit, puffs: this.layers[0].puffs,
+      front: front.r.data.some((v, i) => i % 4 === 3 && v > 0) ? { raster: front.r, lit: front.lit, puffs: this.layers[1].puffs } : undefined,
       mid: this.midMask ? this.cutMiddle(base.r, this.layers[0].lit, this.midMask) : undefined,
       x: t.x - W / 2, y: t.y - (H - 1) - t.elev, depthY: t.y, kind: t.shape === 'pine' ? 4 : t.colour, plan: t,
     };
@@ -890,17 +948,19 @@ function broadleaf(t: TreePlan, season: Season): Prop {
     // (bare, twigs spray from the ends of the branches)
     if (s.bare) for (const e of ends) s.spray(e.x, e.y, e.a, Math.min(26, e.len * 0.35));
     // ...leaves on the branches...
-    s.tufts(ends.map((e): [number, number] => [e.x, e.y]), Math.max(3, Math.min(7, c.rx / 9)));
+    // (small: up the tree, it's the branches that show)
+    s.tufts(ends.map((e): [number, number] => [e.x, e.y]), 3);
     for (const m of masses) m.mid();
-    dots(s);
     // (the bird house on the trunk, below its fork)
     const house = t.perches.find((p) => p.kind === 'birdhouse');
     if (house && fork - 2 >= 16) s.birdhouse(Math.min(house.z, fork - 2));
   });
+  // (blossom and fruit on the leaves at the back: not part of the middle)
+  s.leafy(() => dots(s));
   // ...and the leaves in front of them
   s.inFront(() => {
     for (const m of masses) m.front();
-    dots(s);
+    s.leafy(() => dots(s));
   });
   return s.finish();
 }
@@ -927,6 +987,7 @@ function pine(t: TreePlan, season: Season): Prop {
     for (let x = x0; x <= x1; x++) {
       const u = (x + 0.5 - mid) / w;
       if (Math.abs(u) > 1) continue;
+
       const point = points[x - x0];
       const droop = Math.abs(u) ** 2 * size * 1.6, top = y + droop * 0.9 + Math.abs(u) ** 3 * deep * 0.7 - (1 - Math.abs(u)) * 1.5;
       const bottom = y + deep + droop + point;
