@@ -42,8 +42,6 @@ const CAT_HALF = 6, CAT_TALL = 14;
 const CAT_SLACK = 6;
 /** ...and it hides it once this many of the points looked at (every 2 px) are under it. */
 const HIDES = 3;
-/** Up a tree, the hole through the tree behind your cat is this much as wide: the far side of the ball round it. */
-const BEHIND = 0.45;
 /** Above its feet, the middle of a cat. */
 const CAT_MID = 8;
 /** A front picture is drawn this far in front of its tree (a cat up in it is at +0.6, the birds at +0.5)... */
@@ -189,8 +187,8 @@ export class Trees {
       t.open = ease(t.open, i === mine ? 1 : 0);
       if (t.hole > 0) this.holed.push(t);
       // (in front: the same hole through all of it, reaching up over what's left of it, and the rest of it thin;
-      // up it: wide in front of the cat, narrow behind)
-      const r = HOLE_R * Math.max(t.hole, t.open), rb = HOLE_R * Math.max(t.hole, t.open * BEHIND), rest = REST * t.hole;
+      // up it: wide in front of the cat, and nothing behind it: the leaves behind stay, darker, for the branches to stand out on)
+      const r = HOLE_R * Math.max(t.hole, t.open), rb = HOLE_R * t.hole, rest = REST * t.hole;
       const opening = (rr: number): Opening | null => (rr > 0 ? { x: hx, y: hy, r: rr, up: t.hole > 0 ? reachUp(hy, rr, p.y) : rr } : null);
       const base: Cut | null = rb > 0 || rest > 0 ? { hole: opening(rb), rest, puffs: t.puffs } : null;
       const front: Cut | null = r > 0 || rest > 0 ? { hole: opening(r), rest, puffs: t.frontPuffs } : null;

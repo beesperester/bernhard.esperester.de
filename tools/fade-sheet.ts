@@ -23,7 +23,7 @@ type Raster = InstanceType<typeof Raster>;
 const out = process.argv[2] ?? 'preview';
 mkdirSync(out, { recursive: true });
 
-const R = 80, BEHIND = 0.45, CAT_MID = 8, PAD = 12;
+const R = 80, CAT_MID = 8, PAD = 12;
 const GRASS = hex('#7cb85a'), GROUND = hex('#5e9a44'), RULE = hex('#3c6a30');
 const summer = seasonAt(Date.UTC(2026, 6, 10, 10));
 const cats = buildCatSheet(3);
@@ -64,13 +64,13 @@ function behind(p: Prop, fx: number, fy: number, style: 'now' | 'new', open = 1)
   return s;
 }
 
-/** Your cat up tree p, on a branch at (fx, fy): the leaves behind opened a little, the trunk and branches solid, the leaves in front opened wide. */
+/** Your cat up tree p, on a branch at (fx, fy): the leaves behind left be, the trunk and branches solid, the leaves in front opened wide. */
 function up(p: Prop, fx: number, fy: number, style: 'now' | 'new'): Raster {
   const W = p.raster.w + PAD * 2, H = p.raster.h + PAD * 2, s = new Raster(W, H);
   s.rect(0, 0, W, H, GRASS);
   s.rect(0, H - PAD - 2, W, 3, GROUND);
   const hy = fy - CAT_MID, puffs = (q: Puffs | undefined) => (style === 'new' ? q ?? null : null);
-  lay(s, p.raster, PAD, PAD, { x: fx, y: hy, r: R * BEHIND, up: R * BEHIND }, puffs(p.puffs));
+  lay(s, p.raster, PAD, PAD, null, null);
   cat(s, PAD + fx, PAD + fy);
   if (p.mid) lay(s, p.mid.raster, PAD, PAD, null, null);
   if (p.front) lay(s, p.front.raster, PAD, PAD, { x: fx, y: hy, r: R, up: R }, puffs(p.front.puffs));
@@ -122,8 +122,8 @@ writeFileSync(`${out}/fade.png`, png(stack(rows), 2));
 {
   const panels: Raster[] = [];
   for (const i of picks.slice(0, 2)) {
-    const p = buildProp(i, summer), t = TREES[i], perch = t.perches.filter((q) => q.kind === 'branch').sort((a, b) => b.z - a.z)[0] ?? t.perches[0];
-    const fx = p.raster.w / 2 + (perch.x0 + perch.x1) / 2, fy = p.raster.h - 1 - perch.z;
+    const p = buildProp(i, summer), t = TREES[i], perch = t.perches.filter((q) => q.kind === 'branch').sort((a, b) => b.z0 - a.z0)[Math.floor(t.perches.length / 8)] ?? t.perches[0];
+    const fx = p.raster.w / 2 + (perch.x0 + perch.x1) / 2, fy = p.raster.h - 1 - (perch.z0 + perch.z1) / 2;
     panels.push(up(p, fx, fy, 'now'), up(p, fx, fy, 'new'));
   }
   writeFileSync(`${out}/fade-climbing.png`, png(row(panels), 2));

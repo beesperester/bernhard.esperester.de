@@ -4,6 +4,7 @@ import type { CatView } from '../CatView.ts';
 import { PUDDLE } from '../Furniture.ts';
 import { BATH_H, FORK_Z, FURNITURE, TILE, tileAt, levelAt, elevAt, furnished } from '../../world/map.ts';
 import { SEASON } from '../../world/season.ts';
+import { zAt } from '../../world/trees.ts';
 import { Pool, seedRng, hash2, lerp, clamp01, type Fauna, type FaunaContext, type FaunaFrame, type PreyRef } from './kit.ts';
 import type { Effects } from './Effects.ts';
 import { lightAt } from '../../world/sky.ts';
@@ -81,8 +82,8 @@ export class Birds implements Fauna {
     this.perches = trees.map((t) => {
       const out: Spot[] = [];
       for (const q of t.perches) {
-        if (q.z <= FORK_Z) continue;
-        for (let x = q.x0 + 2; x <= q.x1 - 2; x += 3) out.push({ x: t.x + x, y: t.y, h: t.elev + q.z, depth: t.y + 0.5, perch: true });
+        if (Math.min(q.z0, q.z1) <= FORK_Z || q.kind === 'stump') continue;
+        for (let x = q.x0 + 2; x <= q.x1 - 2; x += 3) out.push({ x: t.x + x, y: t.y, h: t.elev + Math.round(zAt(q, x)), depth: t.y + 0.5, perch: true });
       }
       return out;
     });

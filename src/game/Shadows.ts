@@ -445,7 +445,7 @@ export class Shadows {
    */
   private projectTree(t: TreePlan, lift: number, [sx, sy]: [number, number], levels: number, out: Spans): void {
     let top = 0;
-    for (const p of t.perches) top = Math.max(top, p.z);
+    for (const p of t.perches) top = Math.max(top, p.z0, p.z1);
     for (let l = 0; l <= levels; l++) {
       // (the tree's foot this high above the ground at level l)
       const base = lift - l * LEVEL;
@@ -495,10 +495,10 @@ export class Shadows {
         }
       }
       for (const p of t.perches) {
-        const h = p.z + base;
-        if (h < 0) continue;
+        const h = (p.z0 + p.z1) / 2 + base;
+        if (h < 0 || p.kind === 'stump') continue;
         const x0 = Math.round(t.x + p.x0 + sx * h), y = Math.round(t.y + sy * h);
-        for (let d = -1; d <= 1; d++) out.put(l, y + d, x0, x0 + p.x1 - p.x0);
+        for (let d = -1; d <= 1; d++) out.put(l, y + d, x0, x0 + Math.round(p.x1 - p.x0));
       }
     }
   }

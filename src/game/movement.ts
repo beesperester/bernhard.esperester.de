@@ -1,5 +1,5 @@
 import { FEET, heightUnder, waterUnder } from '../world/map.ts';
-import { leapUp, surfaceAt } from '../world/trees.ts';
+import { surfaceAt } from '../world/trees.ts';
 import { GRAVITY, JUMP_V } from './state.ts';
 
 // How a cat moves through the garden: speeds, the dash and its cooldown,
@@ -27,11 +27,8 @@ const AIR_CLIMB = 0.5;
  * to the side slides the cat over into it, so one-tile gaps (the maze) are easy to enter.
  */
 export const SLIP = 8;
-/** How high a jump gets from flat ground: v² / 2g (about 14px, enough to clear a low hedge). */
+/** How high a jump gets: v² / 2g (about 14px, enough to clear a low hedge, or reach the next stump up a tree). */
 export const JUMP_HEIGHT = (JUMP_V * JUMP_V) / (2 * GRAVITY);
-
-/** How high a jump from (x, y, z) rises: a plain jump, or a leap up a tree to its next branch. */
-export const jumpRise = (x: number, y: number, z: number): number => Math.max(JUMP_HEIGHT, leapUp(x, y, z));
 
 /** Where a cat is: ground position, height, and whether it is in the air. */
 export interface Body { x: number; y: number; z: number; airborne: boolean }

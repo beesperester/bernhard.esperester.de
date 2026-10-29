@@ -14,7 +14,7 @@ import { hash2 } from '../art/raster.ts';
 import { worldSeed } from './seed.ts';
 import { FURNITURE, LEVEL, MAP_H, MAP_W, TILE, elevAt, furnished, levelAt, tileAt } from './map.ts';
 import { LEGEND, groundOf, isLawnOrTall, isOpenWater, isPath } from './legend.ts';
-import { TREES } from './trees.ts';
+import { TREES, zAt } from './trees.ts';
 import { Food } from './food.ts';
 import { ZONE_FLOOR } from './themes.ts';
 
@@ -134,7 +134,10 @@ export function planFinds(seed: number): FindSlot[] {
   TREES.forEach((t, i) => {
     if (t.shape === 'treehouse' || rnd(t.tx, t.ty, 50) > 0.15) return;
     const boughs = t.perches.filter((p) => p.kind === 'branch' || p.kind === 'tier').slice(1);
-    const spots = boughs.map((p, k) => ({ x: t.x + Math.round((p.x0 + p.x1) / 2 + (p.x1 - p.x0) * 0.2 * (rnd(t.tx, k, 52) - 0.5)), y: t.y, h: t.elev + p.z, tree: i }));
+    const spots = boughs.map((p, k) => {
+      const x = Math.round((p.x0 + p.x1) / 2 + (p.x1 - p.x0) * 0.2 * (rnd(t.tx, k, 52) - 0.5));
+      return { x: t.x + x, y: t.y, h: t.elev + zAt(p, x), tree: i };
+    });
     if (spots.length) out.push({ kind: 'nest', foods: [Food.TreeEggs], chance: 0.6, spots });
   });
 

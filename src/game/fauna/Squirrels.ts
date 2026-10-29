@@ -215,8 +215,8 @@ export class Squirrels implements Fauna {
 
   /** A perch for a squirrel to come down from: a low branch, picked by u (0..1). */
   private perchZ(t: TreePlan, u: number): number {
-    const low = t.perches.filter((p) => p.z <= FORK_Z + RISE * 2);
-    return (low[Math.floor(u * low.length)] ?? t.perches[0]).z;
+    const low = t.perches.filter((p) => p.kind !== 'stump' && p.z0 <= FORK_Z + RISE * 2);
+    return (low[Math.floor(u * low.length)] ?? t.perches[0]).z0;
   }
 
   private outingAt(tree: number, k: number, winter: number): Trip | null {

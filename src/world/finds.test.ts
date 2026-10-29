@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FIND_SLOTS, Food, REFILL_MS, findIn, planFinds, type Find } from './finds.ts';
 import { FOOD_POINTS } from './food.ts';
 import { FURNITURE, TILE, tileAt } from './map.ts';
-import { TREES } from './trees.ts';
+import { TREES, zAt } from './trees.ts';
 import { Prey } from '../game/state.ts';
 import { preyPoints } from '../game/fauna/prey.ts';
 
@@ -52,7 +52,7 @@ describe('things to find', () => {
         if (f.tree !== undefined) {
           const t = TREES[f.tree];
           expect(f.y).toBe(t.y);
-          expect(t.perches.some((p) => t.elev + p.z === f.h && f.x >= t.x + p.x0 && f.x <= t.x + p.x1)).toBe(true);
+          expect(t.perches.some((p) => f.x >= t.x + p.x0 && f.x <= t.x + p.x1 && Math.abs(t.elev + zAt(p, f.x - t.x) - f.h) < 0.01)).toBe(true);
         }
         if (s.kind === 'snack') expect(tileAt(tx, ty)).toBe('p');
       }

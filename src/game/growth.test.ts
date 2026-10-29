@@ -3,7 +3,7 @@ import { GROWN_AT, STAGE_JUMP, Stage, YOUNG_AT, canCatch, canLure, canPounce, ca
 import { Prey } from './state.ts';
 import { JUMP_HEIGHT } from './movement.ts';
 import { FORK_Z } from '../world/map.ts';
-import { LEAP } from '../world/trees.ts';
+import { STUMP_LOW } from '../world/trees.ts';
 import { LEGEND } from '../world/legend.ts';
 
 describe('growing up', () => {
@@ -18,9 +18,9 @@ describe('growing up', () => {
 
   it("keeps a kitten off the rocks and out of the trees, but not a young cat", () => {
     expect(STAGE_JUMP[Stage.Kitten]).toBeLessThan(LEGEND.r.height!);
-    // (a kitten's hop is no leap up a trunk; a young cat's is)
-    expect(STAGE_JUMP[Stage.Kitten]).toBeLessThan(FORK_Z);
-    expect(Math.min(LEAP, STAGE_JUMP[Stage.Young])).toBeGreaterThan(FORK_Z);
+    // (a kitten's hop doesn't reach the lowest stump up a trunk; a young cat's jump does)
+    expect(STAGE_JUMP[Stage.Kitten]).toBeLessThan(STUMP_LOW);
+    expect(Math.min(JUMP_HEIGHT, STAGE_JUMP[Stage.Young])).toBeGreaterThan(STUMP_LOW + 2);
     expect(JUMP_HEIGHT).toBeLessThan(FORK_Z);
   });
 

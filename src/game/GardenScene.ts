@@ -4,7 +4,7 @@ import { COATS, CAT } from '../art/cat.ts';
 import { uprightAt } from '../art/tiles.ts';
 import { Ground } from './Ground.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
-import { HOUSES, TREES, standingOn, surfaceAt } from '../world/trees.ts';
+import { HOUSES, TREES, TRUNK_FRONT, standingOn, surfaceAt, zAt } from '../world/trees.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, COASTERS, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
@@ -35,7 +35,7 @@ import { Railway } from './Railway.ts';
 import { TrainView } from './TrainView.ts';
 import { CAR_W } from '../art/train.ts';
 import { FLOOR_H, NOTCHES, SPEEDS, aboard, inCab, local, poses, startState, trainUnder, world, type CarPose } from './train.ts';
-import { DASH_MS, DASH_SPEED, STEP_UP, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, jumpRise, step } from './movement.ts';
+import { DASH_MS, DASH_SPEED, STEP_UP, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, JUMP_HEIGHT, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { sight } from './fauna/kit.ts';
@@ -74,8 +74,8 @@ const HOP_HEIGHT = 16;
 const SETTLE_SPEED = 60;
 /** A kitten's tumble at the end of a dash that ran out (ms). */
 const TUMBLE_MS = 900;
-/** A cat this far in front of a trunk's foot is clear of it. */
-const TRUNK_CLEAR = 6;
+/** Walking down a sloping branch, a cat keeps to it while it drops away no more than this (px) a frame. */
+const STEP_DOWN = 3;
 /** How often the pond reflections are redrawn, ms. */
 const REFLECTION_MS = 33;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
@@ -752,9 +752,10 @@ export class GardenScene extends Phaser.Scene {
     const perch = this.hop || me.act === Act.Jump ? null : standingOn(me.x, me.y, me.z);
     if (perch && dy !== 0) {
       if (dy > 0) {
-        this.dropFrom = perch.z;
-        // (off the fork, the cat jumps down in front of the trunk, not onto it)
-        if (perch.kind === 'fork' && heightUnder(me.x + FEET.x0, perch.y + TRUNK_CLEAR + FEET.y0, me.x + FEET.x1, perch.y + TRUNK_CLEAR + FEET.y1, me.z) <= me.z) me.y = Math.max(me.y, perch.y + TRUNK_CLEAR);
+        this.dropFrom = zAt(perch, me.x);
+        // (the cat drops down in front of the trunk, not onto its top)
+        const front = TREES[perch.tree].y + TRUNK_FRONT;
+        if (heightUnder(me.x + FEET.x0, front + FEET.y0, me.x + FEET.x1, front + FEET.y1, me.z) <= me.z) me.y = Math.max(me.y, front);
       }
       else if (dx === 0) me.facing = Facing.Up;
       dy = 0;
@@ -944,7 +945,7 @@ export class GardenScene extends Phaser.Scene {
     else if (jump && grounded) {
       begin(Act.Jump);
       // (at a tree, a leap up to its next branch)
-      this.vz = Math.sqrt(2 * GRAVITY * Math.min(jumpRise(me.x, me.y, me.z), STAGE_JUMP[me.stage]));
+      this.vz = Math.sqrt(2 * GRAVITY * Math.min(JUMP_HEIGHT, STAGE_JUMP[me.stage]));
       this.dropFrom = Infinity;
     }
 
@@ -997,6 +998,8 @@ export class GardenScene extends Phaser.Scene {
     // on the way up, branches are jumped through
     // (riding in a car, the cat stands on its floor: a bend turning a wall in under its paws doesn't lift it up there)
     const ground = this.riding && this.boarded && me.z <= FLOOR_H + 1.5 ? FLOOR_H : surfaceAt(me.x, me.y, me.z, this.dropFrom);
+    // (walking down a sloping branch, its paws stay on it)
+    if (me.act !== Act.Jump && this.vz === 0 && !this.hop && me.z > ground && me.z - ground <= STEP_DOWN && standingOn(me.x, me.y, ground)) me.z = ground;
     if (me.z > ground || this.vz > 0) {
       if (me.act !== Act.Jump) me.setAct(Act.Jump, now);
       // (exactly as a thrown thing flies, so a jump peaks where it was aimed whatever the frame rate)
