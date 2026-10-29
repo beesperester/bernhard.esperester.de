@@ -17,7 +17,8 @@ import { toCanvas } from './textures.ts';
 // tree stands in front of your cat, a dithered hole opens in it round your
 // cat (and in anything sitting in that tree). Up a tree, it opens round your
 // cat as if a ball were round it: wide through the leaves in front, narrower
-// through the tree behind, so you see a little past it too.
+// through the leaves behind, so you see a little past it too; its trunk and
+// branches stay solid (a third picture, of just them, over the tree).
 
 /** Trees this far (px) beyond the view are drawn ahead of the camera... */
 const AHEAD = 200;
@@ -35,8 +36,10 @@ const HOLE_R = 80, CLEAR = 0.6;
 const BEHIND = 0.45;
 /** Above its feet, the middle of a cat. */
 const CAT_MID = 8;
-/** A front picture is drawn this far in front of its tree (a cat up in it is at +0.6, the birds at +0.5). */
+/** A front picture is drawn this far in front of its tree (a cat up in it is at +0.6, the birds at +0.5)... */
 const FRONT = 0.8;
+/** ...and its trunk and branches this far, while your cat is up it. */
+const MIDDLE = 0.2;
 
 interface Pic {
   canvas: HTMLCanvasElement;
@@ -51,6 +54,8 @@ interface Live {
   p: Prop;
   base: Pic;
   front: Pic | null;
+  /** Its trunk and branches, while your cat is up it. */
+  mid: Pic | null;
   /** How far the hole round your cat is open in it (0..1, it's in front of your cat)... */
   hole: number;
   /** ...or round your cat up it (0..1); and where each picture was cut last. */
@@ -131,7 +136,7 @@ export class Trees {
   relight(i: number): void {
     const t = this.live.get(i);
     if (!t) return;
-    for (const [pic, r] of [[t.base, t.p.raster], [t.front, t.p.front?.raster]] as const) {
+    for (const [pic, r] of [[t.base, t.p.raster], [t.front, t.p.front?.raster], [t.mid, t.p.mid?.raster]] as const) {
       if (!pic || !r) continue;
       pic.orig.data.set(r.data);
       pic.canvas.getContext('2d')!.putImageData(pic.orig, 0, 0);
@@ -191,6 +196,9 @@ export class Trees {
         for (const wt of this.watchers) wt.holed(i, hole);
       }
       if (t.front && (cutFront !== t.cutFront || t.dirty)) this.draw(t.front, p, front);
+      // (up it, its trunk and branches over the hole in it)
+      if (t.open > 0 && !t.mid && p.mid) t.mid = this.pic(`tree-mid-${i}`, p.mid.raster, p.x, p.y, p.depthY + MIDDLE);
+      else if (t.open === 0 && t.mid) this.unpic(t, 'mid', `tree-mid-${i}`);
       t.cut = cut;
       t.cutFront = cutFront;
       t.dirty = false;
@@ -261,13 +269,21 @@ export class Trees {
     return { canvas, tex, img, orig, work: new ImageData(w, h) };
   }
 
+  private unpic(t: Live, which: 'front' | 'mid', key: string): void {
+    const pic = t[which];
+    if (!pic) return;
+    pic.img.destroy();
+    this.scene.textures.remove(key);
+    t[which] = null;
+  }
+
   private make(i: number): void {
     const p = buildProp(i);
     // (in the light as it is now)
     relightProp(p, sunLight);
     const base = this.pic(`tree-${i}`, p.raster, p.x, p.y, p.depthY);
     const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.x, p.y, p.depthY + FRONT) : null;
-    this.live.set(i, { p, base, front, hole: 0, open: 0, cut: '', cutFront: '', dirty: false });
+    this.live.set(i, { p, base, front, mid: null, hole: 0, open: 0, cut: '', cutFront: '', dirty: false });
     for (const w of this.watchers) w.added(i, p, base.canvas);
   }
 
@@ -275,10 +291,8 @@ export class Trees {
     const t = this.live.get(i)!;
     t.base.img.destroy();
     this.scene.textures.remove(`tree-${i}`);
-    if (t.front) {
-      t.front.img.destroy();
-      this.scene.textures.remove(`tree-front-${i}`);
-    }
+    this.unpic(t, 'front', `tree-front-${i}`);
+    this.unpic(t, 'mid', `tree-mid-${i}`);
     this.live.delete(i);
     for (const w of this.watchers) w.removed(i);
   }
