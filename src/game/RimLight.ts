@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { catFrames } from './textures.ts';
 import { paintLight } from './Painted.ts';
 import type { TerrainPiece } from '../art/terrain.ts';
 import { LEVEL, TILE, WORLD_H, WORLD_W } from '../world/map.ts';
@@ -16,30 +15,27 @@ const BOOST = 1.25;
 interface Overlay { img: Phaser.GameObjects.Image; tex: Phaser.Textures.CanvasTexture; w: number; h: number; rim: (out: Uint8ClampedArray) => void }
 
 /**
- * Sunlit rims on everything standing up (cats, cliffs, stairs): the
+ * Sunlit rims on the terrain standing up (cliffs, stairs): the
  * edge pixels on the side facing the sun light up, so you can tell where the
  * sun is. Each object gets an additive overlay whose
  * texture is redrawn whenever the sun moves to another of the 16 directions.
- * (The trees, furniture and follies, and the bushes, rocks and hedges in the
- * ground, light their own rims on the GPU: Painted.ts is told the light.)
+ * (The cats, trees, furniture and follies, and the bushes, rocks and hedges
+ * in the ground, light their own rims on the GPU: Painted.ts is told the light.)
  */
 export class RimLight {
   private readonly scene: Phaser.Scene;
   private readonly overlays: Overlay[] = [];
-  private readonly catTex: Phaser.Textures.CanvasTexture;
-  private readonly catAlpha: Uint8Array;
-  private readonly catW: number;
   private dir = -1;
   private d1: [number, number] = [0, 0];
   private d2: [number, number] = [0, 0];
   private shown = '';
-  /** Current strength and colour, for the cats' rim sprites. */
+  /** Current strength and colour of the rims. */
   strength = 0;
   colour = 0xffffff;
 
   constructor(
     scene: Phaser.Scene,
-    parts: { upright: (x: number, y: number) => boolean; terrain: TerrainPiece[]; catSheet: HTMLCanvasElement; catSize: number },
+    parts: { upright: (x: number, y: number) => boolean; terrain: TerrainPiece[] },
   ) {
     this.scene = scene;
     const add = (key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']) => {
@@ -82,19 +78,7 @@ export class RimLight {
           }
       });
     });
-
-    // cats: one rim sheet for all coats (they share their outlines), used by every cat's rim sprite
-    const cw = parts.catSheet.width, ch = parts.catSheet.height;
-    const ca = parts.catSheet.getContext('2d')!.getImageData(0, 0, cw, ch).data;
-    this.catW = cw;
-    this.catAlpha = new Uint8Array(cw * ch);
-    for (let k = 0; k < this.catAlpha.length; k++) this.catAlpha[k] = ca[k * 4 + 3] > 0 ? 1 : 0;
-    this.catTex = scene.textures.createCanvas('cat-rim', cw, ch)!;
-    catFrames(this.catTex, parts.catSheet);
-    this.catSize = parts.catSize;
   }
-
-  private readonly catSize: number;
 
   private overlay(key: string, w: number, h: number, x: number, y: number, depth: number, rim: Overlay['rim']): Overlay {
     const tex = this.scene.textures.createCanvas(key, w, h)!;
@@ -141,22 +125,5 @@ export class RimLight {
     this.d2 = [Math.round(Math.cos(ang) * 2), Math.round(Math.sin(ang) * 2)];
     paintLight.rimDir.splice(0, 4, ...this.d1, ...this.d2);
     for (const o of this.overlays) this.paint(o);
-    // cats, frame by frame so rims stop at the frame edges
-    const w = this.catW, h = this.catTex.height, S = this.catSize, A = this.catAlpha;
-    const img = new ImageData(w, h);
-    const [a, b] = this.d1, [c, d] = this.d2;
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        if (!A[y * w + x]) continue;
-        const f0 = Math.floor(x / S) * S, g0 = Math.floor(y / S) * S;
-        const solid = (px: number, py: number) => px >= f0 && px < f0 + S && py >= g0 && py < g0 + S && A[py * w + px] === 1;
-        const v = !solid(x + a, y + b) ? OUTER : !solid(x + c, y + d) ? INNER : 0;
-        if (!v) continue;
-        const k = (y * w + x) * 4;
-        img.data[k] = img.data[k + 1] = img.data[k + 2] = 255;
-        img.data[k + 3] = v;
-      }
-    this.catTex.getContext().putImageData(img, 0, 0);
-    this.catTex.refresh();
   }
 }

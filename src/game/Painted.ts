@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { AUTO, COAT, PLAIN, RAMP_ROWS, RAMP_W, RIM_BIT, SPECK, ramps } from '../art/painted.ts';
-import { COAT_H } from '../art/coat.ts';
+import { COAT_H, COAT_W } from '../art/coat.ts';
 
 // The engine's painted shading (art/painted.ts says what the pictures hold):
 // pictures drawn with it are batched as Phaser batches any image, with their
@@ -49,6 +49,8 @@ uniform vec3 uView;
 uniform vec4 uLamps[${MAX_LAMPS}];
 uniform int uLampCount;
 const float RAMP_W = ${RAMP_W}.0, RAMP_ROWS = ${RAMP_ROWS}.0;
+/** How sunlit this pixel is (set before painted(): the sun's rim only where the sun reaches it). */
+float gLit = 1.0;
 float byteOf(float c) { return floor(c * 255.0 + 0.5); }
 /** art/painted.ts' fromByte. */
 float unbyte(float c, float range) { return (byteOf(c) / 255.0 - 0.5) * 2.0 * range; }
@@ -58,6 +60,13 @@ float solidAt(vec2 texCoord, vec2 d) {
   vec2 uv = texCoord + vec2(d.x, -d.y) / getTexRes();
   return uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ? 0.0 : step(0.5 / 255.0, texture2D(uNormSampler, uv).a);
 }
+/** Whether something of the same frame of a cat (frames COAT_W square, from the sheet's top left) stands this many px from texCoord. */
+float catSolidAt(vec2 texCoord, vec2 d) {
+  vec2 res = getTexRes(), p = vec2(texCoord.x, 1.0 - texCoord.y) * res;
+  return floor((p + d) / ${COAT_W}.0) == floor(p / ${COAT_W}.0) ? solidAt(texCoord, d) : 0.0;
+}
+/** Colour c lit by the sun's rim by this much (OUTER, INNER or 0). */
+vec3 rimmed(vec3 c, float r) { return mix(c, uRim.rgb, r * gLit * min(1.0, uRim.a * ${BOOST.toFixed(2)})); }
 /** Colour c a step lighter (warm) where it faces the light, a step darker (cool) where it faces away, by these much. */
 vec3 toned(vec3 c, float facing, float lighter, float darker) {
   return facing > 0.35 ? mix(c, vec3(1.0, 0.95, 0.82), lighter) : facing < -0.3 ? mix(c, vec3(0.16, 0.1, 0.24), darker) : c;
@@ -92,7 +101,10 @@ vec4 painted(vec4 c, vec2 texCoord) {
     // fur: its colour from the coat, under the frames (art/coat.ts), a tone lighter facing the light, darker away (not the outline)
     vec2 res = getTexRes();
     vec3 fur = texture2D(uMainSampler[0], vec2((byteOf(c.r) + 0.5) / res.x, (${COAT_H}.0 - byteOf(c.g) - 0.5) / res.y)).rgb;
-    return vec4(byteOf(c.b) > 0.5 ? toned(fur, facing, 0.22, 0.28) : fur, 1.0);
+    fur = byteOf(c.b) > 0.5 ? toned(fur, facing, 0.22, 0.28) : fur;
+    // its sunlit rim, within its frame
+    if (uRim.a > 0.0) fur = rimmed(fur, catSolidAt(texCoord, uRimDir.xy) < 0.5 ? ${OUTER.toFixed(4)} : catSolidAt(texCoord, uRimDir.zw) < 0.5 ? ${INNER.toFixed(4)} : 0.0);
+    return vec4(fur, 1.0);
   }
   // anything else with no normals of its own: its own colours, lighter or darker at its edges as they face the light
   if (flags == ${AUTO}.0) c.rgb = toned(c.rgb, facing, 0.16, 0.2);
@@ -125,8 +137,7 @@ vec4 painted(vec4 c, vec2 texCoord) {
   }
   // the sunlit rim on what stands: where the next pixel or the one after towards the sun is empty
   if (uRim.a > 0.0 && n.a > 0.0) {
-    float r = solidAt(texCoord, uRimDir.xy) < 0.5 ? ${OUTER.toFixed(4)} : solidAt(texCoord, uRimDir.zw) < 0.5 ? ${INNER.toFixed(4)} : 0.0;
-    c.rgb = mix(c.rgb, uRim.rgb, r * min(1.0, uRim.a * ${BOOST.toFixed(2)}));
+    c.rgb = rimmed(c.rgb, solidAt(texCoord, uRimDir.xy) < 0.5 ? ${OUTER.toFixed(4)} : solidAt(texCoord, uRimDir.zw) < 0.5 ? ${INNER.toFixed(4)} : 0.0);
   }
   return c;
 }

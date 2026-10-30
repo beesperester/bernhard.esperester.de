@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
-import { COATS, CAT } from '../art/cat.ts';
+import { COATS } from '../art/cat.ts';
 import { uprightAt } from '../art/tiles.ts';
 import { Ground } from './Ground.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
@@ -292,10 +292,7 @@ export class GardenScene extends Phaser.Scene {
     this.daylight = new Daylight(Date.now());
     // which pixels of the ground art stand up from it: for sunlit rims, and for where shadows can't fall
     const upright = uprightAt;
-    this.rims = new RimLight(this, {
-      upright, terrain: canvases.terrain,
-      catSheet: canvases.cats[0], catSize: CAT,
-    });
+    this.rims = new RimLight(this, { upright, terrain: canvases.terrain });
     // what can stand in front of a lantern's light
     const source = (key: string) => this.textures.get(key).getSourceImage() as HTMLCanvasElement;
     const occluders: Occluder[] = [
@@ -322,7 +319,7 @@ export class GardenScene extends Phaser.Scene {
         ],
         me: () => this.me?.silhouette() ?? null,
       });
-      this.shadows.cast = false;
+      this.trees.cards = true;
       catLight.ghosts = false;
     }
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
@@ -557,7 +554,7 @@ export class GardenScene extends Phaser.Scene {
           const l = levelAt(tx, ty);
           blobs.push({ x: tx * TILE + 8, y: ty * TILE + 13 - l * LEVEL, w: 20, h: 8, depth: l ? ty * TILE + 0.0012 : -99992 });
         }
-    return new Shadows(this, { casters, blobs });
+    return new Shadows(this, { casters, blobs, cast: params.has('flat') });
   }
 
   private fitZoom(): void {
@@ -682,8 +679,6 @@ export class GardenScene extends Phaser.Scene {
     this.shadows.update(light, cats, overcast, view);
     this.cards?.update(view, light, overcast);
     catLight.soft = 0.06 + 0.2 * (1 - this.shadows.strength);
-    catLight.rim = this.rims.strength;
-    catLight.rimColour = this.rims.colour;
     catLight.night = light.night;
     this.ambient.update(gt, dt, cats, view);
     this.weather.update(gt, time, dt, cats, view, light);

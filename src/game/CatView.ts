@@ -21,9 +21,6 @@ const LABEL_FADE_MS = 400;
 
 /** Light shared by all cats, set by the scene every frame. */
 export const catLight = {
-  /** Sunlit rim strength (0 = none) and colour. */
-  rim: 0,
-  rimColour: 0xffffff,
   /** 0 by day, 1 at night: how much eyes glow. */
   night: 0,
   /** How strong soft round shadows are (the night's, and faint by day under the cast ones). */
@@ -93,7 +90,6 @@ export class CatView {
   private readonly held: Phaser.GameObjects.Image;
   /** A solid green silhouette, drawn over the hill where it hides the cat. */
   private readonly ghost: Phaser.GameObjects.Sprite;
-  private readonly rim: Phaser.GameObjects.Sprite;
   /** Riding the train: its head again, on top of the car, so it always shows over the walls. */
   private readonly head: Phaser.GameObjects.Sprite;
   private readonly eyes: Phaser.GameObjects.Sprite;
@@ -118,7 +114,6 @@ export class CatView {
     this.ghost = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(98000).setVisible(false)
       .setTint(SILHOUETTE).setTintMode(Phaser.TintModes.FILL);
     this.head = paint(scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setVisible(false));
-    this.rim = scene.add.sprite(x, y, 'cat-rim', 0).setOrigin(0.5, 1).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     this.eyes = scene.add.sprite(x, y, 'cat-eyes', 0).setOrigin(0.5, 1).setDepth(DEPTH.glow)
       .setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     // drawn at screen resolution and shrunk by the zoom, so the letters stay sharp
@@ -189,9 +184,6 @@ export class CatView {
       this.head.setPosition(x, y - lift).setDepth(this.ride + 0.7).setFrame(this.frame).setTint(this.sprite.tintTopLeft)
         .setCrop(0, 0, CAT, CAT - Math.round(HEAD_FROM * k));
     const top = y - lift;
-    const rim = catLight.rim * (1 - shade) * seen;
-    this.rim.setVisible(rim > 0);
-    if (rim > 0) this.rim.setPosition(x, top).setDepth(d + 0.002).setFrame(this.frame).setAlpha(rim).setTint(catLight.rimColour);
     // eyes shine in the dark, unless something stands in front of this cat
     const glow = catLight.night > 0.05 && seen > 0 && (this.local || !catLight.occluded(x, top - 9 * k, y));
     this.eyes.setVisible(glow);
@@ -247,7 +239,6 @@ export class CatView {
     this.bubble.destroy();
     this.held.destroy();
     this.ghost.destroy();
-    this.rim.destroy();
     this.head.destroy();
     this.eyes.destroy();
     this.label.destroy();

@@ -3,6 +3,7 @@ import { Kind, ramps } from '../art/painted.ts';
 import { paintedMaps, type Prop } from '../art/trees.ts';
 import type { Light } from '../world/sky.ts';
 import { TREES } from '../world/trees.ts';
+import { MAP_H, MAP_W, TILE, casterBox } from '../world/map.ts';
 import { FADE_GLSL } from '../art/fade.ts';
 import { HEADER, MAX_LAMPS, paintLight, syncRamps } from './Painted.ts';
 import type { Cut } from './HoleFilter.ts';
@@ -22,7 +23,8 @@ import { SILHOUETTE } from './CatView.ts';
 // through (fading, glowing) after them, back to front.
 //
 // The sun's shadows come from a shadow map: the crowns' balls and trunks
-// drawn from the sun, as ellipsoids, and everything else standing as its
+// drawn from the sun, as ellipsoids, what stands on the tiles (hedges,
+// fences, bushes, rocks: world/map.ts' casterBox) as boxes, and everything else standing as its
 // card turned to face the sun, into a map of how near the sun each is;
 // everything drawn looks itself up in it, ignoring its own shadow (a tree's
 // leaves their own crown's: its ramps shade it). Where a tree stands in front of your
@@ -54,6 +56,8 @@ const OFF = 512;
 const GROUND = -100000, STANDING = [-1000, 89000] as const;
 /** The passes' places among Phaser's. */
 const GROUND_PASS = -99999.5, STANDING_PASS = 89500;
+/** The tiles' boxes' id in the shadow map (the ground ignores them on their own tiles: they are drawn in it). */
+const BOX_ID = 65535;
 /** Floats per vertex: x, y, u, v; foot, depth, id, alpha; tint r, g, b, mode. */
 const STRIDE = 12;
 /** At most this many cards in one draw. */
@@ -124,6 +128,12 @@ uniform float uPuffed;
 uniform vec4 uPuffUV;
 uniform vec4 uPicRect;
 uniform sampler2D uShadow;
+uniform sampler2D uBoxTiles;
+// whether the ground here is a tile's box's (or one drawn up over the tile above it)
+bool onBox(vec2 w) {
+  vec2 n = vec2(${MAP_W}.0, ${MAP_H}.0);
+  return texture2D(uBoxTiles, (floor(w / ${TILE}.0) + 0.5) / n).r > 0.5 || texture2D(uBoxTiles, (floor((w + vec2(0.0, ${TILE / 2}.0)) / ${TILE}.0) + 0.5) / n).r > 0.5;
+}
 uniform vec3 uU;
 uniform vec3 uV;
 uniform vec3 uL;
@@ -148,10 +158,8 @@ void main() {
     if (!shows(w, puff)) discard;
   }
   gl_FragDepthEXT = clamp(0.5 - (D - uDepthRange.x) * uDepthRange.y, 0.0, 1.0);
-  vec4 col = uPainted > 0.5 ? painted(c, vTex) : c;
-  // tinted: multiplied, or filled
-  col.rgb = vTint.w > 0.5 ? vTint.rgb * col.a : col.rgb * vTint.rgb;
-  // the sun's shadow: what is nearer the sun than this pixel, along its ray
+  // the sun's shadow: what is nearer the sun than this pixel, along its ray (no sunlit rim in it)
+  bool shadowed = false;
   if (uShade > 0.5 && uStrength > 0.0) {
     vec3 P = uGround > 0.5 ? vec3(world, 0.0) : vec3(world.x, foot + off, foot - world.y);
     vec2 st = vec2((dot(P, uU) - uBox.x) / uBox.z, (dot(P, uV) - uBox.y) / uBox.w);
@@ -159,9 +167,15 @@ void main() {
       vec4 s = texture2D(uShadow, st);
       float sd = uDRange.x + (floor(s.r * 255.0 + 0.5) * 256.0 + floor(s.g * 255.0 + 0.5)) / 65535.0 * uDRange.y;
       float id = floor(s.b * 255.0 + 0.5) * 256.0 + floor(s.a * 255.0 + 0.5);
-      if (id > 0.5 && abs(id - vInfo.z) > 0.5 && sd > dot(P, uL) + 2.0) col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}) * col.a, ${ALPHA} * uStrength);
+      bool own = abs(id - vInfo.z) < 0.5 || (uGround > 0.5 && id > ${BOX_ID - 0.5} && onBox(world));
+      shadowed = id > 0.5 && !own && sd > dot(P, uL) + 2.0;
     }
   }
+  gLit = shadowed ? 0.0 : 1.0;
+  vec4 col = uPainted > 0.5 ? painted(c, vTex) : c;
+  // tinted: multiplied, or filled
+  col.rgb = vTint.w > 0.5 ? vTint.rgb * col.a : col.rgb * vTint.rgb;
+  if (shadowed) col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}) * col.a, ${ALPHA} * uStrength);
   gl_FragColor = uSoft > 0.5 ? col * alpha : vec4(col.rgb, 1.0);
 }`;
 
@@ -243,6 +257,50 @@ void main() {
   gl_FragColor = vec4(floor(q / 256.0) / 255.0, mod(q, 256.0) / 255.0, floor(vId / 256.0) / 255.0, mod(vId, 256.0) / 255.0);
 }`;
 
+/** The tiles' boxes drawn from the sun: each a square in the sun's view round it, and in it the box, at its depth. */
+const BOXES_VERT = `
+precision highp float;
+attribute vec2 aCorner;
+attribute vec3 aCentre;
+attribute vec3 aHalf;
+uniform vec3 uU;
+uniform vec3 uV;
+uniform vec4 uBox;
+varying vec2 vUV;
+varying vec3 vCentre;
+varying vec3 vHalf;
+void main() {
+  vUV = vec2(dot(aCentre, uU), dot(aCentre, uV)) + aCorner * length(aHalf);
+  vCentre = aCentre;
+  vHalf = aHalf;
+  gl_Position = vec4((vUV.x - uBox.x) / uBox.z * 2.0 - 1.0, (vUV.y - uBox.y) / uBox.w * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const BOXES_FRAG = `
+#extension GL_EXT_frag_depth : enable
+precision highp float;
+uniform vec3 uU;
+uniform vec3 uV;
+uniform vec3 uL;
+uniform vec2 uDRange;
+varying vec2 vUV;
+varying vec3 vCentre;
+varying vec3 vHalf;
+void main() {
+  // a ray from the sun's side down through this texel, against the box (slab by slab)
+  float top = uDRange.x + uDRange.y;
+  vec3 o = vUV.x * uU + vUV.y * uV + top * uL - vCentre, d = -uL;
+  vec3 inv = 1.0 / (d + vec3(equal(d, vec3(0.0))) * 1e-6);
+  vec3 a = (-vHalf - o) * inv, b = (vHalf - o) * inv;
+  vec3 lo = min(a, b), hi = max(a, b);
+  float t0 = max(max(lo.x, lo.y), lo.z), t1 = min(min(hi.x, hi.y), hi.z);
+  if (t0 > t1 || t1 < 0.0) discard;
+  float n = clamp((top - t0 - uDRange.x) / uDRange.y, 0.0, 1.0);
+  float q = floor(n * 65535.0);
+  gl_FragColor = vec4(floor(q / 256.0) / 255.0, mod(q, 256.0) / 255.0, ${Math.floor(BOX_ID / 256)}.0 / 255.0, ${BOX_ID % 256}.0 / 255.0);
+  gl_FragDepthEXT = 1.0 - n;
+}`;
+
 const COMP_VERT = `
 precision highp float;
 attribute vec2 aCorner;
@@ -301,6 +359,11 @@ export class Cards {
   private readonly verts: WebGLBuffer;
   private readonly indices: WebGLBuffer;
   private readonly balls: WebGLBuffer;
+  private readonly boxesProg: WebGLProgram;
+  private readonly boxBuf: WebGLBuffer;
+  /** Which tiles have a box (a texel a tile). */
+  private readonly boxTiles: WebGLTexture;
+  private boxData = new Float32Array(0);
   private readonly scratch = new Float32Array(MAX_QUADS * 4 * STRIDE);
   /** A texture for the units a picture has nothing for. */
   private readonly blank: WebGLTexture;
@@ -350,6 +413,11 @@ export class Cards {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
     this.verts = gl.createBuffer()!;
     this.balls = gl.createBuffer()!;
+    this.boxesProg = program(gl, BOXES_VERT, BOXES_FRAG);
+    this.boxBuf = gl.createBuffer()!;
+    const tiles = new Uint8Array(MAP_W * MAP_H);
+    for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) if (casterBox(tx, ty)) tiles[ty * MAP_W + tx] = 255;
+    this.boxTiles = this.renderer.createTexture2D(0, gl.NEAREST, gl.NEAREST, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE, gl.LUMINANCE, tiles, MAP_W, MAP_H, false, false, false).webGLTexture!;
     // each card two triangles: top left, bottom left, bottom right; top left, bottom right, top right
     const idx = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) idx.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
@@ -492,6 +560,18 @@ export class Cards {
     }
     this.ballData = new Float32Array(data);
     this.ballCount = data.length / 8;
+    // the tiles' boxes that fall in it (their shadows reach as far as the sun is low)
+    const boxes: number[] = [], reach = 40 / Math.tan(Math.max(MIN_EL, light.elevation) * RAD);
+    const tx0 = Math.max(0, Math.floor((view.x - reach) / TILE)), tx1 = Math.min(MAP_W - 1, Math.floor((view.right + reach) / TILE));
+    const ty0 = Math.max(0, Math.floor((view.y - reach) / TILE)), ty1 = Math.min(MAP_H - 1, Math.floor((view.bottom + reach) / TILE));
+    for (let ty = ty0; ty <= ty1; ty++)
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const b = casterBox(tx, ty);
+        if (!b) continue;
+        const [l, t, r, bt, h] = b;
+        for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [-1, 1], [1, -1], [1, 1]]) boxes.push(cx, cy, (l + r) / 2, (t + bt) / 2, h / 2, (r - l) / 2, (bt - t) / 2, h / 2);
+      }
+    this.boxData = new Float32Array(boxes);
     this.shadowDrawn = false;
   }
 
@@ -532,15 +612,29 @@ export class Cards {
     gl.depthFunc(gl.LESS);
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    if (!this.ballCount || this.strength <= 0) return;
+    if (this.strength <= 0) return;
     gl.useProgram(p);
     this.uniforms(p, { uU: this.U, uV: this.V, uL: this.L, uBox: this.box, uDRange: this.dRange });
     gl.bindBuffer(gl.ARRAY_BUFFER, this.balls);
     gl.bufferData(gl.ARRAY_BUFFER, this.ballData, gl.STREAM_DRAW);
     const locs = [this.attr(p, 'aCorner', 2, 32, 0), this.attr(p, 'aCentre', 3, 32, 2), this.attr(p, 'aRadii', 3, 32, 5)];
-    gl.drawArrays(gl.TRIANGLES, 0, this.ballCount);
+    if (this.ballCount) gl.drawArrays(gl.TRIANGLES, 0, this.ballCount);
     for (const l of locs) gl.disableVertexAttribArray(l);
+    this.drawBoxes();
     this.drawCasters();
+  }
+
+  /** The tiles' boxes into the shadow map. */
+  private drawBoxes(): void {
+    if (!this.boxData.length) return;
+    const gl = this.gl, p = this.boxesProg;
+    gl.useProgram(p);
+    this.uniforms(p, { uU: this.U, uV: this.V, uL: this.L, uBox: this.box, uDRange: this.dRange });
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.boxBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, this.boxData, gl.STREAM_DRAW);
+    const locs = [this.attr(p, 'aCorner', 2, 32, 0), this.attr(p, 'aCentre', 3, 32, 2), this.attr(p, 'aHalf', 3, 32, 5)];
+    gl.drawArrays(gl.TRIANGLES, 0, this.boxData.length / 8);
+    for (const l of locs) gl.disableVertexAttribArray(l);
   }
 
   /** Everything standing, but the trees, into the shadow map: its card, turned to face the sun. */
@@ -704,6 +798,7 @@ export class Cards {
     gl.useProgram(p);
     this.unit(2, syncRamps(this.renderer).webGLTexture!, 'uRamps');
     this.unit(4, this.shadow!.tex, 'uShadow');
+    this.unit(6, this.boxTiles, 'uBoxTiles');
     this.uniforms(p, {
       uTarget: [this.ox, this.oy, this.w, this.h], uView: [this.ox, this.oy, 1], uSun: paintLight.sun, uRimDir: paintLight.rimDir, uRim: paintLight.rim,
       uGround: ground ? 1 : 0, uDepthRange: [this.oy, 1 / 4096], uU: this.U, uV: this.V, uL: this.L, uBox: this.box, uDRange: this.dRange,

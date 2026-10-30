@@ -94,6 +94,8 @@ export class Trees {
   private readonly live = new Map<number, Live>();
   private readonly cells = new Map<number, number[]>();
   private readonly watchers: TreeWatcher[] = [];
+  /** Drawn as cards (game/Cards.ts cuts them itself, and needs no trunk and branches over a hole up one). */
+  cards = false;
   private readonly painter: Painter;
   /** Trees asked of the painter and not back yet. */
   private readonly asked = new Set<number>();
@@ -205,12 +207,12 @@ export class Trees {
       t.cutBase = base;
       t.cutFrontAs = front;
       if (cut !== t.cut) {
-        cutIn(t.base.img, base);
+        if (!this.cards) cutIn(t.base.img, base);
         for (const wt of this.watchers) wt.holed(i, base);
       }
-      if (t.front && cutFront !== t.cutFront) cutIn(t.front.img, front);
+      if (t.front && cutFront !== t.cutFront && !this.cards) cutIn(t.front.img, front);
       // (up it, its trunk and branches over the hole in it)
-      if (t.open > 0 && !t.mid && p.mid) t.mid = this.pic(`tree-mid-${i}`, p.mid.raster, p.mid.lit, p.x, p.y, p.depthY + MIDDLE);
+      if (t.open > 0 && !t.mid && p.mid && !this.cards) t.mid = this.pic(`tree-mid-${i}`, p.mid.raster, p.mid.lit, p.x, p.y, p.depthY + MIDDLE);
       else if (t.open === 0 && t.mid) this.unpic(t, 'mid', `tree-mid-${i}`);
       t.cut = cut;
       t.cutFront = cutFront;

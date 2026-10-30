@@ -91,10 +91,11 @@ export class Shadows {
   /** 0 at night, 1 in full sun: how strong cast shadows are (soft ones take over as it fades). */
   strength = 0;
   /** Whether it casts the sun's shadows at all (not when game/Cards.ts does, from its shadow map): else only the night's soft ones. */
-  cast = true;
+  readonly cast: boolean;
 
-  constructor(scene: Phaser.Scene, opts: { casters: Caster[]; blobs: { x: number; y: number; w: number; h: number; depth: number }[] }) {
+  constructor(scene: Phaser.Scene, opts: { casters: Caster[]; blobs: { x: number; y: number; w: number; h: number; depth: number }[]; cast: boolean }) {
     this.scene = scene;
+    this.cast = opts.cast;
     this.map = scene.add.renderTexture(0, 0, 64, 64).setOrigin(0).setDepth(-99993).setVisible(false)
       .setTint(Phaser.Display.Color.GetColor(COLOUR[0], COLOUR[1], COLOUR[2]));
     this.prisms = scene.make.graphics({}, false);
@@ -107,7 +108,7 @@ export class Shadows {
 
     // each caster's picture as a texture (shared by those with the same picture), cut at its cap
     const keys = new Map<CanvasImageSource, string>();
-    for (const c of opts.casters) {
+    for (const c of opts.cast ? opts.casters : []) {
       let key = keys.get(c.src);
       if (!key) {
         key = `shadow-src-${keys.size}`;
