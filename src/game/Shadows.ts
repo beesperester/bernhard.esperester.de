@@ -90,6 +90,8 @@ export class Shadows {
   private near: TreePlan[] = [];
   /** 0 at night, 1 in full sun: how strong cast shadows are (soft ones take over as it fades). */
   strength = 0;
+  /** Whether it casts the sun's shadows at all (not when game/Cards.ts does, from its shadow map): else only the night's soft ones. */
+  cast = true;
 
   constructor(scene: Phaser.Scene, opts: { casters: Caster[]; blobs: { x: number; y: number; w: number; h: number; depth: number }[] }) {
     this.scene = scene;
@@ -157,10 +159,10 @@ export class Shadows {
     const el = light.elevation;
     this.strength = Math.max(0, Math.min(1, el / 10)) * (1 - overcast * 0.85);
     const sun = this.strength > 0.01;
-    this.map.setVisible(sun).setAlpha(ALPHA * this.strength);
+    this.map.setVisible(sun && this.cast).setAlpha(ALPHA * this.strength);
     const soft = 0.08 + 0.42 * (1 - this.strength);
     for (const b of this.blobs) b.setAlpha(soft);
-    if (!sun) {
+    if (!sun || !this.cast) {
       this.near = [];
       return;
     }

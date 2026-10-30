@@ -165,7 +165,7 @@ export class GardenScene extends Phaser.Scene {
   private rims!: RimLight;
   private lanterns!: Lanterns;
   private shadows!: Shadows;
-  /** SPIKE: the world as cards in 3D (?cards). */
+  /** The world drawn as cards in 3D, with a depth buffer and a sun shadow map (?flat: by Phaser, sorted). */
   private cards: Cards | null = null;
   private nightWater!: NightWater;
   private nextReflection = 0;
@@ -312,11 +312,15 @@ export class GardenScene extends Phaser.Scene {
     this.lanterns = new Lanterns(this, this.glows, this.lightMap);
     this.lilies = new Lilies(this, toCanvas, this.glows);
     this.shadows = this.makeShadows(furniture);
-    if (params.has('cards')) this.cards = new Cards(this, { ground: this.ground, trees: this.trees, shadows: this.shadows });
+    if (!params.has('flat')) {
+      this.cards = new Cards(this, { ground: this.ground, trees: this.trees });
+      this.shadows.cast = false;
+    }
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
     this.lighting = new Lighting();
-    catLight.shade = (x, y) => this.shadows.shadeAt(x, y);
+    // (drawn as cards, cats take the sun's shadow from its shadow map)
+    catLight.shade = (x, y) => (this.cards ? 0 : this.shadows.shadeAt(x, y));
     catLight.seeThrough = (x, y, depth) => this.trees.seeThrough(x, y, depth);
     catLight.lostIn = (x, y, z) => z < 6 && undergrowthAt(x, y) && Math.hypot(x - this.me.x, y - this.me.y) > SEEN_IN_UNDERGROWTH;
     sight.through = catLight.seeThrough;
@@ -667,7 +671,7 @@ export class GardenScene extends Phaser.Scene {
     const overcast = Math.min(1, rainfall(gt) * 1.4);
     this.rims.update(overcast ? { ...light, rim: light.rim * (1 - overcast * 0.85) } : light);
     this.shadows.update(light, cats, overcast, view);
-    this.cards?.update(view, cats, this.me, light, overcast);
+    this.cards?.update(view, light, overcast);
     catLight.soft = 0.06 + 0.2 * (1 - this.shadows.strength);
     catLight.rim = this.rims.strength;
     catLight.rimColour = this.rims.colour;

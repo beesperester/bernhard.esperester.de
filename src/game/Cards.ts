@@ -2,32 +2,36 @@ import Phaser from 'phaser';
 import { Kind, ramps } from '../art/painted.ts';
 import { paintedMaps, type Prop } from '../art/trees.ts';
 import type { Light } from '../world/sky.ts';
-import { TREES, treeHolding } from '../world/trees.ts';
-import type { CatView } from './CatView.ts';
+import { TREES } from '../world/trees.ts';
+import { FADE_GLSL } from '../art/fade.ts';
 import { HEADER, MAX_LAMPS, paintLight, syncRamps } from './Painted.ts';
+import type { Cut } from './HoleFilter.ts';
 
-// SPIKE (?cards): the world drawn as cards in 3D, to see what it buys us.
+// The world drawn as cards in 3D. Everything standing in it (trees, plants,
+// furniture, follies, fauna, cats) is a card upright at its foot, and the
+// ground lies under them; a depth buffer, not sorting, decides what's in
+// front. The view is the slanted one the art is drawn for (a pixel h high
+// is drawn h px up the screen), so every picture lands 1:1 on the screen.
 //
-// The ground, the trees and the cats are not drawn as Phaser images sorted
-// by depth, but by our own renderer, with a depth buffer: every card stands
-// upright at its foot, and its pixels lie at their foot's depth, or, on a
-// tree, at the depth of the leaves there (in front of the trunk or behind
-// it, as the crown's balls are round). The view is the same slanted one as
-// ever (a pixel h high is drawn h px up the screen), so the art lands 1:1.
+// A card's pixels lie at its depth (Phaser's depth: its foot's y, give or
+// take); on a tree they lie at the depth of the leaves there, in front of
+// the trunk or behind it, as its crown's balls are round. Pictures with no
+// soft edges are drawn in any order, batched by texture; those that are see-
+// through (fading, glowing) after them, back to front.
 //
-// The sun's shadows come from a shadow map: the crowns' balls drawn from the
-// sun, as ellipsoids, into a map of how near the sun each is; everything
-// drawn looks itself up in it, the ground, the trees and the cats alike, and
-// a tree's leaves ignore the shadow of their own crown (its ramps shade it).
+// The sun's shadows come from a shadow map: the crowns' balls and trunks
+// drawn from the sun, as ellipsoids, and everything else standing as its
+// card turned to face the sun, into a map of how near the sun each is;
+// everything drawn looks itself up in it, ignoring its own shadow (a tree's
+// leaves their own crown's: its ramps shade it). Where a tree stands in front of your
+// cat, it opens round it (game/Trees.ts says how far; art/fade.ts how), in
+// the shader.
 //
-// Where leaves stand in front of your cat, round it, they are dithered away
-// in the shader.
-//
-// (Phaser's externs hand the GL context over and take it back round their render().)
-//
-// Two passes, as Phaser externs: the ground (under everything Phaser still
-// draws), and the trees and cats (over it all: furniture, fauna and water
-// are still Phaser's, and not sorted against the trees yet).
+// It takes over Phaser's pictures: they are kept up to date as ever by
+// their systems, but hidden from the camera, and drawn here instead, in two
+// passes (Phaser externs, which hand over the GL context and take it back):
+// the ground, under what lies on it (water, reflections), and all that
+// stands, over that. (?flat: Phaser draws them, sorted, as it used to.)
 
 const RAD = Math.PI / 180;
 const MIN_EL = 15;
@@ -39,42 +43,48 @@ const MAP = 1024;
 const TALL = 340;
 /** Depths: a card's pixels are this far (px) either side of its foot, at most. */
 const OFF = 512;
-/** The hole round your cat in leaves in front of it (px). */
-const HOLE_R = 64;
+/** Phaser's depths: the ground's pieces, and what stands (between these). */
+const GROUND = -100000, STANDING = [-1000, 89000] as const;
+/** The passes' places among Phaser's. */
+const GROUND_PASS = -99999.5, STANDING_PASS = 89500;
+/** Floats per vertex: x, y, u, v; foot, depth, id, alpha; tint r, g, b, mode. */
+const STRIDE = 12;
+/** At most this many cards in one draw. */
+const MAX_QUADS = 16384;
 
-/** What one card is drawn with: its textures, where it is, and its depth. */
-interface Card {
+type Pic = Phaser.GameObjects.Image | Phaser.GameObjects.Sprite;
+
+/** Pictures drawn together: on one texture, and alike. */
+interface Batch {
   main: WebGLTexture;
-  normal: WebGLTexture;
+  normal: WebGLTexture | null;
   depth: WebGLTexture | null;
-  /** Its picture's top-left corner and size (world px, as drawn). */
-  x: number; y: number; w: number; h: number;
-  /** Its frame on the texture (u0, v0 top left; u1, v1 bottom right) and the texture's size. */
-  u0: number; v0: number; u1: number; v1: number;
-  tw: number; th: number;
-  /** Ground y of its foot; and its depth there. */
-  foot: number;
-  base: number;
-  /** In the shadow map, the id of what it is (0: nothing), and whether it takes its own shadow too. */
-  id: number;
-  self: boolean;
-  /** A tree's leaves (fade round your cat). */
-  leaves: boolean;
+  tw: number;
+  th: number;
+  pics: Pic[];
+  /** A tree's (its foot's y, its id in the shadow map, and how it's cut round your cat), or anything else's (its own depth, id 0). */
+  tree: { foot: number; id: number; cut: Cut | null } | null;
 }
+
+/** A see-through picture: drawn in order, its blend mode, alone or with those next to it alike. */
+interface Soft { pic: Pic; main: WebGLTexture; normal: WebGLTexture | null; tw: number; th: number }
 
 const VERT = `
 precision highp float;
-attribute vec2 aCorner;
-uniform vec4 uRect;
-uniform vec4 uFrame;
+attribute vec4 aPos;
+attribute vec4 aInfo;
+attribute vec4 aTint;
 uniform vec4 uTarget;
 varying vec2 vTex;
 varying vec2 outView;
+varying vec4 vInfo;
+varying vec4 vTint;
 void main() {
-  vec2 w = uRect.xy + aCorner * uRect.zw;
-  outView = w - uTarget.xy;
-  vTex = mix(uFrame.xy, uFrame.zw, aCorner);
-  gl_Position = vec4((w.x - uTarget.x) / uTarget.z * 2.0 - 1.0, 1.0 - (w.y - uTarget.y) / uTarget.w * 2.0, 0.0, 1.0);
+  outView = aPos.xy - uTarget.xy;
+  vTex = aPos.zw;
+  vInfo = aInfo;
+  vTint = aTint;
+  gl_Position = vec4(outView.x / uTarget.z * 2.0 - 1.0, 1.0 - outView.y / uTarget.w * 2.0, 0.0, 1.0);
 }`;
 
 const FRAG = `
@@ -85,59 +95,67 @@ uniform vec2 uTexRes;
 vec2 getTexRes() { return uTexRes; }
 varying vec2 vTex;
 varying vec2 outView;
+varying vec4 vInfo;
+varying vec4 vTint;
 ${HEADER}
 uniform sampler2D uDepth;
 uniform float uHasDepth;
+uniform float uPainted;
 uniform float uGround;
-uniform float uFoot;
-uniform float uBase;
+uniform float uSoft;
+uniform float uShade;
 uniform vec2 uDepthRange;
-uniform vec4 uHole;
-uniform float uLeaves;
+float m2(vec2 p) { return mod(2.0 * p.x + 3.0 * p.y, 4.0); }
+float bayer(vec2 p) {
+  vec2 a = mod(p, 4.0);
+  return (4.0 * m2(mod(a, 2.0)) + m2(floor(a / 2.0)) + 0.5) / 16.0;
+}
+${FADE_GLSL}
+uniform float uCut;
+uniform sampler2D uPuffs;
+uniform float uPuffed;
+uniform vec4 uPuffUV;
+uniform vec4 uPicRect;
 uniform sampler2D uShadow;
 uniform vec3 uU;
 uniform vec3 uV;
 uniform vec3 uL;
 uniform vec4 uBox;
 uniform vec2 uDRange;
-uniform float uId;
-uniform float uSelf;
 uniform float uStrength;
-float bayer4(vec2 p) {
-  vec2 q = mod(floor(p), 4.0);
-  float a = mod(q.x, 2.0), b = mod(q.y, 2.0), c = floor(q.x / 2.0), d = floor(q.y / 2.0);
-  float v = 8.0 * mod(a + b, 2.0) + 4.0 * b + 2.0 * mod(c + d, 2.0) + d;
-  return (v + 0.5) / 16.0;
-}
 void main() {
   vec4 c = texture2D(uMainSampler[0], vTex);
-  if (c.a < 0.5) discard;
+  float alpha = vInfo.w;
+  if (uSoft < 0.5 ? c.a < 0.5 : c.a * alpha < 0.004) discard;
   vec2 world = uView.xy + outView;
   float off = 0.0;
   if (uHasDepth > 0.5) {
     vec4 d = texture2D(uDepth, vTex);
     off = floor(d.r * 255.0 + 0.5) * 4.0 + floor(d.g * 255.0 + 0.5) / 64.0 - ${OFF}.0;
   }
-  float D = uBase + off;
-  if (uGround < 0.5) {
-    // leaves in front of your cat, round it, dithered away
-    if (uLeaves > 0.5 && D > uHole.w + 1.0) {
-      float k = length(world - uHole.xy) / uHole.z;
-      if (k < 1.0 && bayer4(world) > (k - 0.7) * 3.3) discard;
-    }
-    gl_FragDepthEXT = clamp(0.5 - (D - uDepthRange.x) * uDepthRange.y, 0.0, 1.0);
+  float foot = vInfo.x, D = vInfo.y + off;
+  // a tree cut round your cat: what's in the hole left out, a puff of leaves at a time, and the rest thinned
+  if (uCut > 0.5) {
+    vec2 w = floor(world);
+    vec4 puff = uPuffed > 0.5 ? texture2D(uPuffs, mix(uPuffUV.xy, uPuffUV.zw, (w + 0.5 - uPicRect.xy) / uPicRect.zw)) : vec4(0.0);
+    if (!shows(w, puff)) discard;
   }
-  vec4 col = painted(c, vTex);
+  gl_FragDepthEXT = clamp(0.5 - (D - uDepthRange.x) * uDepthRange.y, 0.0, 1.0);
+  vec4 col = uPainted > 0.5 ? painted(c, vTex) : c;
+  // tinted: multiplied, or filled
+  col.rgb = vTint.w > 0.5 ? vTint.rgb * col.a : col.rgb * vTint.rgb;
   // the sun's shadow: what is nearer the sun than this pixel, along its ray
-  vec3 P = vec3(world.x, uGround > 0.5 ? world.y : uFoot + off, uGround > 0.5 ? 0.0 : uFoot - world.y);
-  vec2 st = vec2((dot(P, uU) - uBox.x) / uBox.z, (dot(P, uV) - uBox.y) / uBox.w);
-  if (uStrength > 0.0 && st.x > 0.0 && st.y > 0.0 && st.x < 1.0 && st.y < 1.0) {
-    vec4 s = texture2D(uShadow, st);
-    float sd = uDRange.x + (floor(s.r * 255.0 + 0.5) * 256.0 + floor(s.g * 255.0 + 0.5)) / 65535.0 * uDRange.y;
-    float id = floor(s.b * 255.0 + 0.5);
-    if (id > 0.5 && (uSelf > 0.5 || abs(id - uId) > 0.5) && sd > dot(P, uL) + 2.0) col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}), ${ALPHA} * uStrength);
+  if (uShade > 0.5 && uStrength > 0.0) {
+    vec3 P = uGround > 0.5 ? vec3(world, 0.0) : vec3(world.x, foot + off, foot - world.y);
+    vec2 st = vec2((dot(P, uU) - uBox.x) / uBox.z, (dot(P, uV) - uBox.y) / uBox.w);
+    if (st.x > 0.0 && st.y > 0.0 && st.x < 1.0 && st.y < 1.0) {
+      vec4 s = texture2D(uShadow, st);
+      float sd = uDRange.x + (floor(s.r * 255.0 + 0.5) * 256.0 + floor(s.g * 255.0 + 0.5)) / 65535.0 * uDRange.y;
+      float id = floor(s.b * 255.0 + 0.5) * 256.0 + floor(s.a * 255.0 + 0.5);
+      if (id > 0.5 && abs(id - vInfo.z) > 0.5 && sd > dot(P, uL) + 2.0) col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}) * col.a, ${ALPHA} * uStrength);
+    }
   }
-  gl_FragColor = vec4(col.rgb, 1.0);
+  gl_FragColor = uSoft > 0.5 ? col * alpha : vec4(col.rgb, 1.0);
 }`;
 
 /** The crowns' balls drawn from the sun: each a square in the sun's view, and in it the ellipsoid, at its depth. */
@@ -181,8 +199,41 @@ void main() {
   float t = (-b - sqrt(disc)) / (2.0 * a);
   float n = clamp((top - t - uDRange.x) / uDRange.y, 0.0, 1.0);
   float q = floor(n * 65535.0);
-  gl_FragColor = vec4(floor(q / 256.0) / 255.0, mod(q, 256.0) / 255.0, vRadii.z / 255.0, 1.0);
+  gl_FragColor = vec4(floor(q / 256.0) / 255.0, mod(q, 256.0) / 255.0, floor(vRadii.z / 256.0) / 255.0, mod(vRadii.z, 256.0) / 255.0);
   gl_FragDepthEXT = 1.0 - n;
+}`;
+
+/** Standing pictures drawn from the sun: each card stood at its foot (its pixels as high above it as they're drawn up), turned to face the sun. */
+const CAST_VERT = `
+precision highp float;
+attribute vec4 aPos;
+attribute vec4 aInfo;
+attribute vec4 aTint;
+uniform vec3 uU;
+uniform vec3 uV;
+uniform vec3 uL;
+uniform vec4 uBox;
+uniform vec2 uDRange;
+varying vec2 vTex;
+varying float vId;
+void main() {
+  vec3 P = vec3(aTint.x, aInfo.x, aInfo.x - aPos.y) + (aPos.x - aTint.x) * uU;
+  vTex = aPos.zw;
+  vId = aInfo.z;
+  vec2 s = vec2(dot(P, uU), dot(P, uV));
+  float n = clamp((dot(P, uL) - uDRange.x) / uDRange.y, 0.0, 1.0);
+  gl_Position = vec4((s.x - uBox.x) / uBox.z * 2.0 - 1.0, (s.y - uBox.y) / uBox.w * 2.0 - 1.0, 1.0 - 2.0 * n, 1.0);
+}`;
+
+const CAST_FRAG = `
+precision highp float;
+uniform sampler2D uTex;
+varying vec2 vTex;
+varying float vId;
+void main() {
+  if (texture2D(uTex, vTex).a < 0.5) discard;
+  float q = floor(clamp(1.0 - gl_FragCoord.z, 0.0, 1.0) * 65535.0);
+  gl_FragColor = vec4(floor(q / 256.0) / 255.0, mod(q, 256.0) / 255.0, floor(vId / 256.0) / 255.0, mod(vId, 256.0) / 255.0);
 }`;
 
 const COMP_VERT = `
@@ -205,26 +256,35 @@ interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; depth: WebGLRenderbu
 
 export class Cards {
   private readonly scene: Phaser.Scene;
-  private readonly src: { ground: unknown; trees: unknown; shadows: unknown };
+  private readonly src: { ground: unknown; trees: unknown };
   private readonly gl: WebGLRenderingContext;
   private readonly renderer: Phaser.Renderer.WebGL.WebGLRenderer;
   private readonly prog: WebGLProgram;
   private readonly shadowProg: WebGLProgram;
+  private readonly castProg: WebGLProgram;
   private readonly compProg: WebGLProgram;
   private readonly quad: WebGLBuffer;
+  private readonly verts: WebGLBuffer;
+  private readonly indices: WebGLBuffer;
   private readonly balls: WebGLBuffer;
+  private readonly scratch = new Float32Array(MAX_QUADS * 4 * STRIDE);
+  /** A texture for the units a picture has nothing for. */
+  private readonly blank: WebGLTexture;
   private ground: Target | null = null;
   private things: Target | null = null;
   private shadow: Target | null = null;
   private readonly depths = new WeakMap<object, WebGLTexture>();
-  /** This frame: the view's corner and size (whole world px), the cards, and the sun. */
+  /** This frame: the view's corner and size (whole world px), and what's drawn. */
   private ox = 0;
   private oy = 0;
   private w = 0;
   private h = 0;
-  private groundCards: Card[] = [];
-  private cards: Card[] = [];
-  private hole = [0, 0, 0, -1e9];
+  private readonly groundBatches = new Map<WebGLTexture, Batch>();
+  private readonly batches = new Map<WebGLTexture, Batch>();
+  private treeBatches: Batch[] = [];
+  private softs: Soft[] = [];
+  /** Each standing picture's id in the shadow map (after the trees'). */
+  private readonly ids = new Map<Pic, number>();
   private strength = 0;
   private U = [1, 0, 0];
   private V = [0, 1, 0];
@@ -234,10 +294,11 @@ export class Cards {
   private ballData = new Float32Array(0);
   private ballCount = 0;
   private shadowDrawn = false;
-  /** Draw-time ms of the last few frames (both passes), for measuring. */
+  private locs: number[] = [];
+  /** ms of CPU the passes took, the last few frames (for measuring). */
   readonly ms: number[] = [];
 
-  constructor(scene: Phaser.Scene, src: { ground: unknown; trees: unknown; shadows: unknown }) {
+  constructor(scene: Phaser.Scene, src: { ground: unknown; trees: unknown }) {
     this.scene = scene;
     this.src = src;
     this.renderer = scene.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
@@ -245,83 +306,87 @@ export class Cards {
     if (!gl.getExtension('EXT_frag_depth')) throw new Error('cards: no EXT_frag_depth');
     this.prog = program(gl, VERT, FRAG);
     this.shadowProg = program(gl, SHADOW_VERT, SHADOW_FRAG);
+    this.castProg = program(gl, CAST_VERT, CAST_FRAG);
     this.compProg = program(gl, COMP_VERT, COMP_FRAG);
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
+    this.verts = gl.createBuffer()!;
     this.balls = gl.createBuffer()!;
-    const ground = scene.add.extern().setDepth(-99999.5);
+    // each card two triangles: top left, bottom left, bottom right; top left, bottom right, top right
+    const idx = new Uint16Array(MAX_QUADS * 6);
+    for (let q = 0; q < MAX_QUADS; q++) idx.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
+    this.indices = gl.createBuffer()!;
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indices);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    this.blank = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.blank);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    const ground = scene.add.extern().setDepth(GROUND_PASS);
     (ground as unknown as { render: () => void }).render = () => this.drawGround();
-    const things = scene.add.extern().setDepth(90000);
+    const things = scene.add.extern().setDepth(STANDING_PASS);
     (things as unknown as { render: () => void }).render = () => this.drawThings();
   }
 
-  /** Gather what's drawn this frame (and hide it from Phaser). */
-  update(view: Phaser.Geom.Rectangle, cats: CatView[], me: CatView, light: Light, overcast: number): void {
+  /** Gather what's drawn this frame (and hide it from Phaser's camera). */
+  update(view: Phaser.Geom.Rectangle, light: Light, overcast: number): void {
     this.ox = Math.floor(view.x);
     this.oy = Math.floor(view.y);
     this.w = Math.ceil(view.right) - this.ox;
     this.h = Math.ceil(view.bottom) - this.oy;
-    const pad = 400;
-    const near = (x: number, y: number, w: number, h: number) => x + w > view.x - pad && x < view.right + pad && y + h > view.y - pad && y < view.bottom + pad;
-
-    // the ground's pieces
-    this.groundCards = [];
-    const pieces = (this.src.ground as { pieces: Map<number, { imgs: Phaser.GameObjects.Image[] }> }).pieces;
-    for (const p of pieces.values())
-      for (const img of p.imgs) {
-        img.setAlpha(0);
-        if (img.visible && near(img.x, img.y, img.width, img.height)) this.groundCards.push(this.cardOf(img, img.y + img.height, -1e6, 0, false, null));
-      }
+    const cam = this.scene.cameras.main.id;
+    const pad = 64, x0 = view.x - pad, x1 = view.right + pad, y0 = view.y - pad, y1 = view.bottom + pad;
+    for (const b of this.groundBatches.values()) b.pics.length = 0;
+    for (const b of this.batches.values()) b.pics.length = 0;
+    this.treeBatches = [];
+    this.softs = [];
+    this.ids.clear();
 
     // the trees: back and front pictures, their leaves at the depth of their crown's balls
-    this.cards = [];
-    const live = (this.src.trees as { live: Map<number, { p: Prop; base: { img: Phaser.GameObjects.Image }; front: { img: Phaser.GameObjects.Image } | null; mid: { img: Phaser.GameObjects.Image } | null }> }).live;
+    // (cut round your cat as game/Trees.ts says; their trunk and branches shown over your cat up one aren't needed here)
+    const trees = new Set<Pic>();
+    const live = (this.src.trees as { live: Map<number, { p: Prop; base: { img: Phaser.GameObjects.Image }; front: { img: Phaser.GameObjects.Image } | null; mid: { img: Phaser.GameObjects.Image } | null; cutBase: Cut | null; cutFrontAs: Cut | null }> }).live;
     for (const [i, t] of live) {
-      const t3 = TREES[i];
+      if (t.mid) trees.add(t.mid.img);
       for (const which of ['base', 'front'] as const) {
         const pic = t[which];
         if (!pic) continue;
-        pic.img.setAlpha(0);
-        if (!near(pic.img.x, pic.img.y, pic.img.width, pic.img.height)) continue;
+        const img = pic.img;
+        trees.add(img);
+        if (img.x + img.width < x0 || img.x > x1 || img.y + img.height < y0 || img.y > y1) continue;
         const r = which === 'base' ? t.p.raster : t.p.front!.raster, lit = which === 'base' ? t.p.lit : t.p.front!.lit;
-        let depth = this.depths.get(pic.img);
-        if (!depth) this.depths.set(pic.img, (depth = this.treeDepth(i, r, lit, pic.img.x, pic.img.y, which === 'front')));
-        this.cards.push(this.cardOf(pic.img, t3.y, t3.y, (i % 254) + 1, true, depth));
+        let depth = this.depths.get(img);
+        if (!depth) this.depths.set(img, (depth = this.treeDepth(i, r, lit, img.x, img.y, which === 'front')));
+        const src = img.frame.source;
+        this.treeBatches.push({ main: src.glTexture!.webGLTexture!, normal: normalOf(img), depth, tw: src.width, th: src.height, pics: [img], tree: { foot: TREES[i].y, id: i + 1, cut: which === 'base' ? t.cutBase : t.cutFrontAs } });
       }
-      t.mid?.img.setAlpha(0);
     }
 
-    // the cats
-    for (const cat of cats) {
-      const c = cat as unknown as { sprite: Phaser.GameObjects.Sprite; rim: Phaser.GameObjects.Image; shadow: Phaser.GameObjects.Image };
-      const s = c.sprite;
-      const seen = s.alpha;
-      s.setAlpha(0);
-      c.rim.setVisible(false);
-      if (!s.visible || seen <= 0) continue;
-      const card = this.cardOf(s, cat.y, cat.depth, 0, true, null);
-      card.leaves = false;
-      this.cards.push(card);
+    // the ground's pieces, and everything standing
+    for (const o of this.scene.children.list) {
+      if (!(o instanceof Phaser.GameObjects.Image) && !(o instanceof Phaser.GameObjects.Sprite)) continue;
+      const d = o.depth;
+      if (d !== GROUND && (d < STANDING[0] || d >= STANDING[1])) continue;
+      o.cameraFilter = cam;
+      if (trees.has(o) || !o.visible || o.alpha <= 0 || !o.frame?.source?.glTexture) continue;
+      const pic = o as Pic, r = Math.max(pic.displayWidth, pic.displayHeight);
+      if (pic.x + r < x0 || pic.x - r > x1 || pic.y + r < y0 || pic.y - r > y1) continue;
+      const src = pic.frame.source, main = src.glTexture!.webGLTexture!;
+      if (d !== GROUND && (pic.alpha < 1 || pic.blendMode !== 0)) {
+        this.softs.push({ pic, main, normal: normalOf(pic), tw: src.width, th: src.height });
+        continue;
+      }
+      const into = d === GROUND ? this.groundBatches : this.batches;
+      let b = into.get(main);
+      if (!b) into.set(main, (b = { main, normal: normalOf(pic), depth: null, tw: src.width, th: src.height, pics: [], tree: null }));
+      b.pics.push(pic);
+      if (d !== GROUND) this.ids.set(pic, Math.min(65535, TREES.length + 1 + this.ids.size));
     }
+    this.softs.sort((a, b) => a.pic.depth - b.pic.depth);
 
-    // your cat: where the leaves in front of it open
-    this.hole = [me.x, me.y - me.z - 8, HOLE_R, treeHolding(me.x, me.y, me.z) >= 0 ? me.depth - 0.5 : me.depth];
-
-    // the sun
-    (this.src.shadows as { map: Phaser.GameObjects.RenderTexture }).map.setVisible(false);
     this.strength = Math.max(0, Math.min(1, light.elevation / 10)) * (1 - overcast * 0.85);
     this.sun(light, view);
-  }
-
-  /** The card of image `img` as drawn now. */
-  private cardOf(img: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite, foot: number, base: number, id: number, self: boolean, depth: WebGLTexture | null): Card {
-    const f = img.frame, src = f.source;
-    const w = img.displayWidth, h = img.displayHeight;
-    const x = img.x - img.displayOriginX * img.scaleX, y = img.y - img.displayOriginY * img.scaleY;
-    const main = src.glTexture!.webGLTexture!;
-    const normal = (img.texture.dataSource[0] as unknown as { glTexture: { webGLTexture: WebGLTexture } }).glTexture.webGLTexture;
-    return { main, normal, depth, x, y, w, h, u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1, tw: src.width, th: src.height, foot, base, id, self, leaves: !!depth };
   }
 
   /** Tree i's picture (r, placed at x, y): how far in front of its trunk (px) each pixel is, as a texture. */
@@ -332,8 +397,7 @@ export class Cards {
         const o = (py * r.w + px) * 4;
         let off = 0;
         const f = normal[o + 3];
-        const leaf = f > 0 && f < 128 && ramps.rows[main[o]]?.kind === Kind.Leaf;
-        if (leaf) {
+        if (f > 0 && f < 128 && ramps.rows[main[o]]?.kind === Kind.Leaf) {
           // the surface of the crown's balls here: in front, or (the leaves at the back) behind
           const xr = x + px - t.x, hz = t.y - (y + py);
           let best = 0;
@@ -381,8 +445,10 @@ export class Cards {
       for (const b of t.crown) {
         const C = [t.x + b.x, t.y, b.z], u = dot(C, U), v = dot(C, V), r = Math.max(b.rx, b.rz);
         if (u + r < u0 || u - r > u1 || v + r < v0 || v - r > v1) continue;
-        for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [-1, 1], [1, -1], [1, 1]]) data.push(cx, cy, C[0], C[1], C[2], b.rx, b.rz, (i % 254) + 1);
+        for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [-1, 1], [1, -1], [1, 1]]) data.push(cx, cy, C[0], C[1], C[2], b.rx, b.rz, i + 1);
       }
+      // its trunk: widest at its foot, up to where it parts
+      for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [-1, 1], [1, -1], [1, 1]]) data.push(cx, cy, t.x, t.y, 0, t.trunk, t.fork, i + 1);
     }
     this.ballData = new Float32Array(data);
     this.ballCount = data.length / 8;
@@ -431,22 +497,52 @@ export class Cards {
     this.uniforms(p, { uU: this.U, uV: this.V, uL: this.L, uBox: this.box, uDRange: this.dRange });
     gl.bindBuffer(gl.ARRAY_BUFFER, this.balls);
     gl.bufferData(gl.ARRAY_BUFFER, this.ballData, gl.STREAM_DRAW);
-    const attr = (name: string, size: number, at: number) => {
-      const loc = gl.getAttribLocation(p, name);
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 32, at * 4);
-      return loc;
-    };
-    const locs = [attr('aCorner', 2, 0), attr('aCentre', 3, 2)];
-    // (radii and id in one vec3)
-    locs.push(attr('aRadii', 3, 5));
+    const locs = [this.attr(p, 'aCorner', 2, 32, 0), this.attr(p, 'aCentre', 3, 32, 2), this.attr(p, 'aRadii', 3, 32, 5)];
     gl.drawArrays(gl.TRIANGLES, 0, this.ballCount);
     for (const l of locs) gl.disableVertexAttribArray(l);
+    this.drawCasters();
+  }
+
+  /** Everything standing, but the trees, into the shadow map: its card, turned to face the sun. */
+  private drawCasters(): void {
+    const gl = this.gl, p = this.castProg, out = this.scratch;
+    gl.useProgram(p);
+    this.uniforms(p, { uU: this.U, uV: this.V, uL: this.L, uBox: this.box, uDRange: this.dRange });
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(gl.getUniformLocation(p, 'uTex'), 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.verts);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indices);
+    const locs = [this.attr(p, 'aPos', 4, STRIDE * 4, 0), this.attr(p, 'aInfo', 4, STRIDE * 4, 4), this.attr(p, 'aTint', 4, STRIDE * 4, 8)];
+    for (const b of this.batches.values()) {
+      if (!b.pics.length) continue;
+      gl.bindTexture(gl.TEXTURE_2D, b.main);
+      for (let start = 0; start < b.pics.length; start += MAX_QUADS) {
+        const n = Math.min(MAX_QUADS, b.pics.length - start);
+        for (let k = 0; k < n; k++) {
+          const pic = b.pics[start + k], at = k * 4 * STRIDE;
+          writeQuad(out, at, pic, pic.depth, pic.depth, this.ids.get(pic) ?? 0);
+          // the card turns round its middle
+          const mid = (out[at] + out[at + STRIDE] + out[at + 2 * STRIDE] + out[at + 3 * STRIDE]) / 4;
+          for (let c = 0; c < 4; c++) out[at + c * STRIDE + 8] = mid;
+        }
+        gl.bufferData(gl.ARRAY_BUFFER, out.subarray(0, n * 4 * STRIDE), gl.STREAM_DRAW);
+        gl.drawElements(gl.TRIANGLES, n * 6, gl.UNSIGNED_SHORT, 0);
+      }
+    }
+    for (const l of locs) gl.disableVertexAttribArray(l);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+  }
+
+  private attr(p: WebGLProgram, name: string, size: number, stride: number, at: number): number {
+    const gl = this.gl, loc = gl.getAttribLocation(p, name);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride, at * 4);
+    return loc;
   }
 
   private drawGround(): void {
-    const t0 = performance.now();
-    const gl = this.gl, back = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, vp = gl.getParameter(gl.VIEWPORT) as Int32Array;
+    const t0 = performance.now(), gl = this.gl;
+    const back = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, vp = gl.getParameter(gl.VIEWPORT) as Int32Array;
     this.drawShadow();
     this.ground = this.target(this.ground, this.w, this.h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.ground.fb);
@@ -456,14 +552,16 @@ export class Cards {
     gl.disable(gl.DEPTH_TEST);
     gl.depthMask(false);
     gl.disable(gl.BLEND);
-    this.drawCards(this.groundCards, true);
+    this.begin(true);
+    for (const b of this.groundBatches.values()) this.drawBatch(b, false);
+    this.end();
     this.composite(this.ground.tex, back, vp, false);
     this.ms.push(performance.now() - t0);
   }
 
   private drawThings(): void {
-    const t0 = performance.now();
-    const gl = this.gl, back = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, vp = gl.getParameter(gl.VIEWPORT) as Int32Array;
+    const t0 = performance.now(), gl = this.gl;
+    const back = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, vp = gl.getParameter(gl.VIEWPORT) as Int32Array;
     this.drawShadow();
     this.things = this.target(this.things, this.w, this.h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.things.fb);
@@ -475,47 +573,92 @@ export class Cards {
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.BLEND);
-    this.drawCards(this.cards, false);
-    gl.disable(gl.DEPTH_TEST);
+    this.begin(false);
+    for (const b of this.treeBatches) this.drawBatch(b, false);
+    for (const b of this.batches.values()) this.drawBatch(b, false);
+    // the see-through ones, back to front, not hiding what's behind them
     gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    const softs = this.softs;
+    for (let i = 0; i < softs.length; ) {
+      const s = softs[i], mode = s.pic.blendMode as number;
+      let j = i + 1;
+      while (j < softs.length && softs[j].main === s.main && softs[j].pic.blendMode === mode) j++;
+      if (mode === Phaser.BlendModes.ADD) gl.blendFunc(gl.ONE, gl.ONE);
+      else if (mode === Phaser.BlendModes.MULTIPLY) gl.blendFunc(gl.DST_COLOR, gl.ONE_MINUS_SRC_ALPHA);
+      else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      this.drawBatch({ main: s.main, normal: s.normal, depth: null, tw: s.tw, th: s.th, pics: softs.slice(i, j).map((x) => x.pic), tree: null }, true, mode !== Phaser.BlendModes.ADD);
+      i = j;
+    }
+    this.end();
+    gl.disable(gl.DEPTH_TEST);
     this.composite(this.things.tex, back, vp, true);
     this.ms[this.ms.length - 1] += performance.now() - t0;
     if (this.ms.length > 240) this.ms.shift();
   }
 
-  private drawCards(cards: Card[], ground: boolean): void {
+  /** Set up the cards' program for a pass. */
+  private begin(ground: boolean): void {
     const gl = this.gl, p = this.prog;
     gl.useProgram(p);
-    const ramp = syncRamps(this.renderer).webGLTexture!;
-    const unit = (n: number, tex: WebGLTexture | null, name: string) => {
-      gl.activeTexture(gl.TEXTURE0 + n);
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.uniform1i(gl.getUniformLocation(p, name), n);
-    };
-    unit(2, ramp, 'uRamps');
-    unit(4, this.shadow!.tex, 'uShadow');
+    this.unit(2, syncRamps(this.renderer).webGLTexture!, 'uRamps');
+    this.unit(4, this.shadow!.tex, 'uShadow');
     this.uniforms(p, {
       uTarget: [this.ox, this.oy, this.w, this.h], uView: [this.ox, this.oy, 1], uSun: paintLight.sun, uRimDir: paintLight.rimDir, uRim: paintLight.rim,
-      uGround: ground ? 1 : 0, uDepthRange: [this.oy, 1 / 4096], uHole: this.hole, uU: this.U, uV: this.V, uL: this.L, uBox: this.box, uDRange: this.dRange,
+      uGround: ground ? 1 : 0, uDepthRange: [this.oy, 1 / 4096], uU: this.U, uV: this.V, uL: this.L, uBox: this.box, uDRange: this.dRange,
       uStrength: this.strength,
     });
     gl.uniform4fv(gl.getUniformLocation(p, 'uLamps[0]'), paintLight.lamps);
     gl.uniform1i(gl.getUniformLocation(p, 'uLampCount'), Math.min(MAX_LAMPS, paintLight.lampCount));
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
-    const loc = gl.getAttribLocation(p, 'aCorner');
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    for (const c of cards) {
-      unit(0, c.main, 'uMainSampler[0]');
-      unit(1, c.normal, 'uNormSampler');
-      unit(3, c.depth, 'uDepth');
-      this.uniforms(p, {
-        uRect: [c.x, c.y, c.w, c.h], uFrame: [c.u0, c.v0, c.u1, c.v1], uTexRes: [c.tw, c.th], uHasDepth: c.depth ? 1 : 0,
-        uFoot: c.foot, uBase: c.base, uId: c.id, uSelf: c.self ? 1 : 0, uLeaves: c.leaves ? 1 : 0,
-      });
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.verts);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indices);
+    this.locs = [this.attr(p, 'aPos', 4, STRIDE * 4, 0), this.attr(p, 'aInfo', 4, STRIDE * 4, 4), this.attr(p, 'aTint', 4, STRIDE * 4, 8)];
+  }
+
+  private end(): void {
+    for (const l of this.locs) this.gl.disableVertexAttribArray(l);
+    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, null);
+  }
+
+  private unit(n: number, tex: WebGLTexture | null, name: string): void {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0 + n);
+    gl.bindTexture(gl.TEXTURE_2D, tex ?? this.blank);
+    gl.uniform1i(gl.getUniformLocation(this.prog, name), n);
+  }
+
+  /** Draw batch b's cards (soft: see-through, blended; shade: in the sun's shadow). */
+  private drawBatch(b: Batch, soft: boolean, shade = true): void {
+    if (!b.pics.length) return;
+    const gl = this.gl, p = this.prog;
+    this.unit(0, b.main, 'uMainSampler[0]');
+    this.unit(1, b.normal, 'uNormSampler');
+    this.unit(3, b.depth, 'uDepth');
+    this.uniforms(p, { uTexRes: [b.tw, b.th], uHasDepth: b.depth ? 1 : 0, uPainted: b.normal ? 1 : 0, uSoft: soft ? 1 : 0, uShade: shade ? 1 : 0 });
+    this.cut(b.tree?.cut ?? null, b.pics[0]);
+    const out = this.scratch;
+    for (let start = 0; start < b.pics.length; start += MAX_QUADS) {
+      const n = Math.min(MAX_QUADS, b.pics.length - start);
+      for (let k = 0; k < n; k++) {
+        const pic = b.pics[start + k];
+        const foot = b.tree ? b.tree.foot : pic.depth;
+        writeQuad(out, k * 4 * STRIDE, pic, foot, foot, b.tree ? b.tree.id : (this.ids.get(pic) ?? 0));
+      }
+      gl.bufferData(gl.ARRAY_BUFFER, out.subarray(0, n * 4 * STRIDE), gl.STREAM_DRAW);
+      gl.drawElements(gl.TRIANGLES, n * 6, gl.UNSIGNED_SHORT, 0);
     }
-    gl.disableVertexAttribArray(loc);
+  }
+
+  /** Cut the tree picture `pic` as `cut` says (null: not at all): art/fade.ts' hole and thinning, with its puff map. */
+  private cut(cut: Cut | null, pic: Pic): void {
+    const on = !!cut && (!!cut.hole || cut.rest > 0);
+    const puffs = on && cut!.puffs ? this.scene.textures.get(cut!.puffs) : null, f = puffs?.get();
+    this.unit(5, f?.source.glTexture?.webGLTexture ?? null, 'uPuffs');
+    const h = cut?.hole;
+    this.uniforms(this.prog, {
+      uCut: on ? 1 : 0, uHole: [h?.x ?? 0, h?.y ?? 0, h?.r ?? 0, h?.up ?? 1], uRest: cut?.rest ?? 0, uPuffed: f ? 1 : 0,
+      uPuffUV: f ? [f.u0, f.v0, f.u1, f.v1] : [0, 0, 1, 1], uPicRect: [pic.x, pic.y, pic.width, pic.height],
+    });
   }
 
   /** Lay picture `tex` (the view, in world px) over the camera's framebuffer. */
@@ -534,9 +677,7 @@ export class Cards {
     const sx = ((this.ox - view.x) * z) / vp[2] * 2 - 1, sy = 1 - ((this.oy - view.y) * z) / vp[3] * 2;
     gl.uniform4f(gl.getUniformLocation(p, 'uRect'), sx, sy, (this.w * z) / vp[2] * 2, (this.h * z) / vp[3] * 2);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
-    const loc = gl.getAttribLocation(p, 'aCorner');
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const loc = this.attr(p, 'aCorner', 2, 0, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.disableVertexAttribArray(loc);
   }
@@ -552,6 +693,46 @@ export class Cards {
       else gl.uniform4fv(loc, v);
     }
   }
+}
+
+/** A painted picture's normal map (null: it isn't painted). */
+function normalOf(pic: Pic): WebGLTexture | null {
+  const ds = (pic.texture.dataSource as unknown as ({ glTexture?: { webGLTexture?: WebGLTexture } } | undefined)[])[0];
+  return ds?.glTexture?.webGLTexture ?? null;
+}
+
+/** Picture `pic`'s card as Phaser would place it (its frame or crop, flipped, turned, scaled), into `out` at `at`. */
+function writeQuad(out: Float32Array, at: number, pic: Pic, foot: number, depth: number, id: number): void {
+  const f = pic.frame;
+  let uv: { x: number; y: number; u0: number; v0: number; u1: number; v1: number } = f, fw = f.cutWidth, fh = f.cutHeight;
+  if (pic.isCropped) {
+    const crop = (pic as unknown as { _crop: typeof uv & { width: number; height: number; flipX: boolean; flipY: boolean } })._crop;
+    if (crop.flipX !== pic.flipX || crop.flipY !== pic.flipY) f.updateCropUVs(crop as never, pic.flipX, pic.flipY);
+    uv = crop;
+    fw = crop.width;
+    fh = crop.height;
+  }
+  const ox = pic.displayOriginX, oy = pic.displayOriginY;
+  let x = -ox + uv.x, y = -oy + uv.y, fx = 1, fy = 1;
+  if (pic.flipX) { x += -f.realWidth + ox * 2; fx = -1; }
+  if (pic.flipY) { y += -f.realHeight + oy * 2; fy = -1; }
+  const sx = pic.scaleX * fx, sy = pic.scaleY * fy, r = pic.rotation, cos = Math.cos(r), sin = Math.sin(r);
+  const a = cos * sx, b = sin * sx, c = -sin * sy, d = cos * sy, e = pic.x, g = pic.y;
+  const round = r === 0 && Math.abs(sx) === 1 && Math.abs(sy) === 1;
+  const tint = pic.tintTopLeft, tr = ((tint >> 16) & 255) / 255, tg = ((tint >> 8) & 255) / 255, tb = (tint & 255) / 255;
+  const mode = pic.tintMode === Phaser.TintModes.FILL ? 1 : 0, alpha = pic.alpha;
+  const corner = (k: number, px: number, py: number, u: number, v: number) => {
+    let wx = a * px + c * py + e, wy = b * px + d * py + g;
+    if (round) { wx = Math.round(wx); wy = Math.round(wy); }
+    const o = at + k * STRIDE;
+    out[o] = wx; out[o + 1] = wy; out[o + 2] = u; out[o + 3] = v;
+    out[o + 4] = foot; out[o + 5] = depth; out[o + 6] = id; out[o + 7] = alpha;
+    out[o + 8] = tr; out[o + 9] = tg; out[o + 10] = tb; out[o + 11] = mode;
+  };
+  corner(0, x, y, uv.u0, uv.v0);
+  corner(1, x, y + fh, uv.u0, uv.v1);
+  corner(2, x + fw, y + fh, uv.u1, uv.v1);
+  corner(3, x + fw, y, uv.u1, uv.v0);
 }
 
 function program(gl: WebGLRenderingContext, vs: string, fs: string): WebGLProgram {
