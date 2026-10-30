@@ -48,7 +48,7 @@ const tex = scene.textures;
     tex.addCanvas(`terrain-${i}`, toCanvas(t.raster));
     return t;
   });
-  const flora = addFloraTextures(scene, (i) => toCanvas(buildFloraSheet(FLORA[i])));
+  const flora = addFloraTextures(scene, (i) => buildFloraSheet(FLORA[i]), toCanvas);
   for (const [k, make] of Object.entries(ICONS)) tex.addCanvas(k, toCanvas(make()));
   const sheet = (key: string, r: Raster, fw: number, fh: number) => {
     const t = tex.addCanvas(key, toCanvas(r))!;

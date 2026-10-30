@@ -8,7 +8,7 @@ import type { Mask } from '../art/raster.ts';
 import { FADE_GLSL } from '../art/fade.ts';
 import { HEADER, MAX_LAMPS, paintLight, syncRamps } from './Painted.ts';
 import type { Cut } from './HoleFilter.ts';
-import { isSolid } from './solid.ts';
+import { isGrounded, isSolid } from './solid.ts';
 import { SILHOUETTE } from './CatView.ts';
 
 // The world drawn as cards in 3D. Everything standing in it (trees, plants,
@@ -59,6 +59,10 @@ const ALPHA = 0.32;
 const MAP = 1024;
 /** Contact shadows: at most this dark, in this many dithered steps; and the trunk's foot darkened this far up (px). */
 const CONTACT_ALPHA = 0.42, CONTACT_STEPS = 3, CONTACT_UP = 5;
+/** Contact shadows lie flat on the ground: this much less deep than wide. */
+const CONTACT_SQUASH = 0.35;
+/** A grounded thing's foot: the opaque span along the bottom of its picture (this many rows of it). */
+const FOOT_ROWS = 3;
 /** The shadow map's size and depth range change in steps of this many px. */
 const SNAP = 64;
 /** How tall anything is, at most (px), for the shadow map's reach. */
@@ -328,7 +332,7 @@ void main() {
   gl_FragDepthEXT = 1.0 - n;
 }`;
 
-/** A tree's contact shadow on the ground: an ellipse round its trunk's foot, darkest in the middle, dithered. */
+/** A contact shadow on the ground: an ellipse round a trunk's (or a grounded thing's) foot, darkest in the middle, dithered. */
 const CONTACT_VERT = `
 precision highp float;
 attribute vec2 aPos;
@@ -473,6 +477,8 @@ export class Cards {
   private mirror = false;
   private readonly contactBuf: WebGLBuffer;
   private contactData = new Float32Array(0);
+  /** Where each picture (texture:frame) meets the ground, in its own px: its opaque span along the bottom, and the bottom row. */
+  private readonly feet = new Map<string, { x0: number; x1: number; y: number } | null>();
   private readonly boxBuf: WebGLBuffer;
   /** Which tiles have a box (a texel a tile). */
   private readonly boxTiles: WebGLTexture;
@@ -611,14 +617,24 @@ export class Cards {
       if (d !== GROUND) this.ids.set(pic, Math.min(65535, TREES.length + 1 + this.ids.size));
     }
     this.softs.sort((a, b) => a.pic.depth - b.pic.depth);
-    // the trees' contact shadows: an ellipse round each trunk's foot, wider for a stouter trunk
+    // contact shadows: an ellipse, flat on the ground, round each trunk's foot (wider for a stouter trunk)...
     const contact: number[] = [];
-    for (const t of TREES) {
-      const rx = t.trunk * 2.6 + 7, ry = rx * 0.55;
-      if (t.x + rx < x0 || t.x - rx > x1 || t.y + ry < y0 || t.y - ry > y1) continue;
-      const cy = t.y - 1, ex = Math.ceil(rx), ey = Math.ceil(ry);
-      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [-1, 1], [1, -1], [1, 1]]) contact.push(t.x + cx * ex, cy + cz * ey, t.x, cy, rx, ry);
-    }
+    const ellipse = (x: number, y: number, rx: number) => {
+      const ry = Math.max(1.5, rx * CONTACT_SQUASH), ex = Math.ceil(rx), ey = Math.ceil(ry);
+      if (x + ex < x0 || x - ex > x1 || y + ey < y0 || y - ey > y1) return;
+      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [-1, 1], [1, -1], [1, 1]]) contact.push(x + cx * ex, y + cz * ey, x, y, rx, ry);
+    };
+    for (const t of TREES) ellipse(t.x, t.y - 1, t.trunk * 2.6 + 7);
+    // ...and round the foot of everything solid standing on the ground (benches' legs, lantern posts, monuments)
+    for (const b of this.solids.values())
+      for (const pic of b.pics) {
+        if (!isGrounded(pic)) continue;
+        const f = this.footOf(pic);
+        if (!f) continue;
+        const left = pic.x - pic.displayOriginX + (pic.flipX ? pic.frame.cutWidth - 1 - f.x1 : f.x0);
+        const w = f.x1 - f.x0 + 1;
+        ellipse(left + w / 2, pic.y - pic.displayOriginY + f.y, w / 2 + 2);
+      }
     this.contactData = new Float32Array(contact);
     this.effects = this.src.effects.map((e) => e.now());
     for (const list of this.effects) for (const e of list) e.quad.cameraFilter = cam;
@@ -634,6 +650,47 @@ export class Cards {
    * they are the front of the tree, and stay at its foot (pushed back, the grass just in front of the trunk would cover them).
    * `cover`: the tree's front picture, if it has one.
    */
+  /** Where pic meets the ground (see feet), worked out from its picture once. */
+  private footOf(pic: Pic): { x0: number; x1: number; y: number } | null {
+    const fr = pic.frame, key = `${fr.texture.key}:${fr.name}`;
+    let f = this.feet.get(key);
+    if (f !== undefined) return f;
+    f = null;
+    const a = this.pixels(fr), w = fr.cutWidth, h = fr.cutHeight;
+    if (a) {
+      let bottom = -1;
+      for (let y = h - 1; y >= 0 && bottom < 0; y--) for (let x = 0; x < w; x++) if (a[(y * w + x) * 4 + 3] > 0) { bottom = y; break; }
+      if (bottom >= 0) {
+        let lo = w, hi = -1;
+        for (let y = Math.max(0, bottom - FOOT_ROWS + 1); y <= bottom; y++)
+          for (let x = 0; x < w; x++) if (a[(y * w + x) * 4 + 3] > 0) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+        f = { x0: lo, x1: hi, y: bottom };
+      }
+    }
+    this.feet.set(key, f);
+    return f;
+  }
+
+  /** A frame's pixels (RGBA, cutWidth × cutHeight), from the canvas or array its texture was made from. */
+  private pixels(fr: Phaser.Textures.Frame): Uint8ClampedArray | Uint8Array | null {
+    const src = fr.source.image as unknown, w = fr.cutWidth, h = fr.cutHeight, sw = fr.source.width;
+    if (w <= 0 || h <= 0) return null;
+    // (a painted picture, from an array: game/Painted.ts' addPainted)
+    if (src instanceof Uint8Array || src instanceof Uint8ClampedArray) {
+      const out = new Uint8Array(w * h * 4);
+      for (let y = 0; y < h; y++) out.set(src.subarray(((fr.cutY + y) * sw + fr.cutX) * 4, ((fr.cutY + y) * sw + fr.cutX + w) * 4), y * w * 4);
+      return out;
+    }
+    if (!(src instanceof HTMLCanvasElement || src instanceof HTMLImageElement)) return null;
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(src, fr.cutX, fr.cutY, w, h, 0, 0, w, h);
+    return ctx.getImageData(0, 0, w, h).data;
+  }
+
   private treeDepth(i: number, r: Prop['raster'], lit: Prop['lit'], x: number, y: number, front: boolean, cover: Prop['raster'] | null): WebGLTexture {
     const t = TREES[i], { main, normal } = paintedMaps(r, lit), out = new Uint8Array(r.w * r.h * 4);
     const covered = (px: number, py: number) => cover !== null && px < cover.w && py < cover.h && cover.data[(py * cover.w + px) * 4 + 3] > 0;

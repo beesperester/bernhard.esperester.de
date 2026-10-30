@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 import { FLORA, LEANS, placeFlora, type Plant } from '../art/flora.ts';
+import { autoMaps } from '../art/painted.ts';
+import { Raster } from '../art/raster.ts';
+import { addPainted, paint } from './Painted.ts';
 import type { CatView } from './CatView.ts';
 import { elevAt } from '../world/map.ts';
 
@@ -77,7 +80,7 @@ export class Meadow {
         this.shown.add(key);
         for (const p of this.cells.get(key) ?? [])
           // plants on raised ground are drawn lifted with it
-          p.img = this.scene.add.image(p.x, p.y - elevAt(p.x, p.y), `flora-${p.kind}`, p.lean + 2).setOrigin(0.5, 1).setDepth(p.y);
+          p.img = paint(this.scene.add.image(p.x, p.y - elevAt(p.x, p.y), `flora-${p.kind}`, p.lean + 2)).setOrigin(0.5, 1).setDepth(p.y);
       }
     const far = Math.ceil(KEEP / CELL);
     for (const key of this.shown) {
@@ -114,12 +117,27 @@ export class Meadow {
   }
 }
 
-export function addFloraTextures(scene: Phaser.Scene, toCanvas: (k: number) => HTMLCanvasElement): HTMLCanvasElement[] {
+/**
+ * The plants' sheets (one frame per lean): shaded and rimmed on the GPU from their outlines, like the furniture
+ * (each frame on its own, so one doesn't lean on the next). Returns them as canvases, for what's drawn on the CPU.
+ */
+export function addFloraTextures(scene: Phaser.Scene, build: (k: number) => Raster, toCanvas: (r: Raster) => HTMLCanvasElement): HTMLCanvasElement[] {
   return FLORA.map((k, i) => {
-    const canvas = toCanvas(i);
-    const tex = scene.textures.addCanvas(`flora-${i}`, canvas)!;
+    const r = build(i), main = new Uint8ClampedArray(r.data.length), normal = new Uint8Array(r.data.length);
+    for (let f = 0; f < LEANS; f++) {
+      const one = new Raster(k.w, k.h);
+      for (let y = 0; y < k.h; y++) one.data.set(r.data.subarray((y * r.w + f * k.w) * 4, (y * r.w + (f + 1) * k.w) * 4), y * k.w * 4);
+      const maps = autoMaps(one);
+      for (let y = 0; y < k.h; y++) {
+        const at = (y * r.w + f * k.w) * 4, from = y * k.w * 4, to = from + k.w * 4;
+        main.set(maps.main.subarray(from, to), at);
+        normal.set(maps.normal.subarray(from, to), at);
+      }
+    }
+    addPainted(scene, `flora-${i}`, main, normal, r.w, r.h);
+    const tex = scene.textures.get(`flora-${i}`);
     for (let f = 0; f < LEANS; f++) tex.add(f, 0, f * k.w, 0, k.w, k.h);
-    return canvas;
+    return toCanvas(r);
   });
 }
 

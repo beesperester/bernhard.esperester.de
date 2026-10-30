@@ -28,6 +28,8 @@ const SURFACE_DEPTH = -99994.5;
 
 /** Caustics start where the water's this clear (art/water.ts' clarity: 0.72 at the bank), and are at full strength from here. */
 const CAUSTIC_FROM = 0.12, CAUSTIC_FULL = 0.4;
+/** The sun's glints: how tight a wave's highlight is, and how bright it must be to show (fewer, sharper sparkles). */
+const GLINT_POW = 2400, GLINT_FROM = 0.45;
 /** How much light the caustics add to the bed at most. */
 const CAUSTIC_BRIGHT = 0.4;
 
@@ -131,8 +133,8 @@ ${WAVES.map(([dx, dy, k, a], i) => `  { float c = cos((x * ${dx.toFixed(4)} + y 
   float alpha = A;
   // the sun glinting off a wave
   if (uGlint > 0.0) {
-    float spec = pow(max(0.0, dot(n, normalize(uSun + EYE))), 900.0) * uGlint;
-    if (spec > 0.25) {
+    float spec = pow(max(0.0, dot(n, normalize(uSun + EYE))), ${GLINT_POW.toFixed(1)}) * uGlint;
+    if (spec > ${GLINT_FROM.toFixed(2)}) {
       float s = min(1.0, spec);
       col = mix(col, vec3(1.0, 0.98, 0.91), s);
       alpha = max(alpha, s);

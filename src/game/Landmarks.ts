@@ -51,7 +51,7 @@ export class Landmarks {
       if (hasRoof(l.kind)) {
         const top = buildLandmark(l.kind, undefined, true), roof = toCanvas(top);
         painted(`landmark-${l.kind}-roof`, top);
-        const img = solid(cullerFor(scene).add(paint(scene.add.image(x, y, `landmark-${l.kind}-roof`)).setOrigin(0).setDepth(front + 0.8)));
+        const img = solid(cullerFor(scene).add(paint(scene.add.image(x, y, `landmark-${l.kind}-roof`)).setOrigin(0).setDepth(front + 0.8)), false);
         const [rx0, ry0, rx1, ry1] = roofOf(l.kind);
         this.roofs.push({ img, x0: l.tx * TILE + rx0, y0: l.ty * TILE + ry0, x1: l.tx * TILE + rx1, y1: l.ty * TILE + ry1 });
         // (its shadow and lit rims are of the whole of it)

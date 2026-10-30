@@ -51,8 +51,8 @@ export class Coasters {
     }
     for (const c of COASTERS) {
       for (const t of stretches)
-        solid(cullerFor(scene).add(scene.add.image(c.x - t.ox, c.y - c.ground - t.oy, t.key).setOrigin(0).setDepth(c.y + t.depth)));
-      this.cars.push({ back: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0)), front: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0)) });
+        solid(cullerFor(scene).add(scene.add.image(c.x - t.ox, c.y - c.ground - t.oy, t.key).setOrigin(0).setDepth(c.y + t.depth)), false);
+      this.cars.push({ back: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0), false), front: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0), false) });
       this.was.push(0);
     }
   }

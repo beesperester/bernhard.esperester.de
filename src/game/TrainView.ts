@@ -64,7 +64,7 @@ export class TrainView {
     this.shown = start.s;
     this.cars = poses(start.s);
     for (let i = 0; i < this.cars.length; i++)
-      this.images.push({ back: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0)), front: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0)) });
+      this.images.push({ back: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0), false), front: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0), false) });
     scene.textures.addCanvas('driver-cap', toCanvas(buildDriverCap()));
     this.cap = scene.add.image(0, 0, 'driver-cap').setOrigin(0.5, 1).setVisible(false);
     moving.under = (x, y) => trainUnder(this.cars, x, y);
