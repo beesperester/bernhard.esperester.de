@@ -185,7 +185,8 @@ void main() {
     vec4 d = texture2D(uDepth, vTex);
     off = floor(d.r * 255.0 + 0.5) * 4.0 + floor(d.g * 255.0 + 0.5) / 64.0 - ${OFF}.0;
   }
-  float foot = vInfo.x, D = vInfo.y + off;
+  // (in the water each thing is sorted by its foot alone: the crowns' bulge would hide what's mirrored in front of them)
+  float foot = vInfo.x, D = vInfo.y + (uMirror > 0.5 ? 0.0 : off);
   // a tree cut round your cat: what's in the hole left out, a puff of leaves at a time, and the rest thinned
   if (uCut > 0.5) {
     vec2 w = floor(world);
@@ -594,11 +595,11 @@ export class Cards {
     gl.bindTexture(gl.TEXTURE_2D, this.blank);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     const ground = scene.add.extern().setDepth(GROUND_PASS);
-    (ground as unknown as { render: Render }).render = (_r, dc) => this.drawGround(dc);
+    (ground as unknown as { render: Render }).render = (_r, dc) => this.pass(() => this.drawGround(dc));
     const reflections = scene.add.extern().setDepth(REFLECT_PASS);
-    (reflections as unknown as { render: Render }).render = (_r, dc) => this.drawReflections(dc);
+    (reflections as unknown as { render: Render }).render = (_r, dc) => this.pass(() => this.drawReflections(dc));
     const things = scene.add.extern().setDepth(STANDING_PASS);
-    (things as unknown as { render: Render }).render = (_r, dc) => this.drawThings(dc);
+    (things as unknown as { render: Render }).render = (_r, dc) => this.pass(() => this.drawThings(dc));
   }
 
   /** Gather what's drawn this frame (and hide it from Phaser's camera). */
@@ -988,12 +989,32 @@ export class Cards {
     this.drawEffects();
     this.drawSilhouette();
     gl.disable(gl.STENCIL_TEST);
-    gl.stencilMask(0xff);
     gl.disable(gl.DEPTH_TEST);
     if (this.dim > 0.005) this.dimBack(back, vp);
     this.composite(this.things.tex, back, vp, true);
     this.ms[this.ms.length - 1] += performance.now() - t0;
     if (this.ms.length > 240) this.ms.shift();
+  }
+
+  /**
+   * One of the passes, in GL state of its own: Phaser may leave the stencil and scissor tests on (and remembers them as
+   * on), and our targets' stencils aren't Phaser's: a test left on would throw away whatever doesn't pass it (in the
+   * water, everything but the trees did). Off for the pass, and back as they were after it.
+   */
+  private pass(draw: () => void): void {
+    const gl = this.gl, stencil = gl.isEnabled(gl.STENCIL_TEST), scissor = gl.isEnabled(gl.SCISSOR_TEST);
+    const func = [gl.getParameter(gl.STENCIL_FUNC), gl.getParameter(gl.STENCIL_REF), gl.getParameter(gl.STENCIL_VALUE_MASK)] as number[];
+    const op = [gl.getParameter(gl.STENCIL_FAIL), gl.getParameter(gl.STENCIL_PASS_DEPTH_FAIL), gl.getParameter(gl.STENCIL_PASS_DEPTH_PASS)] as number[];
+    const mask = gl.getParameter(gl.STENCIL_WRITEMASK) as number;
+    gl.disable(gl.STENCIL_TEST);
+    gl.disable(gl.SCISSOR_TEST);
+    draw();
+    gl.stencilFunc(func[0], func[1], func[2]);
+    gl.stencilOp(op[0], op[1], op[2]);
+    gl.stencilMask(mask);
+    if (stencil) gl.enable(gl.STENCIL_TEST);
+    else gl.disable(gl.STENCIL_TEST);
+    if (scissor) gl.enable(gl.SCISSOR_TEST);
   }
 
   /** Whether pic, standing on foot, hangs its reflection into the water in view. */
