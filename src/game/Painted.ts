@@ -38,7 +38,8 @@ export const paintLight = {
 /** Rims are blended over what's under them: the outer and inner rim pixel this strong, and all of it this much stronger. */
 const OUTER = 1, INNER = 110 / 255, BOOST = 1.25;
 
-const HEADER = `
+/** The painted shading as GLSL (needs getTexRes(), uMainSampler[0] and the varying outView declared before it). */
+export const HEADER = `
 uniform sampler2D uNormSampler;
 uniform sampler2D uRamps;
 uniform vec3 uSun;
@@ -137,13 +138,15 @@ const M = Phaser.Renderer.WebGL.ShaderAdditionMakers;
 let rampTexture: Phaser.Renderer.WebGL.Wrappers.WebGLTextureWrapper | null = null;
 let rampRows = -1;
 
-function syncRamps(renderer: Phaser.Renderer.WebGL.WebGLRenderer): void {
-  if (rampRows === ramps.rows.length) return;
+/** The ramps' texture, up to date. */
+export function syncRamps(renderer: Phaser.Renderer.WebGL.WebGLRenderer): Phaser.Renderer.WebGL.Wrappers.WebGLTextureWrapper {
+  if (rampRows === ramps.rows.length) return rampTexture!;
   rampRows = ramps.rows.length;
   if (rampTexture) renderer.deleteTexture(rampTexture);
   const gl = renderer.gl;
   rampTexture = renderer.createTexture2D(0, gl.NEAREST, gl.NEAREST, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE, gl.RGBA,
     new Uint8Array(ramps.pixels().buffer), RAMP_W, RAMP_ROWS, false, false, false);
+  return rampTexture;
 }
 
 class PaintedBatch extends Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad {

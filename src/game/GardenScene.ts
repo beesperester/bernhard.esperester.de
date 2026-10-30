@@ -70,6 +70,8 @@ import { PLATFORM } from '../world/coaster.ts';
 import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
 import { catnipUp } from '../art/furniture.ts';
+import { params } from '../world/params.ts';
+import { Cards } from './Cards.ts';
 
 /** How high the engine driver sits up on its seat (px): its head well over the cab's side. */
 const DRIVER_SEAT = 4;
@@ -163,6 +165,8 @@ export class GardenScene extends Phaser.Scene {
   private rims!: RimLight;
   private lanterns!: Lanterns;
   private shadows!: Shadows;
+  /** SPIKE: the world as cards in 3D (?cards). */
+  private cards: Cards | null = null;
   private nightWater!: NightWater;
   private nextReflection = 0;
   private nextClock = 0;
@@ -308,6 +312,7 @@ export class GardenScene extends Phaser.Scene {
     this.lanterns = new Lanterns(this, this.glows, this.lightMap);
     this.lilies = new Lilies(this, toCanvas, this.glows);
     this.shadows = this.makeShadows(furniture);
+    if (params.has('cards')) this.cards = new Cards(this, { ground: this.ground, trees: this.trees, shadows: this.shadows });
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
     this.lighting = new Lighting();
@@ -662,6 +667,7 @@ export class GardenScene extends Phaser.Scene {
     const overcast = Math.min(1, rainfall(gt) * 1.4);
     this.rims.update(overcast ? { ...light, rim: light.rim * (1 - overcast * 0.85) } : light);
     this.shadows.update(light, cats, overcast, view);
+    this.cards?.update(view, cats, this.me, light, overcast);
     catLight.soft = 0.06 + 0.2 * (1 - this.shadows.strength);
     catLight.rim = this.rims.strength;
     catLight.rimColour = this.rims.colour;
