@@ -320,8 +320,10 @@ export class GardenScene extends Phaser.Scene {
           { source: FOG_SOURCE, textures: FOG_TEXTURES, add: false, now: () => this.fog.now() },
           { source: SHAFT_SOURCE, add: true, now: () => this.shafts.now() },
         ],
+        me: () => this.me?.silhouette() ?? null,
       });
       this.shadows.cast = false;
+      catLight.ghosts = false;
     }
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);

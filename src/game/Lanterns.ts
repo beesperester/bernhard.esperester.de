@@ -3,6 +3,7 @@ import { LANDMARK_SPOTS, LANTERNS, LEVEL, TILE, elevAt, levelAt } from '../world
 import { LANDMARK_LAMPS, LANDMARK_SIZE } from '../world/landmarks.ts';
 import { lampsOn, type Light } from '../world/sky.ts';
 import { cullerFor } from './Culler.ts';
+import { solid } from './solid.ts';
 import type { Glow, Glows } from './Glows.ts';
 import { LAMPLIGHT, type LightMap } from './LightMap.ts';
 
@@ -25,7 +26,7 @@ export class Lanterns {
     this.lamps = LANTERNS.map(([x, y], i) => {
       const top = y - elevAt(x, y);
       return {
-        post: cullerFor(scene).add(scene.add.image(x, top, 'lantern', 0).setOrigin(0.5, 1).setDepth(y)),
+        post: solid(cullerFor(scene).add(scene.add.image(x, top, 'lantern', 0).setOrigin(0.5, 1).setDepth(y))),
         flame: glows.point('glow-core', x, top - 13, 1, y),
         light: lights.add(x, top - 2, LANTERN_LIGHT, LAMPLIGHT),
         seed: i * 1.7,

@@ -13,6 +13,7 @@ import { HEADINGS, buildCar } from '../art/train.ts';
 import { CAR_FLOOR, LOOP, SEATS, carAt, deckAt, falling, onLift, trackAt } from '../world/coaster.ts';
 import { COASTERS } from '../world/map.ts';
 import { cullerFor } from './Culler.ts';
+import { solid } from './solid.ts';
 import type { Rides } from './rides.ts';
 
 /** The track is drawn in stretches this long (px along it). */
@@ -50,8 +51,8 @@ export class Coasters {
     }
     for (const c of COASTERS) {
       for (const t of stretches)
-        cullerFor(scene).add(scene.add.image(c.x - t.ox, c.y - c.ground - t.oy, t.key).setOrigin(0).setDepth(c.y + t.depth));
-      this.cars.push({ back: scene.add.image(0, 0, '__DEFAULT').setOrigin(0), front: scene.add.image(0, 0, '__DEFAULT').setOrigin(0) });
+        solid(cullerFor(scene).add(scene.add.image(c.x - t.ox, c.y - c.ground - t.oy, t.key).setOrigin(0).setDepth(c.y + t.depth)));
+      this.cars.push({ back: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0)), front: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0)) });
       this.was.push(0);
     }
   }

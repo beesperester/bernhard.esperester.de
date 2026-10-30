@@ -11,6 +11,7 @@ import { paintOver } from '../art/paint.ts';
 import { FURNITURE, TILE } from '../world/map.ts';
 import { SEASON } from '../world/season.ts';
 import { Act } from './state.ts';
+import { solid } from './solid.ts';
 import type { CatView } from './CatView.ts';
 import type { Effects } from './fauna/Effects.ts';
 import { cullerFor } from './Culler.ts';
@@ -52,7 +53,9 @@ export class Furniture {
         const { main, normal } = autoMaps(r);
         addPainted(scene, `furniture-${key}`, main, normal, r.w, r.h);
       }
-      cullerFor(scene).add(paint(scene.add.image(x, y, `furniture-${key}`)).setOrigin(0).setDepth(depth).setFlipX(flip));
+      const img = cullerFor(scene).add(paint(scene.add.image(x, y, `furniture-${key}`)).setOrigin(0).setDepth(depth).setFlipX(flip));
+      // (all of it solid, but the catnip's leaves, and the box's front: a cat sits in it)
+      if (key !== 'catnip' && key !== 'box-front') solid(img);
       if (depth !== FLAT) this.pieces.push({ p: { x, y, depthY: depth }, canvas: flip ? mirrored(canvas) : canvas });
     };
     for (const f of FURNITURE) {

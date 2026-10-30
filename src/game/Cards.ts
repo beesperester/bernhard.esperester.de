@@ -6,6 +6,8 @@ import { TREES } from '../world/trees.ts';
 import { FADE_GLSL } from '../art/fade.ts';
 import { HEADER, MAX_LAMPS, paintLight, syncRamps } from './Painted.ts';
 import type { Cut } from './HoleFilter.ts';
+import { isSolid } from './solid.ts';
+import { SILHOUETTE } from './CatView.ts';
 
 // The world drawn as cards in 3D. Everything standing in it (trees, plants,
 // furniture, follies, fauna, cats) is a card upright at its foot, and the
@@ -27,7 +29,10 @@ import type { Cut } from './HoleFilter.ts';
 // cat, it opens round it (game/Trees.ts says how far; art/fade.ts how), in
 // the shader. Effects drawn by a shader of their own (shafts of light, banks
 // of fog: Phaser Shaders) are cards too, standing on their row, drawn after
-// all the rest with that shader (see Effects).
+// all the rest with that shader (see Effects). Where something solid
+// (game/solid.ts: not leaves) is the nearest thing in front of your cat, the
+// cat shows through it as a green silhouette: a stencil keeps which pixels
+// are solid things'.
 //
 // It takes over Phaser's pictures: they are kept up to date as ever by
 // their systems, but hidden from the camera, and drawn here instead, in two
@@ -283,7 +288,7 @@ interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; depth: WebGLRenderbu
 
 export class Cards {
   private readonly scene: Phaser.Scene;
-  private readonly src: { ground: unknown; trees: unknown; effects: Effects[] };
+  private readonly src: { ground: unknown; trees: unknown; effects: Effects[]; me: () => Pic | null };
   private readonly gl: WebGLRenderingContext;
   private readonly renderer: Phaser.Renderer.WebGL.WebGLRenderer;
   private readonly prog: WebGLProgram;
@@ -310,6 +315,8 @@ export class Cards {
   private h = 0;
   private readonly groundBatches = new Map<WebGLTexture, Batch>();
   private readonly batches = new Map<WebGLTexture, Batch>();
+  /** The solid things' (game/solid.ts). */
+  private readonly solids = new Map<WebGLTexture, Batch>();
   private treeBatches: Batch[] = [];
   private softs: Soft[] = [];
   /** Each standing picture's id in the shadow map (after the trees'). */
@@ -327,7 +334,7 @@ export class Cards {
   /** ms of CPU the passes took, the last few frames (for measuring). */
   readonly ms: number[] = [];
 
-  constructor(scene: Phaser.Scene, src: { ground: unknown; trees: unknown; effects: Effects[] }) {
+  constructor(scene: Phaser.Scene, src: { ground: unknown; trees: unknown; effects: Effects[]; me: () => Pic | null }) {
     this.scene = scene;
     this.src = src;
     this.renderer = scene.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
@@ -369,6 +376,7 @@ export class Cards {
     const pad = 64, x0 = view.x - pad, x1 = view.right + pad, y0 = view.y - pad, y1 = view.bottom + pad;
     for (const b of this.groundBatches.values()) b.pics.length = 0;
     for (const b of this.batches.values()) b.pics.length = 0;
+    for (const b of this.solids.values()) b.pics.length = 0;
     this.treeBatches = [];
     this.softs = [];
     this.ids.clear();
@@ -407,7 +415,7 @@ export class Cards {
         this.softs.push({ pic, main, normal: normalOf(pic), tw: src.width, th: src.height });
         continue;
       }
-      const into = d === GROUND ? this.groundBatches : this.batches;
+      const into = d === GROUND ? this.groundBatches : isSolid(o) ? this.solids : this.batches;
       let b = into.get(main);
       if (!b) into.set(main, (b = { main, normal: normalOf(pic), depth: null, tw: src.width, th: src.height, pics: [], tree: null }));
       b.pics.push(pic);
@@ -501,11 +509,11 @@ export class Cards {
     for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
     const depth = gl.createRenderbuffer()!;
     gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_STENCIL, w, h);
     const fb = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, depth);
     return { fb, tex, depth, w, h };
   }
 
@@ -545,7 +553,7 @@ export class Cards {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.verts);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indices);
     const locs = [this.attr(p, 'aPos', 4, STRIDE * 4, 0), this.attr(p, 'aInfo', 4, STRIDE * 4, 4), this.attr(p, 'aTint', 4, STRIDE * 4, 8)];
-    for (const b of this.batches.values()) {
+    for (const b of [...this.batches.values(), ...this.solids.values()]) {
       if (!b.pics.length) continue;
       gl.bindTexture(gl.TEXTURE_2D, b.main);
       for (let start = 0; start < b.pics.length; start += MAX_QUADS) {
@@ -601,13 +609,22 @@ export class Cards {
     gl.clearColor(0, 0, 0, 0);
     gl.clearDepth(1);
     gl.depthMask(true);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.clearStencil(0);
+    gl.stencilMask(0xff);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.BLEND);
+    // (the stencil: 1 where the nearest thing is solid)
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+    gl.stencilFunc(gl.ALWAYS, 0, 0xff);
     this.begin(false);
     for (const b of this.treeBatches) this.drawBatch(b, false);
     for (const b of this.batches.values()) this.drawBatch(b, false);
+    gl.stencilFunc(gl.ALWAYS, 1, 0xff);
+    for (const b of this.solids.values()) this.drawBatch(b, false);
+    gl.stencilMask(0);
     // the see-through ones, back to front, not hiding what's behind them
     gl.depthMask(false);
     gl.enable(gl.BLEND);
@@ -624,10 +641,34 @@ export class Cards {
     }
     this.end();
     this.drawEffects();
+    this.drawSilhouette();
+    gl.disable(gl.STENCIL_TEST);
+    gl.stencilMask(0xff);
     gl.disable(gl.DEPTH_TEST);
     this.composite(this.things.tex, back, vp, true);
     this.ms[this.ms.length - 1] += performance.now() - t0;
     if (this.ms.length > 240) this.ms.shift();
+  }
+
+  /** Your cat, filled green, where the nearest thing in front of it is solid. */
+  private drawSilhouette(): void {
+    const me = this.src.me();
+    if (!me) return;
+    const gl = this.gl, out = this.scratch;
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+    gl.depthFunc(gl.GREATER);
+    gl.disable(gl.BLEND);
+    this.begin(false);
+    this.unit(0, me.frame.source.glTexture!.webGLTexture!, 'uMainSampler[0]');
+    this.uniforms(this.prog, { uTexRes: [me.frame.source.width, me.frame.source.height], uHasDepth: 0, uPainted: 0, uSoft: 0, uShade: 0 });
+    this.cut(null, me);
+    writeQuad(out, 0, me, me.depth, me.depth, 0);
+    const r = ((SILHOUETTE >> 16) & 255) / 255, g = ((SILHOUETTE >> 8) & 255) / 255, b = (SILHOUETTE & 255) / 255;
+    for (let c = 0; c < 4; c++) out.set([1, r, g, b, 1], c * STRIDE + 7);
+    gl.bufferData(gl.ARRAY_BUFFER, out.subarray(0, 4 * STRIDE), gl.STREAM_DRAW);
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    this.end();
+    gl.depthFunc(gl.LEQUAL);
   }
 
   /** The effects (fog, then shafts of light), each at its row's depth: hidden by what stands in front of it, over what's behind. */

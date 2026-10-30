@@ -11,8 +11,8 @@ import { paint } from './Painted.ts';
 /** Growing up: it flickers between its old size and its new one, quicker and quicker, for this long (ms). */
 const GROW_MS = 1600;
 
-/** Colour of a cat hidden behind a hill. */
-const SILHOUETTE = 0x5ee86a;
+/** Colour our cat shows in where something solid hides it. */
+export const SILHOUETTE = 0x5ee86a;
 
 /** Names float over everything but the emotes, the same size at any zoom. */
 const LABEL_DEPTH = 99999.6, LABEL_PX = 12;
@@ -36,6 +36,8 @@ export const catLight = {
   lostIn: (_x: number, _y: number, _z: number): boolean => false,
   /** How much shows (0..1) of something at world (x, y) drawn at `depth` (up a tree with a hole cut round our cat, less). */
   seeThrough: (_x: number, _y: number, _depth: number): number => 1,
+  /** Whether our cat's silhouette, where a hill or a folly hides it, is drawn here (not when game/Cards.ts draws it, wherever anything solid does). */
+  ghosts: true,
 };
 
 /** Walking into shade, a cat takes this long to darken fully. */
@@ -98,6 +100,11 @@ export class CatView {
   private readonly label: Phaser.GameObjects.Text;
   private labelAlpha = 1;
   private labelT = -1;
+
+  /** Our cat's picture, to show as a silhouette where something solid hides it (null: not now, as riding in a car). */
+  silhouette(): Phaser.GameObjects.Sprite | null {
+    return this.local && this.ride === null && this.sprite.visible ? this.sprite : null;
+  }
 
   constructor(scene: Phaser.Scene, x: number, y: number, coat: number, local = false) {
     this.x = x;
@@ -190,7 +197,7 @@ export class CatView {
     this.eyes.setVisible(glow);
     if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * seen * (this.act === Act.Sleep ? 0 : 0.9));
     // our own cat, where a hill hides it: the covered part shows as a silhouette
-    const cover = this.local ? terrainCover(x, this.y, lift, CAT, CAT) : null;
+    const cover = this.local && catLight.ghosts ? terrainCover(x, this.y, lift, CAT, CAT) : null;
     this.ghost.setVisible(!!cover);
     if (cover) {
       const left = x - CAT / 2, top = y - lift - CAT;

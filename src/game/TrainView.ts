@@ -4,6 +4,7 @@ import { HEADINGS, buildBeam, buildCar, buildDriverCap } from '../art/train.ts';
 import { buildGlow } from '../art/critters.ts';
 import { lampsOn, type Light } from '../world/sky.ts';
 import { DEPTH } from './Daylight.ts';
+import { solid } from './solid.ts';
 import { world } from './train.ts';
 import { moving } from '../world/map.ts';
 import { TRACK_LENGTH } from '../world/track.ts';
@@ -63,7 +64,7 @@ export class TrainView {
     this.shown = start.s;
     this.cars = poses(start.s);
     for (let i = 0; i < this.cars.length; i++)
-      this.images.push({ back: scene.add.image(0, 0, '__DEFAULT').setOrigin(0), front: scene.add.image(0, 0, '__DEFAULT').setOrigin(0) });
+      this.images.push({ back: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0)), front: solid(scene.add.image(0, 0, '__DEFAULT').setOrigin(0)) });
     scene.textures.addCanvas('driver-cap', toCanvas(buildDriverCap()));
     this.cap = scene.add.image(0, 0, 'driver-cap').setOrigin(0.5, 1).setVisible(false);
     moving.under = (x, y) => trainUnder(this.cars, x, y);
