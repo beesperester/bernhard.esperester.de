@@ -27,14 +27,32 @@ const MAX_DEPTH = 60;
 const SURFACE_DEPTH = -99994.5;
 
 /** Caustics start where the water's this clear (art/water.ts' clarity: 0.72 at the bank), and are at full strength from here. */
-const CAUSTIC_FROM = 0.2, CAUSTIC_FULL = 0.45;
+const CAUSTIC_FROM = 0.12, CAUSTIC_FULL = 0.4;
 /** How much light the caustics add to the bed at most. */
-const CAUSTIC_BRIGHT = 0.65;
+const CAUSTIC_BRIGHT = 0.8;
+
+/**
+ * Time can't go to the GPU as it is: the clock is in seconds since 1970, and a 32-bit float of that only
+ * changes every two minutes. So every motion on the water goes round in a cycle and only where it is in
+ * that cycle is sent: the swell and the clouds drift over noise that repeats every NOISE_CELLS cells
+ * (much bigger than the park), the ripples' phases are sent as angles, and the caustics come back to where
+ * they started every CAUSTIC_CYCLE seconds.
+ */
+const NOISE_CELLS = 256, CAUSTIC_CYCLE = 600;
+/** The clouds' two noises are 70×42 and 23×15 px a cell: they repeat (both together) every this many px. */
+const CLOUD_REPEAT = [70 * 23 * NOISE_CELLS, 42 * 5 * NOISE_CELLS];
+/** x mod m, never negative. */
+const wrap = (x: number, m: number) => ((x % m) + m) % m;
+/** A rate (per s) for the caustics' clock that goes round a whole number of times a cycle. */
+const turns = (n: number) => ((2 * Math.PI * n) / CAUSTIC_CYCLE).toFixed(6);
 
 const v3 = (v: readonly number[]) => `vec3(${v.map((n) => n.toFixed(4)).join(', ')})`;
 
 const SURFACE = defineShader('WaterSurface', `
-uniform float uTime;
+/** Where the swell has drifted to (noise cells, wrapped), the ripples' phases, and the caustics' clock (s, 0..cycle). */
+uniform vec2 uSwell;
+${WAVES.map((_, i) => `uniform float uWave${i};`).join('\n')}
+uniform float uCausticTime;
 /** The sky: blue overhead and at the horizon, the clouds (0..1 rgb), the murk of the water itself. */
 uniform vec3 uZenith;
 uniform vec3 uHorizon;
@@ -51,19 +69,36 @@ uniform float uCaustic;
 
 const vec3 EYE = ${v3(EYE)};
 
-/** The web of light the waves focus onto the bed: near the edges between drifting cells (1 on an edge, 0 away from them). */
+/** vnoise that repeats every ${NOISE_CELLS} cells, so what drifts over it can be wrapped round. */
+float pnoise(vec2 p, float s) {
+  vec2 i = floor(p), f = p - i, u = f * f * (3.0 - 2.0 * f);
+  const float N = ${NOISE_CELLS.toFixed(1)};
+  float a = hash(mod(i, N), s), b = hash(mod(i + vec2(1.0, 0.0), N), s), c = hash(mod(i + vec2(0.0, 1.0), N), s), d = hash(mod(i + vec2(1.0, 1.0), N), s);
+  return a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y;
+}
+
+/**
+ * The web of light the waves focus onto the bed: the edges between drifting Voronoi cells (F2 - F1),
+ * the cells warped by a slow noise so they come out rounded and uneven, a bright core with a soft glow
+ * either side, brighter in some stretches than others. 0 (dark) .. 1 (brightest).
+ */
 float caustic(vec2 p, float t) {
+  // warped by another noise (circling slowly, so it comes round again)
+  vec2 q = p * 0.9 + 3.0 * vec2(cos(t * ${turns(6)}), sin(t * ${turns(6)}));
+  p += (vec2(vnoise(q, 2132.0), vnoise(q + 5.2, 2133.0)) - 0.5) * 0.9;
   vec2 i = floor(p), f = p - i;
   float f1 = 8.0, f2 = 8.0;
   for (int dy = -1; dy <= 1; dy++)
     for (int dx = -1; dx <= 1; dx++) {
       vec2 g = vec2(float(dx), float(dy));
       float a = hash(i + g, 2130.0) * 6.2832, b = hash(i + g, 2131.0) * 6.2832;
-      vec2 o = g + 0.5 + 0.38 * vec2(sin(t * 0.9 + a), cos(t * 0.7 + b)) - f;
+      vec2 o = g + 0.5 + 0.35 * vec2(sin(t * ${turns(76)} + a), cos(t * ${turns(57)} + b)) - f;
       float d = dot(o, o);
       if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d;
     }
-  return clamp(1.0 - (sqrt(f2) - sqrt(f1)) / 0.3, 0.0, 1.0);
+  float edge = sqrt(f2) - sqrt(f1);
+  float glow = 1.0 - smoothstep(0.0, 0.3, edge);
+  return clamp(glow * glow * glow * (0.55 + 0.9 * vnoise(p * 0.7 + 2.0 * vec2(sin(t * ${turns(8)}), cos(t * ${turns(8)})), 2134.0)), 0.0, 1.0);
 }
 
 void main() {
@@ -71,13 +106,13 @@ void main() {
   if (data.a < 0.5) { gl_FragColor = vec4(0.0); return; }
   float clear = data.r / data.a;
   vec2 w = worldPx();
-  float x = w.x, y = w.y, t = uTime;
+  float x = w.x, y = w.y, t = uCausticTime;
   // the slope of the water here: a lazy, irregular swell (the slope of a drifting noise)...
-  vec2 sw = vec2(x / 11.0 + t * 0.25, y / 7.0 - t * 0.18);
-  float h0 = vnoise(sw, 2120.0);
-  float gx = (vnoise(sw + vec2(0.12, 0.0), 2120.0) - h0) * 2.4, gy = (vnoise(sw + vec2(0.0, 0.12), 2120.0) - h0) * 3.4;
+  vec2 sw = vec2(x / 11.0, y / 7.0) + uSwell;
+  float h0 = pnoise(sw, 2120.0);
+  float gx = (pnoise(sw + vec2(0.12, 0.0), 2120.0) - h0) * 2.4, gy = (pnoise(sw + vec2(0.0, 0.12), 2120.0) - h0) * 3.4;
   // ...and fine ripples on it
-${WAVES.map(([dx, dy, k, a, sp]) => `  { float c = cos((x * ${dx.toFixed(4)} + y * ${dy.toFixed(4)}) * ${k.toFixed(4)} - t * ${sp.toFixed(4)}) * ${(a * k).toFixed(5)} * uRough;
+${WAVES.map(([dx, dy, k, a], i) => `  { float c = cos((x * ${dx.toFixed(4)} + y * ${dy.toFixed(4)}) * ${k.toFixed(4)} - uWave${i}) * ${(a * k).toFixed(5)} * uRough;
     gx += c * ${dx.toFixed(4)}; gy += c * ${dy.toFixed(4)}; }`).join('\n')}
   vec3 n = normalize(vec3(-gx * ${SLOPE.toFixed(4)}, -gy * ${SLOPE.toFixed(4)}, 1.0));
   float R = ${F0.toFixed(4)} + (1.0 - ${F0.toFixed(4)}) * pow(1.0 - max(0.0, dot(n, EYE)), ${FRESNEL_POW.toFixed(1)});
@@ -87,7 +122,7 @@ ${WAVES.map(([dx, dy, k, a, sp]) => `  { float c = cos((x * ${dx.toFixed(4)} + y
   vec3 sky = mix(uHorizon, uZenith, pow(min(1.0, r.z), 0.8));
   // clouds, where the bounced ray meets them (they sit high: a little sideways shift goes a long way)
   vec2 cuv = vec2(x - (r.x / r.z) * 26.0, y + (r.y / r.z) * 26.0) + uDrift;
-  float cn = vnoise(cuv / vec2(70.0, 42.0), 2110.0) * 0.7 + vnoise(cuv / vec2(23.0, 15.0), 2111.0) * 0.3;
+  float cn = pnoise(cuv / vec2(70.0, 42.0), 2110.0) * 0.7 + pnoise(cuv / vec2(23.0, 15.0), 2111.0) * 0.3;
   float cloud = clamp((cn - (1.0 - uCover) * 0.9 - 0.05) / 0.18, 0.0, 1.0);
   sky = mix(sky, uCloud, cloud * 0.85);
   // what shows over the bed: the sky as much as it mirrors, and the murk as much as the depth hides the bed
@@ -110,10 +145,10 @@ ${WAVES.map(([dx, dy, k, a, sp]) => `  { float c = cos((x * ${dx.toFixed(4)} + y
   vec3 light = vec3(0.0);
   float shallow = clamp((clear - ${CAUSTIC_FROM.toFixed(3)}) / ${(CAUSTIC_FULL - CAUSTIC_FROM).toFixed(3)}, 0.0, 1.0) * uCaustic;
   if (shallow > 0.0) {
-    vec2 cp = (w + vec2(gx, gy) * 1.5) / vec2(6.0, 4.0);
-    float c = max(caustic(cp, t), caustic(cp * 1.4 + vec2(3.7, 1.3), t * 1.3) * 0.75);
-    // crisp lines a pixel or two wide, thinning out (dithered) as the water deepens; as bright as the bed shows through
-    c = step(0.55, c) * step(bayer(w + 2.0), shallow);
+    // (squashed top to bottom like the ground, and bent by the slope of the waves over it)
+    vec2 cp = (w + vec2(gx, gy) * 2.5) / vec2(11.0, 8.0);
+    // in three dithered steps: the bright core solid, its glow thinning to scattered pixels
+    float c = floor(caustic(cp, t) * shallow * 3.0 + bayer(w + 2.0)) / 3.0;
     light = vec3(1.0, 0.96, 0.78) * c * (1.0 - alpha) * ${CAUSTIC_BRIGHT.toFixed(3)};
   }
   gl_FragColor = vec4(col * alpha + light, alpha);
@@ -131,7 +166,7 @@ const MURK = hex("#24474a"), MURK_NIGHT = hex('#0e1c22');
 export class WaterSurface {
   /** The numbers the surface's shader is given, shared by every patch and set anew each frame. */
   private readonly uniforms: Uniforms = {
-    uTime: 0, uZenith: [0, 0, 0], uHorizon: [0, 0, 0], uCloud: [0, 0, 0], uMurk: [0, 0, 0],
+    uSwell: [0, 0], ...Object.fromEntries(WAVES.map((_, i) => [`uWave${i}`, 0])), uCausticTime: 0, uZenith: [0, 0, 0], uHorizon: [0, 0, 0], uCloud: [0, 0, 0], uMurk: [0, 0, 0],
     uCover: 0, uDrift: [0, 0], uRough: 1, uGlint: 0, uSun: [0, 0, 1], uCaustic: 0,
   };
 
@@ -172,13 +207,17 @@ export class WaterSurface {
   /** `overcast` (0..1) greys the sky and roughens the water. */
   update(light: Light, gt: number, _time: number, overcast: number): void {
     const sky = this.skyFor(light, gt, overcast), u = this.uniforms, c = (v: RGB) => v.map((n) => n / 255);
-    u.uTime = gt / 1000;
+    // (in double precision here, wrapped round before it goes to the GPU's floats)
+    const t = gt / 1000;
+    u.uSwell = [wrap(t * 0.25, NOISE_CELLS), wrap(-t * 0.18, NOISE_CELLS)];
+    WAVES.forEach(([, , , , sp], i) => (u[`uWave${i}`] = wrap(t * sp, 2 * Math.PI)));
+    u.uCausticTime = wrap(t, CAUSTIC_CYCLE);
     u.uZenith = c(sky.zenith);
     u.uHorizon = c(sky.horizon);
     u.uCloud = c(sky.cloud);
     u.uMurk = c(mix(MURK_NIGHT, MURK, light.day));
     u.uCover = sky.cover;
-    u.uDrift = [sky.driftX, sky.driftY];
+    u.uDrift = [wrap(sky.driftX, CLOUD_REPEAT[0]), wrap(sky.driftY, CLOUD_REPEAT[1])];
     u.uRough = sky.rough;
     u.uGlint = sky.glint;
     u.uSun = sky.sun;
