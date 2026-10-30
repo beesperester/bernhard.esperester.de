@@ -59,6 +59,12 @@ const ALPHA = 0.32;
 const MAP = 1024;
 /** Contact shadows: at most this dark, in this many dithered steps; and the trunk's foot darkened this far up (px). */
 const CONTACT_ALPHA = 0.42, CONTACT_STEPS = 3, CONTACT_UP = 5;
+/**
+ * Up a tree, the world round it dims, so you can see what belongs to the tree: by up to DIM_MAX, fully from
+ * DIM_FULL px up; the tree itself dims as much at its root, less and less (dithered) up to your cat's height.
+ * It eases in and out at DIM_RATE (per s).
+ */
+const DIM_MAX = 0.3, DIM_FULL = 48, DIM_RATE = 3;
 /** Contact shadows lie flat on the ground: this much less deep than wide. */
 const CONTACT_SQUASH = 0.35;
 /** A grounded thing's foot: the opaque span along the bottom of its picture (this many rows of it). */
@@ -141,6 +147,10 @@ uniform float uShade;
 uniform float uMirror;
 uniform float uOutAlpha;
 uniform vec2 uDepthRange;
+/** Dimmed round a climb (DIM_MAX): 0 not, 1 like the world, 2 as the tree climbed (from its root up to uClimbZ). */
+uniform float uDimMode;
+uniform float uDim;
+uniform float uClimbZ;
 float m2(vec2 p) { return mod(2.0 * p.x + 3.0 * p.y, 4.0); }
 float bayer(vec2 p) {
   vec2 a = mod(p, 4.0);
@@ -206,6 +216,12 @@ void main() {
   if (uMirror < 0.5 && uHasDepth > 0.5 && off == 0.0 && up < ${CONTACT_UP}.0) {
     float k = floor((1.0 - up / ${CONTACT_UP}.0) * ${CONTACT_STEPS}.0 + bayer(floor(world))) / ${CONTACT_STEPS}.0;
     col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}) * col.a, k * ${CONTACT_ALPHA});
+  }
+  // up a tree: the world round it dimmed, and the tree itself from its root up to your cat (dithered)
+  if (uDimMode > 0.5 && uDim > 0.0) {
+    float k = uDim;
+    if (uDimMode > 1.5) k *= floor(clamp(1.0 - up / max(1.0, uClimbZ), 0.0, 1.0) * 4.0 + bayer(floor(world))) / 4.0;
+    col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}) * col.a, k);
   }
   gl_FragColor = (uSoft > 0.5 ? col * alpha : vec4(col.rgb, 1.0)) * uOutAlpha;
 }`;
@@ -413,6 +429,13 @@ uniform sampler2D uTex;
 varying vec2 vTex;
 void main() { gl_FragColor = texture2D(uTex, vTex); }`;
 
+/** The world under the standing things (ground, water, reflections) dimmed round a climb: the shadows' colour laid over it. */
+const DIM_FRAG = `
+precision highp float;
+uniform float uK;
+varying vec2 vTex;
+void main() { gl_FragColor = vec4(vec3(${COLOUR.join(', ')}) * uK, uK); }`;
+
 /** An effect drawn by a shader of its own (a Phaser Shader): its quad standing on row `foot`, and its shader's numbers. */
 export interface Effect { quad: Phaser.GameObjects.Shader; foot: number; uniforms: Record<string, number | number[]> }
 
@@ -451,15 +474,33 @@ function backOf(dc: Phaser.Renderer.WebGL.DrawingContext): { back: WebGLFramebuf
 
 interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; depth: WebGLRenderbuffer; w: number; h: number }
 
+/** What Cards draws from: the ground, the trees, the effects, your cat (for its silhouette), the water, and the tree your cat is up (and how high). */
+interface Source {
+  ground: unknown;
+  trees: unknown;
+  effects: Effects[];
+  me: () => Pic | null;
+  water: { boxes: Box[]; mask: Mask };
+  climb: () => { tree: number; z: number } | null;
+}
+
 export class Cards {
   private readonly scene: Phaser.Scene;
-  private readonly src: { ground: unknown; trees: unknown; effects: Effects[]; me: () => Pic | null; water: { boxes: Box[]; mask: Mask } };
+  private readonly src: Source;
   private readonly gl: WebGLRenderingContext;
   private readonly renderer: Phaser.Renderer.WebGL.WebGLRenderer;
   private readonly prog: WebGLProgram;
   private readonly shadowProg: WebGLProgram;
   private readonly castProg: WebGLProgram;
   private readonly compProg: WebGLProgram;
+  private readonly dimProg: WebGLProgram;
+  /** Dimmed round a climb: how much now, the tree (its index) and how high up it your cat is; when last eased. */
+  private dim = 0;
+  /** Drawing the ground pass (begin's). */
+  private onGround = false;
+  private climbTree = -1;
+  private climbZ = 0;
+  private dimAt = 0;
   private readonly effectProgs: WebGLProgram[];
   private effects: Effect[][] = [];
   private readonly quad: WebGLBuffer;
@@ -516,7 +557,7 @@ export class Cards {
   /** ms of CPU the passes took, the last few frames (for measuring). */
   readonly ms: number[] = [];
 
-  constructor(scene: Phaser.Scene, src: { ground: unknown; trees: unknown; effects: Effects[]; me: () => Pic | null; water: { boxes: Box[]; mask: Mask } }) {
+  constructor(scene: Phaser.Scene, src: Source) {
     this.scene = scene;
     this.src = src;
     this.renderer = scene.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
@@ -526,6 +567,7 @@ export class Cards {
     this.shadowProg = program(gl, SHADOW_VERT, SHADOW_FRAG);
     this.castProg = program(gl, CAST_VERT, CAST_FRAG);
     this.compProg = program(gl, COMP_VERT, COMP_FRAG);
+    this.dimProg = program(gl, COMP_VERT, DIM_FRAG);
     this.effectProgs = src.effects.map((e) => program(gl, EFFECT_VERT, effectFrag(e.source)));
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
@@ -639,6 +681,16 @@ export class Cards {
     this.effects = this.src.effects.map((e) => e.now());
     for (const list of this.effects) for (const e of list) e.quad.cameraFilter = cam;
 
+    // up a tree: how much to dim round it (eased)
+    const climb = this.src.climb(), now = performance.now(), dt = this.dimAt ? Math.min(0.1, (now - this.dimAt) / 1000) : 0;
+    this.dimAt = now;
+    if (climb) {
+      this.climbTree = climb.tree;
+      this.climbZ = climb.z;
+    }
+    const want = climb ? DIM_MAX * Math.max(0, Math.min(1, climb.z / DIM_FULL)) : 0;
+    this.dim += Math.sign(want - this.dim) * Math.min(Math.abs(want - this.dim), DIM_RATE * DIM_MAX * dt);
+    if (this.dim < 0.005 && !climb) this.climbTree = -1;
     this.strength = Math.max(0, Math.min(1, light.elevation / 10)) * (1 - overcast * 0.85);
     this.sun(light, view);
   }
@@ -938,6 +990,7 @@ export class Cards {
     gl.disable(gl.STENCIL_TEST);
     gl.stencilMask(0xff);
     gl.disable(gl.DEPTH_TEST);
+    if (this.dim > 0.005) this.dimBack(back, vp);
     this.composite(this.things.tex, back, vp, true);
     this.ms[this.ms.length - 1] += performance.now() - t0;
     if (this.ms.length > 240) this.ms.shift();
@@ -1085,6 +1138,7 @@ export class Cards {
   /** Set up the cards' program for a pass. */
   private begin(ground: boolean): void {
     const gl = this.gl, p = this.prog;
+    this.onGround = ground;
     gl.useProgram(p);
     this.unit(2, syncRamps(this.renderer).webGLTexture!, 'uRamps');
     this.unit(4, this.shadow!.tex, 'uShadow');
@@ -1092,7 +1146,7 @@ export class Cards {
     this.uniforms(p, {
       uTarget: [this.ox, this.oy, this.w, this.h], uView: [this.ox, this.oy, 1], uSun: paintLight.sun, uRimDir: paintLight.rimDir, uRim: paintLight.rim,
       uGround: ground ? 1 : 0, uDepthRange: [this.oy, 1 / 4096], uU: this.U, uV: this.V, uL: this.L, uBox: this.box, uDRange: this.dRange,
-      uStrength: this.strength, uMirror: this.mirror ? 1 : 0, uOutAlpha: 1,
+      uStrength: this.strength, uMirror: this.mirror ? 1 : 0, uOutAlpha: 1, uDim: this.dim, uClimbZ: this.climbZ, uDimMode: 0,
     });
     gl.uniform4fv(gl.getUniformLocation(p, 'uLamps[0]'), paintLight.lamps);
     gl.uniform1i(gl.getUniformLocation(p, 'uLampCount'), Math.min(MAX_LAMPS, paintLight.lampCount));
@@ -1121,6 +1175,9 @@ export class Cards {
     this.unit(1, b.normal, 'uNormSampler');
     this.unit(3, b.depth, 'uDepth');
     this.uniforms(p, { uTexRes: [b.tw, b.th], uHasDepth: b.depth ? 1 : 0, uPainted: b.normal ? 1 : 0, uSoft: soft ? 1 : 0, uShade: shade ? 1 : 0 });
+    // (round a climb: the tree climbed from its root up, cats not at all, the rest like the world; not in the water: dimmed with it)
+    const climbed = b.tree !== null && b.tree.id === this.climbTree + 1, cat = b.pics[0].texture.key.startsWith('cat-');
+    this.uniforms(p, { uDimMode: this.mirror || this.onGround || cat ? 0 : climbed ? 2 : 1 });
     this.cut(this.mirror ? null : (b.tree?.cut ?? null), b.pics[0]);
     if (this.mirror) this.uniforms(p, { uOutAlpha: b.tree ? TREE_REFLECT : 1 });
     const out = this.scratch;
@@ -1151,6 +1208,22 @@ export class Cards {
   }
 
   /** Lay picture `tex` (the view, in world px) over the camera's framebuffer. */
+  /** Dim what's already drawn under the standing things, round a climb. */
+  private dimBack(back: WebGLFramebuffer | null, vp: number[]): void {
+    const gl = this.gl, p = this.dimProg;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, back);
+    gl.viewport(vp[0], vp[1], vp[2], vp[3]);
+    gl.useProgram(p);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform1f(gl.getUniformLocation(p, 'uK'), this.dim);
+    gl.uniform4f(gl.getUniformLocation(p, 'uRect'), -1, 1, 2, 2);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    const loc = this.attr(p, 'aCorner', 2, 0, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.disableVertexAttribArray(loc);
+  }
+
   private composite(tex: WebGLTexture, back: WebGLFramebuffer | null, vp: number[], blend: boolean): void {
     const gl = this.gl, p = this.compProg, cam = this.scene.cameras.main, view = cam.worldView, z = cam.zoom;
     gl.bindFramebuffer(gl.FRAMEBUFFER, back);

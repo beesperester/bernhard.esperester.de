@@ -4,7 +4,7 @@ import { COATS } from '../art/cat.ts';
 import { uprightAt } from '../art/tiles.ts';
 import { Ground } from './Ground.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
-import { HOUSES, TREES, TRUNK_FRONT, standingOn, surfaceAt, zAt } from '../world/trees.ts';
+import { HOUSES, TREES, TRUNK_FRONT, standingOn, surfaceAt, treeHolding, zAt } from '../world/trees.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, COASTERS, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
@@ -320,6 +320,11 @@ export class GardenScene extends Phaser.Scene {
         ],
         me: () => this.me?.silhouette() ?? null,
         water: { boxes: waterBoxes(), mask: canvases.water },
+        // (the tree your cat is up, as it's sorted in front of it, and how high)
+        climb: () => {
+          const me = this.me, i = me ? treeHolding(me.x, me.y, me.z) : -1;
+          return me && i >= 0 ? { tree: i, z: me.z - TREES[i].elev } : null;
+        },
       });
       this.trees.cards = true;
       catLight.ghosts = false;
