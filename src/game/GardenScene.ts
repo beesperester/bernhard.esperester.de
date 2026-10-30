@@ -658,7 +658,8 @@ export class GardenScene extends Phaser.Scene {
     this.ground.update(view, time);
     this.trees.update(this.me, view, dt * 1000);
     this.catSounds.update(cats, time);
-    cullerFor(this).update(view);
+    // (and what stands just above it, when its reflection hangs into the water in view)
+    cullerFor(this).update(view, this.cards?.reach(view) ?? 0);
     this.meadow.update(gt, cats, view);
     // the ripple is slow, so trees' reflections only need redrawing about 30 times a second;
     // cats move, so theirs are redrawn every frame (only where one is near the water)

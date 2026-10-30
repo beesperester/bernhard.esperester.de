@@ -46,9 +46,9 @@ export class Culler {
     return obj;
   }
 
-  /** Bring the cells around `view` in and send the rest out. Cheap when the view stays within the same cells. */
-  update(view: Phaser.Geom.Rectangle): void {
-    const x0 = view.x - MARGIN, y0 = view.y - MARGIN, x1 = view.right + MARGIN, y1 = view.bottom + MARGIN;
+  /** Bring the cells around `view` (and `above` more above it) in and send the rest out. Cheap when the view stays within the same cells. */
+  update(view: Phaser.Geom.Rectangle, above = 0): void {
+    const x0 = view.x - MARGIN, y0 = view.y - MARGIN - above, x1 = view.right + MARGIN, y1 = view.bottom + MARGIN;
     const range = `${Math.floor(x0 / CELL)},${Math.floor(y0 / CELL)},${Math.floor(x1 / CELL)},${Math.floor(y1 / CELL)}`;
     if (range === this.range) return;
     this.range = range;

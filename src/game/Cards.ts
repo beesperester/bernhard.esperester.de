@@ -73,6 +73,8 @@ const GROUND_PASS = -99999.5, STANDING_PASS = 89500;
 const REFLECT_PASS = -99990;
 /** Reflections: how strongly they show, trees fainter; tinted this much towards the water's colour. */
 const REFLECT_ALPHA = 0.65, TREE_REFLECT = 0.45, REFLECT_TINT = 0.4, WATER = [30 / 255, 64 / 255, 70 / 255];
+/** The tallest thing (but a tree: those are kept by Trees) whose reflection can hang down into the view from above it. */
+const REFLECT_REACH = 192;
 /** The tiles' boxes' id in the shadow map (the ground ignores them on their own tiles: they are drawn in it). */
 const BOX_ID = 65535;
 /** Floats per vertex: x, y, u, v; foot, depth, id, alpha; tint r, g, b, mode. */
@@ -565,6 +567,8 @@ export class Cards {
     this.treeBatches = [];
     this.softs = [];
     this.ids.clear();
+    // the water in view (things just off the view whose reflections reach it are drawn too)
+    this.wet = this.patches.filter(({ box: b }) => b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y);
 
     // the trees: back and front pictures, their leaves at the depth of their crown's balls
     // (cut round your cat as game/Trees.ts says; their trunk and branches shown over your cat up one aren't needed here)
@@ -577,7 +581,7 @@ export class Cards {
         if (!pic) continue;
         const img = pic.img;
         trees.add(img);
-        if (img.x + img.width < x0 || img.x > x1 || img.y + img.height < y0 || img.y > y1) continue;
+        if ((img.x + img.width < x0 || img.x > x1 || img.y + img.height < y0 || img.y > y1) && !this.reaches(img, TREES[i].y + 1)) continue;
         const r = which === 'base' ? t.p.raster : t.p.front!.raster, lit = which === 'base' ? t.p.lit : t.p.front!.lit;
         let depth = this.depths.get(img);
         if (!depth) this.depths.set(img, (depth = this.treeDepth(i, r, lit, img.x, img.y, which === 'front')));
@@ -594,7 +598,7 @@ export class Cards {
       o.cameraFilter = cam;
       if (trees.has(o) || !o.visible || o.alpha <= 0 || !o.frame?.source?.glTexture) continue;
       const pic = o as Pic, r = Math.max(pic.displayWidth, pic.displayHeight);
-      if (pic.x + r < x0 || pic.x - r > x1 || pic.y + r < y0 || pic.y - r > y1) continue;
+      if ((pic.x + r < x0 || pic.x - r > x1 || pic.y + r < y0 || pic.y - r > y1) && (d === GROUND || !this.reaches(pic, d))) continue;
       const src = pic.frame.source, main = src.glTexture!.webGLTexture!;
       if (d !== GROUND && (pic.alpha < 1 || pic.blendMode !== 0)) {
         this.softs.push({ pic, main, normal: normalOf(pic), tw: src.width, th: src.height });
@@ -616,8 +620,6 @@ export class Cards {
       for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [-1, 1], [1, -1], [1, 1]]) contact.push(t.x + cx * ex, cy + cz * ey, t.x, cy, rx, ry);
     }
     this.contactData = new Float32Array(contact);
-    // the water in view
-    this.wet = this.patches.filter(({ box: b }) => b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y);
     this.effects = this.src.effects.map((e) => e.now());
     for (const list of this.effects) for (const e of list) e.quad.cameraFilter = cam;
 
@@ -877,6 +879,17 @@ export class Cards {
     if (this.ms.length > 240) this.ms.shift();
   }
 
+  /** Whether pic, standing on foot, hangs its reflection into the water in view. */
+  private reaches(pic: Pic, foot: number): boolean {
+    const top = pic.y - pic.displayOriginY * pic.scaleY, half = pic.displayWidth;
+    return this.wet.some(({ box: b }) => pic.x + half > b.x && pic.x - half < b.x + b.w && foot < b.y + b.h && 2 * foot - top + 2 > b.y);
+  }
+
+  /** How far above the view things must be kept for their reflections: only when there's water in it. */
+  reach(view: Phaser.Geom.Rectangle): number {
+    return this.patches.some(({ box: b }) => b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y) ? REFLECT_REACH : 0;
+  }
+
   /** What stands by the water, mirrored, laid over it. */
   private drawReflections(dc: Phaser.Renderer.WebGL.DrawingContext): void {
     if (!this.wet.length) return;
@@ -895,12 +908,8 @@ export class Cards {
     gl.disable(gl.BLEND);
     this.mirror = true;
     this.begin(false);
-    const reaches = (pic: Pic, foot: number) => {
-      const top = pic.y - pic.displayOriginY * pic.scaleY, half = pic.displayWidth;
-      return this.wet.some(({ box: b }) => pic.x + half > b.x && pic.x - half < b.x + b.w && foot < b.y + b.h && 2 * foot - top + 2 > b.y);
-    };
     for (const b of [...this.treeBatches, ...this.batches.values(), ...this.solids.values()]) {
-      const pics = b.pics.filter((p) => reaches(p, b.tree ? b.tree.foot + 1 : p.depth));
+      const pics = b.pics.filter((p) => this.reaches(p, b.tree ? b.tree.foot + 1 : p.depth));
       if (pics.length) this.drawBatch({ ...b, pics }, false, false);
     }
     this.end();
