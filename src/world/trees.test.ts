@@ -89,6 +89,8 @@ describe('trees', () => {
     for (const t of TREES)
       for (const p of t.perches) {
         expect(p.x1).toBeGreaterThan(p.x0);
+        // (a drawn one is stood on as drawn: its steep bits are slid down)
+        if (p.zs) continue;
         expect(Math.abs(p.z1 - p.z0) / (p.x1 - p.x0)).toBeLessThanOrEqual(most);
         if (p.kind === 'branch' && p.z1 !== p.z0) branches++;
       }

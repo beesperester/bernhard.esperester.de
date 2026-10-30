@@ -2,12 +2,13 @@
 // guide layer (tools/tree-layers.ts draws them as planned; the painter moves
 // them, draws more or rubs some out): red a branch, green a stump up the
 // trunk (and the softer red and orange the first exports drew in; their blue
-// top is a branch too). Each line, along its top edge, becomes one perch or a few (where
-// it bends), as world/trees.ts plans them: x from the trunk's
-// middle, z above its foot. The checks here are the ones a line can fail by
+// top is a branch too). Each line becomes one perch, stood on along its top
+// edge pixel for pixel (its height in every column: `zs`), x from the trunk's
+// middle and z above its foot as world/trees.ts plans them. Where it's too
+// steep to walk, a cat slides down it. The checks here are the ones a line can fail by
 // itself; whether a cat can climb from one to the next is for the tests
 // (world/trees.test.ts climbs every painted tree).
-import { MAX_SLOPE, type Perch, type PerchKind } from '../src/world/trees.ts';
+import { MAX_SLOPE, steepAt, type Perch, type PerchKind } from '../src/world/trees.ts';
 import { JUMP_HEIGHT, STEP_UP } from '../src/game/movement.ts';
 import { STAGE_JUMP, Stage } from '../src/game/growth.ts';
 
@@ -17,8 +18,6 @@ export const GUIDE = { perch: [255, 0, 0], stump: [0, 255, 0], foot: [255, 255, 
 const OLD = { perch: [232, 40, 60], stump: [255, 150, 30], top: [60, 120, 255], blue: [0, 0, 255] } as const;
 /** How far (RGB) a pixel can be from a guide colour and still be one. */
 const NEAR = 90;
-/** How far a bent line can stray from a straight perch (px) before it's two. */
-const BEND = 1.5;
 /** Under how much of a line there must be something painted (in any layer, at most this many px below it)... */
 const SUPPORT = 0.7, BELOW = 4;
 
@@ -61,20 +60,20 @@ export function guidePerches(guide: Uint8ClampedArray, w: number, h: number, sha
     }
     const xs = [...top.keys()].sort((a, b) => a - b);
     const at = `the ${names[k] === 'tier' ? 'branch' : names[k]} at ${xs[0]},${top.get(xs[0])}`;
-    const pts = xs.map((x) => [x, zOf(top.get(x)!)] as [number, number]);
-    // (one perch a stretch, the last reaching to the far edge of its end pixel)
-    const line = simplified(pts), most = Math.tan((MAX_SLOPE * Math.PI) / 180) + 0.01;
-    if (line.length === 1) line.push(line[0]);
-    for (let i = 0; i + 1 < line.length; i++) {
-      const [x0, z0] = line[i], [x1, z1] = line[i + 1];
-      // (a stretch too steep to walk is left out, as the plans leave out a steep bit of a limb: a cat jumps past it, if it can)
-      if (Math.abs(z1 - z0) / Math.max(1, x1 - x0) > most) {
-        const deg = Math.round((Math.atan(Math.abs(z1 - z0) / Math.max(1, x1 - x0)) * 180) / Math.PI);
-        notes.push(`${at}: left out from ${x0},${h - 1 - z0} to ${x1},${h - 1 - z1}, ${deg}° (a cat walks up ${MAX_SLOPE}° at most)`);
-        continue;
-      }
-      perches.push({ x0: x0 - cx, z0, x1: x1 - cx + (i + 2 === line.length ? 1 : 0), z1, kind: names[k] });
+    // one perch, stood on along its top edge exactly, a column at a time
+    const zs = xs.map((x) => zOf(top.get(x)!));
+    const p: Perch = { x0: xs[0] - cx, z0: zs[0], x1: xs[xs.length - 1] + 1 - cx, z1: zs[zs.length - 1], kind: names[k], zs };
+    perches.push(p);
+    // (where it's too steep to walk, a cat slides down: just so the painter knows where)
+    const runs: string[] = [];
+    for (let i = 0; i < xs.length; i++) {
+      if (!steepAt(p, xs[i] + 0.5 - cx)) continue;
+      let j = i;
+      while (j + 1 < xs.length && steepAt(p, xs[j + 1] + 0.5 - cx)) j++;
+      runs.push(`${xs[i]},${top.get(xs[i])} to ${xs[j]},${top.get(xs[j])}`);
+      i = j;
     }
+    if (runs.length) notes.push(`${at}: steeper than ${MAX_SLOPE}° for more than a step, so slid down: ${runs.join('; ')}`);
     const held = xs.filter((x) => { for (let d = 0; d <= BELOW; d++) if (solid(x, top.get(x)! + d)) return true; return false; }).length;
     if (held < xs.length * SUPPORT) problems.push(`${at}: nothing painted under it (paint a branch or a stump there)`);
   }
@@ -85,17 +84,4 @@ export function guidePerches(guide: Uint8ClampedArray, w: number, h: number, sha
   else if (low <= lowest || low >= highest)
     problems.push(`the lowest stump is ${low} px up: it needs to be between ${Math.floor(lowest) + 1} and ${Math.ceil(highest) - 1} (row ${h - 1 - Math.ceil(highest) + 1} to ${h - 1 - Math.floor(lowest) - 1})`);
   return { perches, problems, notes };
-}
-
-/** A line of points (x across, z up), straightened where it's near enough straight (Douglas-Peucker). */
-function simplified(pts: [number, number][]): [number, number][] {
-  if (pts.length <= 2) return pts;
-  const [ax, az] = pts[0], [bx, bz] = pts[pts.length - 1];
-  let far = 0, at = 0;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const [x, z] = pts[i], d = Math.abs(az + ((bz - az) * (x - ax)) / Math.max(1, bx - ax) - z);
-    if (d > far) { far = d; at = i; }
-  }
-  if (far <= BEND) return [pts[0], pts[pts.length - 1]];
-  return [...simplified(pts.slice(0, at + 1)).slice(0, -1), ...simplified(pts.slice(at))];
 }

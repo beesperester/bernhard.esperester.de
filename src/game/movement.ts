@@ -1,5 +1,5 @@
 import { FEET, heightUnder, waterUnder } from '../world/map.ts';
-import { surfaceAt } from '../world/trees.ts';
+import { WALKABLE, slopeAt, standingOn, steepAt, surfaceAt } from '../world/trees.ts';
 import { GRAVITY, JUMP_V } from './state.ts';
 
 // How a cat moves through the garden: speeds, the dash and its cooldown,
@@ -33,10 +33,26 @@ export const JUMP_HEIGHT = (JUMP_V * JUMP_V) / (2 * GRAVITY);
 /** Where a cat is: ground position, height, and whether it is in the air. */
 export interface Body { x: number; y: number; z: number; airborne: boolean }
 
-/** Would a cat with its feet at (x, y) bump into something (or step into water, on foot)? */
+/** A cat slides down a drawn branch too steep to walk at this speed (px/s, along it). */
+export const SLIDE_SPEED = 72;
+
+/** Would a cat with its feet at (x, y) bump into something (or step into water, or walk up a drawn branch too steep for it, on foot)? */
 export function blocked(body: Body, x: number, y: number): boolean {
   const x0 = x + FEET.x0, y0 = y + FEET.y0, x1 = x + FEET.x1, y1 = y + FEET.y1;
-  return heightUnder(x0, y0, x1, y1, body.z) > body.z + (body.airborne ? AIR_CLIMB : STEP_UP) || (!body.airborne && waterUnder(x0, y0, x1, y1));
+  if (heightUnder(x0, y0, x1, y1, body.z) > body.z + (body.airborne ? AIR_CLIMB : STEP_UP) || (!body.airborne && waterUnder(x0, y0, x1, y1))) return true;
+  if (body.airborne || x === body.x) return false;
+  const on = standingOn(body.x, body.y, body.z);
+  return !!on?.zs && slopeAt(on, x) * Math.sign(x - body.x) > WALKABLE && steepAt(on, x);
+}
+
+/** On a drawn branch too steep to walk, the cat slides down it (dt in s): whether it is sliding. */
+export function slide(body: Body, dt: number): boolean {
+  if (body.airborne) return false;
+  const on = standingOn(body.x, body.y, body.z);
+  if (!on || !steepAt(on, body.x)) return false;
+  const s = slopeAt(on, body.x), x = body.x;
+  step(body, (s > 0 ? -1 : 1) * ((SLIDE_SPEED * dt) / Math.hypot(1, s)), 0);
+  return body.x !== x;
 }
 
 /**

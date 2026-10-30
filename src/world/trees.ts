@@ -22,7 +22,11 @@ import { FEET, FORK_Z, LEVEL, TILE, heightUnder, levelAt, tileAt, treeTiles, tru
 export const RISE = 52;
 /** The steepest a branch a cat can walk along (degrees from level). */
 export const MAX_SLOPE = 35;
-const WALKABLE = Math.tan((MAX_SLOPE * Math.PI) / 180);
+export const WALKABLE = Math.tan((MAX_SLOPE * Math.PI) / 180);
+/** A drawn line's slope is taken over this far either side (px)... */
+const SLOPE_SPAN = 3;
+/** ...and a steep bit of it rising no more than this is walked up like a stair (as game/movement.ts STEP_UP). */
+const STEEP_STEP = 3;
 /** Stumps up a trunk or a steep limb are this far apart in height, and a few px more (a jump goes about 14 px)... */
 export const STUMP_STEP = 11, STUMP_VARY = 2;
 /** ...the lowest this high: out of a kitten's jump, in a young cat's... */
@@ -44,17 +48,45 @@ const WALK_TO = 0.85;
 
 export type PerchKind = 'stump' | 'fork' | 'branch' | 'tier' | 'top' | 'birdhouse' | 'deck' | 'roof';
 
-/** A perch, relative to its tree: a line from (x0, z0) to (x1, z1) (x0 < x1), x from the trunk's middle, z above the tree's foot. */
-export interface Perch { x0: number; z0: number; x1: number; z1: number; kind: PerchKind }
+/**
+ * A perch, relative to its tree: a line from (x0, z0) to (x1, z1) (x0 < x1), x from the trunk's middle, z above the tree's foot.
+ * One drawn by hand (a painted tree's guide) has `zs` too: its height in every column from x0 (x0 and x1 whole, x1 - x0
+ * of them), and is stood on along exactly that, steep bits and all: too steep to walk up, a cat slides down them (slopeAt).
+ */
+export interface Perch { x0: number; z0: number; x1: number; z1: number; kind: PerchKind; zs?: number[] }
 
 /** A perch in the world: x across, y the line it is stood on, z absolute heights. */
 export interface PerchAt extends Perch { tree: number; y: number }
 
 /** How high perch p is at x (held to its ends). */
 export function zAt(p: Perch, x: number): number {
+  if (p.zs) {
+    // (from the middle of one column to the middle of the next)
+    const u = Math.max(0, Math.min(p.zs.length - 1, x - p.x0 - 0.5)), k = Math.floor(u), f = u - k;
+    return f ? p.zs[k] + (p.zs[k + 1] - p.zs[k]) * f : p.zs[k];
+  }
   if (p.x1 <= p.x0) return Math.max(p.z0, p.z1);
   const f = Math.max(0, Math.min(1, (x - p.x0) / (p.x1 - p.x0)));
   return p.z0 + (p.z1 - p.z0) * f;
+}
+
+/** How a drawn line (with `zs`) is sloped at x, up to the right: over a few px either side, so a pixel staircase is as steep as it climbs overall. */
+export function slopeAt(p: Perch, x: number): number {
+  return (zAt(p, x + SLOPE_SPAN) - zAt(p, x - SLOPE_SPAN)) / (2 * SLOPE_SPAN);
+}
+
+const steepHere = (p: Perch, x: number): boolean => !!p.zs && Math.abs(slopeAt(p, x)) > WALKABLE;
+
+/**
+ * Whether perch p is too steep to walk up at x, and slid down (a drawn one: one planned never is):
+ * steeper than MAX_SLOPE for longer than a step up (STEEP_STEP; a short steep bit is walked up like a stair).
+ */
+export function steepAt(p: Perch, x: number): boolean {
+  if (!steepHere(p, x)) return false;
+  let a = x, b = x;
+  while (a - 1 >= p.x0 && steepHere(p, a - 1)) a--;
+  while (b + 1 <= p.x1 && steepHere(p, b + 1)) b++;
+  return Math.abs(zAt(p, b) - zAt(p, a)) > STEEP_STEP;
 }
 
 /** A perch's middle: x, and its height there. */
@@ -369,7 +401,7 @@ export function templatePlan(shape: TemplateShape, size: number): TreePlan {
 function mirrored(p: TreePlan): TreePlan {
   return {
     ...p,
-    perches: p.perches.map((q) => ({ ...q, x0: -q.x1, z0: q.z1, x1: -q.x0, z1: q.z0 })),
+    perches: p.perches.map((q) => ({ ...q, x0: -q.x1, z0: q.z1, x1: -q.x0, z1: q.z0, ...(q.zs && { zs: [...q.zs].reverse() }) })),
     limbs: p.limbs.map((l) => ({ ...l, x0: -l.x0, x1: -l.x1, bend: -l.bend })),
     crown: p.crown.map((b) => ({ ...b, x: -b.x })),
   };
@@ -381,7 +413,11 @@ export const TREES: TreePlan[] = treeTiles().map(([tx, ty], i) => plan(tx, ty, i
 /** Each tree's perches in the world. */
 // (low down, where the trunk is solid, a perch is stood on in front of it)
 const PERCHES: PerchAt[][] = TREES.map((t, tree) =>
-  t.perches.map((p) => ({ tree, x0: t.x + p.x0, z0: t.elev + p.z0, x1: t.x + p.x1, z1: t.elev + p.z1, y: t.y + (Math.min(p.z0, p.z1) < FORK_Z ? TRUNK_FRONT : 0), kind: p.kind })),
+  t.perches.map((p) => ({
+    tree, x0: t.x + p.x0, z0: t.elev + p.z0, x1: t.x + p.x1, z1: t.elev + p.z1, kind: p.kind,
+    y: t.y + (Math.min(p.z0, p.z1, ...(p.zs ?? [])) < FORK_Z ? TRUNK_FRONT : 0),
+    ...(p.zs && { zs: p.zs.map((z) => t.elev + z) }),
+  })),
 );
 
 const inBand = (t: TreePlan, y: number) => y >= t.y - BAND_BACK && y <= t.y + BAND_FRONT;
@@ -408,6 +444,24 @@ export function perchUnder(x: number, y: number, z: number, under = Infinity): P
       if (x <= p.x0 - hang || x >= p.x1 + hang) continue;
       const pz = zAt(p, x);
       if (pz <= z + CATCH && pz < under && pz > bz) { best = p; bz = pz; }
+    }
+  }
+  return best;
+}
+
+/**
+ * A drawn branch a cat came down onto going from (xa, za) to (xb, zb) at y (in the air,
+ * across it where it's steep, which a check at xb alone would miss): its height at xb, or
+ * -Infinity. Only ones lower than `under` (not the one it dropped from).
+ */
+export function lineCrossed(xa: number, za: number, xb: number, y: number, zb: number, under = Infinity): number {
+  let best = -Infinity;
+  for (const i of near(y)) {
+    if (!inBand(TREES[i], y)) continue;
+    for (const p of PERCHES[i]) {
+      if (!p.zs || xb <= p.x0 - OVERHANG || xb >= p.x1 + OVERHANG) continue;
+      const pa = zAt(p, xa), pb = zAt(p, xb);
+      if (za >= pa - CATCH && zb < pb && pb < under && pa < under && pb > best) best = pb;
     }
   }
   return best;

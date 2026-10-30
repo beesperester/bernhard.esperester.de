@@ -4,7 +4,7 @@ import { COATS } from '../art/cat.ts';
 import { uprightAt } from '../art/tiles.ts';
 import { Ground } from './Ground.ts';
 import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
-import { HOUSES, TREES, TRUNK_FRONT, standingOn, surfaceAt, treeHolding, zAt } from '../world/trees.ts';
+import { HOUSES, TREES, TRUNK_FRONT, lineCrossed, standingOn, surfaceAt, treeHolding, zAt } from '../world/trees.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, COASTERS, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
@@ -45,7 +45,7 @@ import { Railway } from './Railway.ts';
 import { TrainView } from './TrainView.ts';
 import { CAR_W } from '../art/train.ts';
 import { FLOOR_H, NOTCHES, SPEEDS, aboard, inCab, local, poses, startState, trainUnder, world, type CarPose } from './train.ts';
-import { DASH_MS, DASH_SPEED, STEP_UP, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, JUMP_HEIGHT, step } from './movement.ts';
+import { DASH_MS, DASH_SPEED, STEP_UP, Dash, ICE_DASH_GRIP, ICE_GLIDE, ICE_GRIP, SNEAK_SPEED, WALK_SPEED, alignDiagonal, JUMP_HEIGHT, slide, step } from './movement.ts';
 import { makeTextures, toCanvas } from './textures.ts';
 import { PREY, preyPoints } from './fauna/prey.ts';
 import { sight } from './fauna/kit.ts';
@@ -1066,6 +1066,8 @@ export class GardenScene extends Phaser.Scene {
       this.vel.x = wx;
       this.vel.y = wy;
     }
+    // (where it was, for coming down onto a steep drawn branch across it)
+    const fromX = me.x, fromZ = me.z;
     if (Math.abs(this.vel.x) + Math.abs(this.vel.y) > (icy ? 1.5 : 0)) {
       const [bx, by] = [me.x, me.y];
       const body = { x: me.x, y: me.y, z: me.z, airborne: me.act === Act.Jump };
@@ -1086,7 +1088,7 @@ export class GardenScene extends Phaser.Scene {
     // vertical: fall onto whatever surface is below (also when walking off a hedge or a branch);
     // on the way up, branches are jumped through
     // (riding in a car, the cat stands on its floor: a bend turning a wall in under its paws doesn't lift it up there)
-    const ground = this.riding && this.boarded && me.z <= FLOOR_H + 1.5 ? FLOOR_H : surfaceAt(me.x, me.y, me.z, this.dropFrom);
+    let ground = this.riding && this.boarded && me.z <= FLOOR_H + 1.5 ? FLOOR_H : surfaceAt(me.x, me.y, me.z, this.dropFrom);
     // (walking down a sloping branch, its paws stay on it)
     if (me.act !== Act.Jump && this.vz === 0 && !this.hop && me.z > ground && me.z - ground <= STEP_DOWN && standingOn(me.x, me.y, ground)) me.z = ground;
     if (me.z > ground || this.vz > 0) {
@@ -1094,6 +1096,8 @@ export class GardenScene extends Phaser.Scene {
       // (exactly as a thrown thing flies, so a jump peaks where it was aimed whatever the frame rate)
       me.z += this.vz * dt - (GRAVITY * dt * dt) / 2;
       this.vz -= GRAVITY * dt;
+      // (a drawn branch it came down across, where it's steep, catches it all the same)
+      if (this.vz <= 0 && !this.riding) ground = Math.max(ground, lineCrossed(fromX, fromZ, me.x, me.y, me.z, this.dropFrom));
       if (me.z <= ground && this.vz <= 0) {
         me.z = ground;
         this.vz = 0;
@@ -1129,6 +1133,11 @@ export class GardenScene extends Phaser.Scene {
 
     if (me.act !== Act.Jump && !wetAt(me.x, me.y) && !this.riding) this.lastDry = { x: me.x, y: me.y, z: me.z };
 
+    // on a drawn branch too steep to walk, slide down it
+    if (me.act !== Act.Jump && !this.riding && !this.hop) {
+      const body = { x: me.x, y: me.y, z: me.z, airborne: false };
+      if (slide(body, dt)) me.x = body.x;
+    }
     // on a branch, settle onto its line (where it was landed on anywhere in front of or behind the trunk)
     const on = me.act === Act.Jump ? null : standingOn(me.x, me.y, me.z);
     if (on && me.y !== on.y) me.y += Math.sign(on.y - me.y) * Math.min(Math.abs(on.y - me.y), SETTLE_SPEED * dt);

@@ -88,8 +88,9 @@ The guide's rules (node tools/trees-in.ts says which line breaks one, at its x,y
   - there's a stump, and the lowest one is out of a kitten's jump but in a young cat's
     (8 to 13 px up its trunk; the plans have it at 11)
   - a cat can climb to the highest line, a jump at a time (13 px up at most)
-A stretch of a line steeper than 35° (a bent line is a few straight ones) is left out: a cat
-can't walk it and has to jump past. trees-in says where.
+A cat stands on each line exactly as drawn, pixel for pixel, and never falls through one.
+Where a line is steeper than 35° for more than a 3 px rise, a cat can't walk up it and slides
+down (a shorter steep bit is walked up like a stair). trees-in says where those are.
 No guide layer at all: the tree is stood on as planned.
 
 Then: node tools/trees-in.ts   (in the project folder) brings them into the game
