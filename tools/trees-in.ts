@@ -27,7 +27,9 @@ if (!none)
       // (the trunk's foot is the middle of the bottom row: an odd width gets a column more on the right)
       const w = ase.w + (ase.w % 2), h = ase.h;
       for (const name of LAYERS) {
-        const layer = ase.layers.find((l) => l.name.trim().toLowerCase() === name);
+        // (a layer or a group of layers; one at the top before one in a group)
+      const named = ase.layers.filter((l) => l.name.trim().toLowerCase() === name);
+      const layer = named.find((l) => l.level === 0) ?? named[0];
         if (!layer) throw new Error(`${file}: no layer called "${name}"`);
         const px = new Uint16Array(w * h);
         for (let y = 0; y < h; y++)

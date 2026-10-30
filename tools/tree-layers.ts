@@ -72,6 +72,9 @@ Layers (keep their names; RGB colour mode):
   guide   not brought in: where a cat can stand (red: branches, orange: stumps up the trunk,
           blue: the top), and the trunk's foot (white). Paint branches under the red lines.
 
+back, mid and front can each be a group of layers instead (groups in groups too): it's brought
+in as Aseprite shows it, hidden layers left out. Use the Normal blend mode in them.
+
 The trunk's foot stays at the bottom middle of the canvas: if you make the canvas bigger, do it
 evenly on the left and right (and only at the top). Fully see-through pixels are left out;
 half see-through ones count as solid where they're at least half covered.

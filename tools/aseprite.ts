@@ -16,6 +16,10 @@ export interface AseLayer {
   w?: number;
   h?: number;
   opacity?: number;
+  /** A group (holding no picture of its own: the layers after it one level deeper are in it). */
+  group?: boolean;
+  /** How deep in groups (0: at the top). */
+  level?: number;
 }
 
 const word = (v: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(v & 0xffff); return b; };
@@ -35,7 +39,7 @@ export function writeAseprite(w: number, h: number, layers: AseLayer[]): Buffer 
   // its palette (unused in RGBA; Aseprite likes there to be one)
   chunks.push(chunk(0x2019, Buffer.concat([dword(1), dword(0), dword(0), zeros(8), word(0), byte(0), byte(0), byte(0), byte(255)])));
   for (const l of layers)
-    chunks.push(chunk(0x2004, Buffer.concat([word(l.visible ? 3 : 2), word(0), word(0), word(0), word(0), word(0), byte(l.opacity ?? 255), zeros(3), str(l.name)])));
+    chunks.push(chunk(0x2004, Buffer.concat([word(l.visible ? 3 : 2), word(l.group ? 1 : 0), word(l.level ?? 0), word(0), word(0), word(0), byte(l.opacity ?? 255), zeros(3), str(l.name)])));
   layers.forEach((l, i) => {
     const pixels = deflateSync(Buffer.from(l.data.buffer, l.data.byteOffset, w * h * 4));
     chunks.push(chunk(0x2005, Buffer.concat([word(i), short(0), short(0), byte(255), word(2), short(0), zeros(5), word(w), word(h), pixels])));
@@ -49,12 +53,19 @@ export function writeAseprite(w: number, h: number, layers: AseLayer[]): Buffer 
   return Buffer.concat([header, frame]);
 }
 
-/** An .aseprite file's canvas and the first frame's picture on each layer (only RGBA files), each as big as the canvas. */
-export function readAseprite(file: Buffer): { w: number; h: number; layers: { name: string; visible: boolean; data: Uint8ClampedArray }[] } {
+/**
+ * An .aseprite file's canvas and the first frame's picture on each layer
+ * (only RGBA files), each as big as the canvas. A group's picture is what's
+ * in it, put together as Aseprite shows it (its hidden layers left out; only
+ * the Normal blend mode).
+ */
+export function readAseprite(file: Buffer): { w: number; h: number; layers: { name: string; visible: boolean; level: number; data: Uint8ClampedArray }[] } {
   if (file.readUInt16LE(4) !== 0xa5e0) throw new Error('not an .aseprite file');
   const w = file.readUInt16LE(8), h = file.readUInt16LE(10), depth = file.readUInt16LE(12);
   if (depth !== 32) throw new Error('only RGBA .aseprite files (Sprite > Color Mode > RGB Color)');
-  const layers: { name: string; visible: boolean; data: Uint8ClampedArray }[] = [];
+  // (a layer's opacity counts only where the file says so)
+  const layerOpacity = (file.readUInt32LE(14) & 1) === 1;
+  const layers: { name: string; visible: boolean; level: number; group: boolean; opacity: number; data: Uint8ClampedArray }[] = [];
   let p = 128;
   const frameEnd = p + file.readUInt32LE(p);
   const n = file.readUInt32LE(p + 12) || file.readUInt16LE(p + 6);
@@ -62,9 +73,12 @@ export function readAseprite(file: Buffer): { w: number; h: number; layers: { na
   for (let c = 0; c < n && p < frameEnd; c++) {
     const size = file.readUInt32LE(p), type = file.readUInt16LE(p + 4), d = file.subarray(p + 6, p + size);
     if (type === 0x2004) {
-      const lflags = d.readUInt16LE(0), ltype = d.readUInt16LE(2), len = d.readUInt16LE(16);
-      // (groups and tilemaps hold no picture of their own: kept for the numbering)
-      layers.push({ name: d.toString('utf8', 18, 18 + len), visible: (lflags & 1) === 1 && ltype !== 1, data: new Uint8ClampedArray(w * h * 4) });
+      const lflags = d.readUInt16LE(0), ltype = d.readUInt16LE(2), level = d.readUInt16LE(4), len = d.readUInt16LE(16);
+      // (tilemaps hold no picture we can read: kept for the numbering)
+      layers.push({
+        name: d.toString('utf8', 18, 18 + len), visible: (lflags & 1) === 1, level, group: ltype === 1,
+        opacity: layerOpacity ? d[12] : 255, data: new Uint8ClampedArray(w * h * 4),
+      });
     } else if (type === 0x2005) {
       const li = d.readUInt16LE(0), x = d.readInt16LE(2), y = d.readInt16LE(4), opacity = d[6], cel = d.readUInt16LE(7);
       const layer = layers[li];
@@ -82,7 +96,27 @@ export function readAseprite(file: Buffer): { w: number; h: number; layers: { na
     }
     p += size;
   }
-  return { w, h, layers };
+  // each group, deepest first, as what's in it: the layers after it one level deeper, bottom first
+  const order = layers.map((_, i) => i).filter((i) => layers[i].group).sort((a, b) => layers[b].level - layers[a].level);
+  for (const g of order) {
+    const into = layers[g].data;
+    for (let i = g + 1; i < layers.length && layers[i].level > layers[g].level; i++) {
+      const l = layers[i];
+      if (l.level === layers[g].level + 1 && l.visible) over(into, l.data, l.opacity);
+    }
+  }
+  return { w, h, layers: layers.map(({ name, visible, level, data }) => ({ name, visible, level, data })) };
+}
+
+/** Puts picture b over a (the same size, RGBA), at this opacity (0-255). */
+function over(a: Uint8ClampedArray, b: Uint8ClampedArray, opacity: number): void {
+  for (let o = 0; o < a.length; o += 4) {
+    const sa = (b[o + 3] * opacity) / (255 * 255);
+    if (!sa) continue;
+    const da = a[o + 3] / 255, oa = sa + da * (1 - sa);
+    for (let k = 0; k < 3; k++) a[o + k] = Math.round((b[o + k] * sa + a[o + k] * da * (1 - sa)) / oa);
+    a[o + 3] = Math.round(oa * 255);
+  }
 }
 
 /** A Raster as an AseLayer's pixels on a canvas cw x ch, placed at (ox, oy). */
