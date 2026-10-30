@@ -3,13 +3,15 @@ import { MAP_H, MAP_W, WORLD_H, WORLD_W, tileAt } from '../world/map.ts';
 import { isPond, isWaterway } from '../world/legend.ts';
 import { COMMON } from './gpu.ts';
 import { hash2 } from '../art/raster.ts';
+import type { Effect } from './Cards.ts';
 
 // Banks of fog lying low over the ground (how thick: world/fog.ts), drifting
 // slowly, gathered over the water. Things stand in it: it is drawn in thin
 // horizontal slices, each the fog standing on one row of the ground, up to
 // FOG_H high, at that row's depth, so a cat or a tree behind a bank sinks
 // into it, thickest at its feet, and one in front of it stands clear. Each slice is
-// a quad drawn by a shader (a Phaser Shader).
+// a quad drawn by a shader (a Phaser Shader; or, drawn as cards, by
+// game/Cards.ts with this shader, as a card standing on its row: see now()).
 
 /** A slice for every this many rows (px)... */
 const STEP = 15;
@@ -25,8 +27,11 @@ const BANK = [110, 30], CURL = [28, 12];
 const WET_REACH = 3;
 
 const COLOUR = [0.86, 0.88, 0.9];
+/** The textures its shader samples: the wet map, and the noise. */
+export const FOG_TEXTURES = { uWet: 'fog-wet', uNoise: 'fog-noise' };
 
-const SOURCE = `
+/** A slice's shader: its quad covers uBox (world px), outTexCoord across it (y up); its textures FOG_TEXTURES. */
+export const FOG_SOURCE = `
 precision highp float;
 uniform vec4 uBox;
 uniform float uGround;
@@ -114,11 +119,21 @@ export class Fog {
     });
   }
 
+  /** The slices drawn now, for game/Cards.ts (their textures: FOG_TEXTURES). */
+  now(): Effect[] {
+    const out: Effect[] = [];
+    for (const s of this.slices) {
+      if (!s.quad.visible) continue;
+      out.push({ quad: s.quad, foot: s.ground - 0.01, uniforms: { uBox: s.box, uGround: s.ground, uTime: this.time, uFog: this.fog, uColour: COLOUR, uWorld: [WORLD_W, WORLD_H] } });
+    }
+    return out;
+  }
+
   private make(): Slice {
     const s: Slice = { quad: null!, ground: 0, box: [0, 0, 1, 1] };
     s.quad = this.scene.add.shader({
       name: 'fog',
-      fragmentSource: SOURCE,
+      fragmentSource: FOG_SOURCE,
       setupUniforms: (set: (name: string, value: unknown) => void) => {
         set('uBox', s.box);
         set('uGround', s.ground);
@@ -129,7 +144,7 @@ export class Fog {
         set('uWet', 0);
         set('uNoise', 1);
       },
-    }, 0, 0, 1, 1, ['fog-wet', 'fog-noise']).setOrigin(0);
+    }, 0, 0, 1, 1, Object.values(FOG_TEXTURES)).setOrigin(0);
     return s;
   }
 }

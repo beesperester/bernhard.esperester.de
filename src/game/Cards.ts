@@ -6,7 +6,6 @@ import { TREES } from '../world/trees.ts';
 import { FADE_GLSL } from '../art/fade.ts';
 import { HEADER, MAX_LAMPS, paintLight, syncRamps } from './Painted.ts';
 import type { Cut } from './HoleFilter.ts';
-import { SHAFT_SOURCE, type Ray, type Shafts } from './Shafts.ts';
 
 // The world drawn as cards in 3D. Everything standing in it (trees, plants,
 // furniture, follies, fauna, cats) is a card upright at its foot, and the
@@ -26,8 +25,9 @@ import { SHAFT_SOURCE, type Ray, type Shafts } from './Shafts.ts';
 // everything drawn looks itself up in it, ignoring its own shadow (a tree's
 // leaves their own crown's: its ramps shade it). Where a tree stands in front of your
 // cat, it opens round it (game/Trees.ts says how far; art/fade.ts how), in
-// the shader. Shafts of light are cards too, standing at their spot, drawn
-// by their own shader (game/Shafts.ts) after all the rest, adding light.
+// the shader. Effects drawn by a shader of their own (shafts of light, banks
+// of fog: Phaser Shaders) are cards too, standing on their row, drawn after
+// all the rest with that shader (see Effects).
 //
 // It takes over Phaser's pictures: they are kept up to date as ever by
 // their systems, but hidden from the camera, and drawn here instead, in two
@@ -254,8 +254,14 @@ uniform sampler2D uTex;
 varying vec2 vTex;
 void main() { gl_FragColor = texture2D(uTex, vTex); }`;
 
-/** A shaft of light's quad, over its box (world px), its shader's outTexCoord as a Phaser Shader has it. */
-const RAY_VERT = `
+/** An effect drawn by a shader of its own (a Phaser Shader): its quad standing on row `foot`, and its shader's numbers. */
+export interface Effect { quad: Phaser.GameObjects.Shader; foot: number; uniforms: Record<string, number | number[]> }
+
+/** Effects of a kind: their shader (as a Phaser Shader's: outTexCoord across uBox, the quad's world box), the textures it samples (its sampler's name: the texture's key), whether their light adds, and those drawn now. */
+export interface Effects { source: string; textures?: Record<string, string>; add: boolean; now(): Effect[] }
+
+/** An effect's quad, over its box (world px), its shader's outTexCoord as a Phaser Shader has it. */
+const EFFECT_VERT = `
 precision highp float;
 attribute vec2 aCorner;
 uniform vec4 uBox;
@@ -267,25 +273,25 @@ void main() {
   gl_Position = vec4(v.x / uTarget.z * 2.0 - 1.0, 1.0 - v.y / uTarget.w * 2.0, 0.0, 1.0);
 }`;
 
-/** The shaft's own shader, at its card's depth. */
-const RAY_FRAG = `#extension GL_EXT_frag_depth : enable
+/** An effect's own shader, at its card's depth. */
+const effectFrag = (source: string) => `#extension GL_EXT_frag_depth : enable
 precision highp float;
-uniform float uRayDepth;
-${SHAFT_SOURCE.replace(/gl_FragColor = ([^;]*);/, 'gl_FragColor = $1;\n  gl_FragDepthEXT = uRayDepth;')}`;
+uniform float uCardDepth;
+${source.replace(/gl_FragColor = ([^;]*);/, 'gl_FragColor = $1;\n  gl_FragDepthEXT = uCardDepth;')}`;
 
 interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; depth: WebGLRenderbuffer; w: number; h: number }
 
 export class Cards {
   private readonly scene: Phaser.Scene;
-  private readonly src: { ground: unknown; trees: unknown; shafts: Shafts };
+  private readonly src: { ground: unknown; trees: unknown; effects: Effects[] };
   private readonly gl: WebGLRenderingContext;
   private readonly renderer: Phaser.Renderer.WebGL.WebGLRenderer;
   private readonly prog: WebGLProgram;
   private readonly shadowProg: WebGLProgram;
   private readonly castProg: WebGLProgram;
   private readonly compProg: WebGLProgram;
-  private readonly rayProg: WebGLProgram;
-  private rays: Ray[] = [];
+  private readonly effectProgs: WebGLProgram[];
+  private effects: Effect[][] = [];
   private readonly quad: WebGLBuffer;
   private readonly verts: WebGLBuffer;
   private readonly indices: WebGLBuffer;
@@ -321,7 +327,7 @@ export class Cards {
   /** ms of CPU the passes took, the last few frames (for measuring). */
   readonly ms: number[] = [];
 
-  constructor(scene: Phaser.Scene, src: { ground: unknown; trees: unknown; shafts: Shafts }) {
+  constructor(scene: Phaser.Scene, src: { ground: unknown; trees: unknown; effects: Effects[] }) {
     this.scene = scene;
     this.src = src;
     this.renderer = scene.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
@@ -331,7 +337,7 @@ export class Cards {
     this.shadowProg = program(gl, SHADOW_VERT, SHADOW_FRAG);
     this.castProg = program(gl, CAST_VERT, CAST_FRAG);
     this.compProg = program(gl, COMP_VERT, COMP_FRAG);
-    this.rayProg = program(gl, RAY_VERT, RAY_FRAG);
+    this.effectProgs = src.effects.map((e) => program(gl, EFFECT_VERT, effectFrag(e.source)));
     this.quad = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -408,8 +414,8 @@ export class Cards {
       if (d !== GROUND) this.ids.set(pic, Math.min(65535, TREES.length + 1 + this.ids.size));
     }
     this.softs.sort((a, b) => a.pic.depth - b.pic.depth);
-    this.rays = this.src.shafts.rays();
-    for (const r of this.rays) r.quad.cameraFilter = cam;
+    this.effects = this.src.effects.map((e) => e.now());
+    for (const list of this.effects) for (const e of list) e.quad.cameraFilter = cam;
 
     this.strength = Math.max(0, Math.min(1, light.elevation / 10)) * (1 - overcast * 0.85);
     this.sun(light, view);
@@ -617,28 +623,38 @@ export class Cards {
       i = j;
     }
     this.end();
-    this.drawRays();
+    this.drawEffects();
     gl.disable(gl.DEPTH_TEST);
     this.composite(this.things.tex, back, vp, true);
     this.ms[this.ms.length - 1] += performance.now() - t0;
     if (this.ms.length > 240) this.ms.shift();
   }
 
-  /** The shafts of light, adding to what's drawn, each at its spot's depth (hidden by what stands in front of it). */
-  private drawRays(): void {
-    if (!this.rays.length) return;
-    const gl = this.gl, p = this.rayProg;
-    gl.useProgram(p);
-    // (light added, not covering: what's under it stays as it is)
-    gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE);
+  /** The effects (fog, then shafts of light), each at its row's depth: hidden by what stands in front of it, over what's behind. */
+  private drawEffects(): void {
+    const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
-    const loc = this.attr(p, 'aCorner', 2, 0, 0);
-    this.uniforms(p, { uTarget: [this.ox, this.oy, this.w, this.h] });
-    for (const r of this.rays) {
-      this.uniforms(p, { ...r.uniforms, uRayDepth: Math.max(0, Math.min(1, 0.5 - (r.foot - this.oy) / 4096)) });
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-    }
-    gl.disableVertexAttribArray(loc);
+    this.src.effects.forEach((kind, k) => {
+      const list = this.effects[k];
+      if (!list.length) return;
+      const p = this.effectProgs[k];
+      gl.useProgram(p);
+      // (light added, not covering: what's under it stays as it is)
+      if (kind.add) gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE);
+      else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      Object.entries(kind.textures ?? {}).forEach(([name, key], n) => {
+        gl.activeTexture(gl.TEXTURE0 + n);
+        gl.bindTexture(gl.TEXTURE_2D, this.scene.textures.get(key).source[0].glTexture?.webGLTexture ?? this.blank);
+        gl.uniform1i(gl.getUniformLocation(p, name), n);
+      });
+      const loc = this.attr(p, 'aCorner', 2, 0, 0);
+      this.uniforms(p, { uTarget: [this.ox, this.oy, this.w, this.h] });
+      for (const e of list) {
+        this.uniforms(p, { ...e.uniforms, uCardDepth: Math.max(0, Math.min(1, 0.5 - (e.foot - this.oy) / 4096)) });
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      }
+      gl.disableVertexAttribArray(loc);
+    });
   }
 
   /** Set up the cards' program for a pass. */

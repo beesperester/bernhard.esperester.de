@@ -9,9 +9,9 @@ import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, COASTERS, 
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
 import { Meadow } from './Meadow.ts';
-import { Shafts } from './Shafts.ts';
+import { SHAFT_SOURCE, Shafts } from './Shafts.ts';
 import { isFlower, thicketAt, undergrowthAt } from '../art/flora.ts';
-import { Fog } from './Fog.ts';
+import { FOG_SOURCE, FOG_TEXTURES, Fog } from './Fog.ts';
 import { fogAt } from '../world/fog.ts';
 import { Clouds } from './Clouds.ts';
 import { PondReflection } from './PondReflection.ts';
@@ -313,7 +313,14 @@ export class GardenScene extends Phaser.Scene {
     this.lilies = new Lilies(this, toCanvas, this.glows);
     this.shadows = this.makeShadows(furniture);
     if (!params.has('flat')) {
-      this.cards = new Cards(this, { ground: this.ground, trees: this.trees, shafts: this.shafts });
+      this.cards = new Cards(this, {
+        ground: this.ground,
+        trees: this.trees,
+        effects: [
+          { source: FOG_SOURCE, textures: FOG_TEXTURES, add: false, now: () => this.fog.now() },
+          { source: SHAFT_SOURCE, add: true, now: () => this.shafts.now() },
+        ],
+      });
       this.shadows.cast = false;
     }
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);

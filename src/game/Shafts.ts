@@ -3,6 +3,7 @@ import { SHAFTS, SHAFTS_BY_CELL, SHAFT_CELL, type Shaft } from '../world/shafts.
 import { SEASON } from '../world/season.ts';
 import type { Light } from '../world/sky.ts';
 import { COMMON } from './gpu.ts';
+import type { Effect } from './Cards.ts';
 
 // Rays of light coming down through the trees (world/shafts.ts says where):
 // each a beam standing on a spot on the ground and going up from it towards
@@ -15,7 +16,7 @@ import { COMMON } from './gpu.ts';
 // under rain clouds, thin when the trees are bare; and at night, by
 // moonlight, faint and blue. Each is a quad drawn by a shader (a Phaser
 // Shader; or, drawn as cards, game/Cards.ts draws it with this shader, as a
-// card standing at its spot: see rays()).
+// card standing at its spot: see now()).
 
 /** Rays standing this far (px) below the view are drawn (they reach up into it), fading out from FADE_BELOW on (so
  * none pops in or out as the view moves)... */
@@ -97,8 +98,6 @@ interface Drawn {
   i: number;
 }
 
-/** A ray as drawn: its quad, its spot's depth, and its shader's numbers. */
-export interface Ray { quad: Phaser.GameObjects.Shader; foot: number; uniforms: Record<string, number | number[]> }
 
 export class Shafts {
   private readonly scene: Phaser.Scene;
@@ -196,8 +195,8 @@ export class Shafts {
   }
 
   /** The rays drawn now, for game/Cards.ts. */
-  rays(): Ray[] {
-    const out: Ray[] = [];
+  now(): Effect[] {
+    const out: Effect[] = [];
     for (const d of this.drawn.values()) {
       const s = SHAFTS[d.i];
       out.push({
