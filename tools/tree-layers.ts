@@ -84,14 +84,16 @@ evenly on the left and right (and only at the top). Fully see-through pixels are
 half see-through ones count as solid where they're at least half covered.
 
 The guide's rules (node tools/trees-in.ts says which line breaks one, at its x,y in Aseprite):
-  - a line slopes 35° at most (a bent line is a few straight ones: each of those)
   - something is painted under most of each line, within 4 px (back, mid or front)
   - there's a stump, and the lowest one is out of a kitten's jump but in a young cat's
     (8 to 13 px up its trunk; the plans have it at 11)
   - a cat can climb to the highest line, a jump at a time (13 px up at most)
+A stretch of a line steeper than 35° (a bent line is a few straight ones) is left out: a cat
+can't walk it and has to jump past. trees-in says where.
 No guide layer at all: the tree is stood on as planned.
 
-Then: node tools/trees-in.ts   (in the project folder) brings them into the game. It climbs
+Then: node tools/trees-in.ts   (in the project folder) brings them into the game
+(node tools/trees-in.ts broadleaf-l pine-s: only those). It climbs
 every painted tree first, and if a cat can't get to the highest line of one, brings
 nothing in.
 `);

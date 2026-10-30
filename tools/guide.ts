@@ -26,10 +26,10 @@ export interface GuideLine { kind: PerchKind; perches: Perch[]; at: string }
 
 /**
  * The perches on guide (w x h RGBA, the trunk's foot at the bottom middle) of
- * a tree of this shape, and what's wrong with any of them: `solid` is
+ * a tree of this shape, what's wrong with any of them and what's left out: `solid` is
  * whether a pixel of the tree (back, mid or front) is painted.
  */
-export function guidePerches(guide: Uint8ClampedArray, w: number, h: number, shape: string, solid: (x: number, y: number) => boolean): { perches: Perch[]; problems: string[] } {
+export function guidePerches(guide: Uint8ClampedArray, w: number, h: number, shape: string, solid: (x: number, y: number) => boolean): { perches: Perch[]; problems: string[]; notes: string[] } {
   const kindAt = new Int8Array(w * h);
   const kinds: [number, readonly number[]][] = [[1, GUIDE.perch], [2, GUIDE.stump], [1, OLD.perch], [2, OLD.stump], [1, OLD.top], [1, OLD.blue]];
   for (let o = 0; o < w * h; o++) {
@@ -43,7 +43,7 @@ export function guidePerches(guide: Uint8ClampedArray, w: number, h: number, sha
   }
   const names: PerchKind[] = ['branch', shape === 'pine' ? 'tier' : 'branch', 'stump'];
   const cx = w / 2, zOf = (y: number) => h - 1 - y;
-  const perches: Perch[] = [], problems: string[] = [];
+  const perches: Perch[] = [], problems: string[] = [], notes: string[] = [];
   const seen = new Uint8Array(w * h);
   for (let o = 0; o < w * h; o++) {
     if (!kindAt[o] || seen[o]) continue;
@@ -67,8 +67,12 @@ export function guidePerches(guide: Uint8ClampedArray, w: number, h: number, sha
     if (line.length === 1) line.push(line[0]);
     for (let i = 0; i + 1 < line.length; i++) {
       const [x0, z0] = line[i], [x1, z1] = line[i + 1];
-      if (Math.abs(z1 - z0) / Math.max(1, x1 - x0) > most)
-        problems.push(`${at}: too steep from ${x0},${h - 1 - z0} to ${x1},${h - 1 - z1} (a cat walks up ${MAX_SLOPE}° at most)`);
+      // (a stretch too steep to walk is left out, as the plans leave out a steep bit of a limb: a cat jumps past it, if it can)
+      if (Math.abs(z1 - z0) / Math.max(1, x1 - x0) > most) {
+        const deg = Math.round((Math.atan(Math.abs(z1 - z0) / Math.max(1, x1 - x0)) * 180) / Math.PI);
+        notes.push(`${at}: left out from ${x0},${h - 1 - z0} to ${x1},${h - 1 - z1}, ${deg}° (a cat walks up ${MAX_SLOPE}° at most)`);
+        continue;
+      }
       perches.push({ x0: x0 - cx, z0, x1: x1 - cx + (i + 2 === line.length ? 1 : 0), z1, kind: names[k] });
     }
     const held = xs.filter((x) => { for (let d = 0; d <= BELOW; d++) if (solid(x, top.get(x)! + d)) return true; return false; }).length;
@@ -80,7 +84,7 @@ export function guidePerches(guide: Uint8ClampedArray, w: number, h: number, sha
   if (!stumps.length) problems.push('no stumps (green): a cat needs one to start climbing from the ground');
   else if (low <= lowest || low >= highest)
     problems.push(`the lowest stump is ${low} px up: it needs to be between ${Math.floor(lowest) + 1} and ${Math.ceil(highest) - 1} (row ${h - 1 - Math.ceil(highest) + 1} to ${h - 1 - Math.floor(lowest) - 1})`);
-  return { perches, problems };
+  return { perches, problems, notes };
 }
 
 /** A line of points (x across, z up), straightened where it's near enough straight (Douglas-Peucker). */

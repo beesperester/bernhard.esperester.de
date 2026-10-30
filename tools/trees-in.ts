@@ -4,8 +4,8 @@
 // the park is then the painted one (world/templates.ts). Kinds and sizes
 // with no file are drawn from their plans as before.
 //
-//   node tools/trees-in.ts [dir]   (default: masters/sprites/trees)
-//   node tools/trees-in.ts --none  (back to none painted)
+//   node tools/trees-in.ts [dir] [names]   (default: masters/sprites/trees; names: only these, as broadleaf-l pine-s)
+//   node tools/trees-in.ts --none          (back to none painted)
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
@@ -17,7 +17,9 @@ const { guidePerches } = await import('./guide.ts');
 
 const OUT = 'src/art/paintedTrees.data.ts';
 const none = process.argv[2] === '--none';
-const dir = none ? '' : process.argv[2] ?? 'masters/sprites/trees';
+const NAME = /^(broadleaf|pine)-[sml]$/;
+const args = process.argv.slice(2), only = args.filter((a) => NAME.test(a));
+const dir = none ? '' : args.find((a) => !NAME.test(a)) ?? 'masters/sprites/trees';
 const round = (v: number) => Math.round(v * 2) / 2;
 const SIZES = ['s', 'm', 'l'], LAYERS = ['back', 'mid', 'front'];
 
@@ -29,7 +31,7 @@ if (!none)
   for (const shape of ['broadleaf', 'pine'])
     SIZES.forEach((sz, size) => {
       const file = `${dir}/${shape}-${sz}.aseprite`;
-      if (!existsSync(file)) return;
+      if (!existsSync(file) || (only.length && !only.includes(`${shape}-${sz}`))) return;
       const ase = readAseprite(readFileSync(file));
       // (the trunk's foot is the middle of the bottom row: an odd width gets a column more on the right)
       const w = ase.w + (ase.w % 2), h = ase.h;
@@ -60,6 +62,7 @@ if (!none)
         for (let y = 0; y < h; y++) wide.set(guide.data.subarray(y * ase.w * 4, (y + 1) * ase.w * 4), y * w * 4);
         const got = guidePerches(wide, w, h, shape, solid);
         problems.push(...got.problems.map((p) => `${file}: ${p}`));
+        for (const n of got.notes) console.log(`  ${n}`);
         perches.push(`  '${shape}-${size}': ${JSON.stringify(got.perches.map((p) => ({ ...p, x0: round(p.x0), x1: round(p.x1) })))},`);
         note = `${got.perches.length} perches from the guide`;
       }
