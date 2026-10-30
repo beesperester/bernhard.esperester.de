@@ -35,10 +35,10 @@ for (const shape of ['broadleaf', 'pine'] as const)
   for (let size = 0; size < 3; size++) {
     const { plan, back, mid, front } = templateLayers(shape, size, SUMMER);
     const W = plan.w + PAD * 2, H = plan.h + PAD, cx = W / 2, row = (z: number) => H - 1 - Math.round(z);
-    // the guide: every perch along its top, branches red, stumps green, the top blue; a mark at the trunk's foot
+    // the guide: every perch along its top, stumps green, the rest red; a mark at the trunk's foot
     const guide = new Raster(W, H);
     for (const p of plan.perches) {
-      const c = p.kind === 'stump' ? GUIDE.stump : p.kind === 'top' ? GUIDE.top : GUIDE.perch;
+      const c = p.kind === 'stump' ? GUIDE.stump : GUIDE.perch;
       for (let x = Math.round(p.x0); x <= Math.round(p.x1); x++) {
         const z = p.z0 + ((p.z1 - p.z0) * (x - p.x0)) / Math.max(1, p.x1 - p.x0);
         guide.set(cx + x, row(z), [...c]);
@@ -72,9 +72,8 @@ Layers (keep their names; RGB colour mode):
   guide   where a cat can stand, as you draw it:
             red   (255,0,0)  branches
             green (0,255,0)  stumps up the trunk
-            blue  (0,0,255)  the top
-          (the white mark at the trunk's foot is only a mark; the first exports' softer red,
-          orange and blue still count). Move the lines, draw new ones, rub some out. A cat
+          (the white mark at the trunk's foot is only a mark; the first exports' softer red
+          and orange still count, and their blue top is a branch). Move the lines, draw new ones, rub some out. A cat
           stands on a line's top edge.
 
 back, mid and front can each be a group of layers instead (groups in groups too): it's brought
@@ -89,9 +88,10 @@ The guide's rules (node tools/trees-in.ts says which line breaks one, at its x,y
   - something is painted under most of each line, within 4 px (back, mid or front)
   - there's a stump, and the lowest one is out of a kitten's jump but in a young cat's
     (8 to 13 px up its trunk; the plans have it at 11)
-  - there's a top, and a cat can climb to it, a jump at a time (about 14 px up at most)
+  - a cat can climb to the highest line, a jump at a time (13 px up at most)
 No guide layer at all: the tree is stood on as planned.
 
 Then: node tools/trees-in.ts   (in the project folder) brings them into the game. It climbs
-every painted tree first, and if a cat can't get to the top of one, brings nothing in.
+every painted tree first, and if a cat can't get to the highest line of one, brings
+nothing in.
 `);

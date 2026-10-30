@@ -98,8 +98,10 @@ describe('trees', () => {
 
   it('can be climbed all the way to the top, every kind of them', () => {
     // every tree house, and a few of each shape (with and without a bird house): the park has too many to try them all
+    // (as planned: the painted ones are climbed below)
     const kinds = new Map<string, number>();
     const some = TREES.filter((t) => {
+      if (t.painted) return false;
       const k = `${t.shape}${t.birdhouse}`, n = kinds.get(k) ?? 0;
       kinds.set(k, n + 1);
       return t.shape === 'treehouse' || n < 4;
@@ -113,16 +115,16 @@ describe('trees', () => {
     }
   }, 60000);
 
-  it('can be climbed to the top as its guide is drawn, every painted kind and size', () => {
+  it('can be climbed to its highest perch as its guide is drawn, every painted kind and size', () => {
     const kinds = new Map<string, TreePlan>();
     for (const t of TREES) {
       const k = t.painted && `${t.shape} ${t.w}x${t.h}${t.painted.flip ? ', mirrored' : ''}`;
       if (k && !kinds.has(k)) kinds.set(k, t);
     }
     for (const [k, t] of kinds) {
-      const reached = climbable(t);
-      const top = t.perches.findIndex((p) => p.kind === 'top');
-      expect(reached.has(top), `the painted ${k} (at ${t.tx},${t.ty}): its top is out of reach (the guide's lines need to be a jump apart)`).toBe(true);
+      const reached = climbable(t), most = Math.max(...t.perches.map((p) => Math.max(p.z0, p.z1)));
+      const top = t.perches.findIndex((p) => Math.max(p.z0, p.z1) === most);
+      expect(reached.has(top), `the painted ${k} (at ${t.tx},${t.ty}): its highest line is out of reach (the guide's lines need to be a jump apart)`).toBe(true);
     }
   }, 60000);
 

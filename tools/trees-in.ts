@@ -98,7 +98,7 @@ console.log(`${OUT}: ${sizes.length / 3} painted trees, ${palette.size} colours,
 if (sizes.length) {
   try {
     execFileSync('npx', ['vitest', 'run', 'src/world/trees.test.ts'], { stdio: 'pipe' });
-    console.log('Climbed every painted tree to its top: brought in.');
+    console.log('Climbed every painted tree to its highest line: brought in.');
   } catch (e) {
     writeFileSync(OUT, before);
     const { stdout, stderr } = e as { stdout?: Buffer; stderr?: Buffer };
