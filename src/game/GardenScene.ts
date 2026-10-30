@@ -838,6 +838,8 @@ export class GardenScene extends Phaser.Scene {
       else if (dx === 0) me.facing = Facing.Up;
       dy = 0;
     }
+    // (and dropping, down is still dropping: walking on towards the front, it would leave the tree's band and fall past everything to the ground)
+    else if (this.dropFrom < Infinity) dy = 0;
     const moving = dx !== 0 || dy !== 0;
     if (moving || jump || hiss || roll || mew || dash || grab || sneakHeld || emote.steering) {
       this.lastInput = now;
