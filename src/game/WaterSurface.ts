@@ -29,7 +29,7 @@ const SURFACE_DEPTH = -99994.5;
 /** Caustics start where the water's this clear (art/water.ts' clarity: 0.72 at the bank), and are at full strength from here. */
 const CAUSTIC_FROM = 0.12, CAUSTIC_FULL = 0.4;
 /** How much light the caustics add to the bed at most. */
-const CAUSTIC_BRIGHT = 0.8;
+const CAUSTIC_BRIGHT = 0.4;
 
 /**
  * Time can't go to the GPU as it is: the clock is in seconds since 1970, and a 32-bit float of that only
