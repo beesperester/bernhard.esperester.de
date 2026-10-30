@@ -10,7 +10,11 @@ import { SNOW, bayer } from './tiles.ts';
 import { cooler, dab, patch, noise } from './paint.ts';
 import { puff, PUFF_SHAPES, PUFF_SIZES } from './leaves.ts';
 import { C_RANGE, J_RANGE, Kind, N_RANGE, PLAIN, RIM_BIT, SPECK, ramps, toByte } from './painted.ts';
-import { TREES, limbAt, limbThick, type Blob, type Limb, type Perch, type TreePlan } from '../world/trees.ts';
+import { TREES, limbAt, limbThick, templatePlan, type Blob, type Limb, type Perch, type TreePlan } from '../world/trees.ts';
+import { paintedTree } from './paintedTrees.ts';
+import type { TemplateShape } from '../world/templates.ts';
+import { treeSizeAt } from '../world/layout.ts';
+import { autoMaps } from './painted.ts';
 
 export interface Prop {
   /** The tree from the back: the leaves at the back, the trunk and branches, the small leaves along them. */
@@ -19,10 +23,10 @@ export interface Prop {
   lit?: LitPixels;
   /** Which puff of leaves each pixel of `raster` belongs to (see Puffs), for opening a hole in the tree a puff at a time. */
   puffs?: Puffs;
-  /** The leaves in front of the branches (drawn in front of a cat sitting in the tree), if any. */
-  front?: { raster: Raster; lit: LitPixels; puffs: Puffs };
+  /** The leaves in front of the branches (drawn in front of a cat sitting in the tree), if any (lit and puffs: not on a painted tree). */
+  front?: { raster: Raster; lit?: LitPixels; puffs?: Puffs };
   /** Just the trunk, the branches and what grows on them, out of `raster` (up the tree, they stay solid round a cat). */
-  mid?: { raster: Raster; lit: LitPixels };
+  mid?: { raster: Raster; lit?: LitPixels };
   x: number;
   y: number;
   /** y used for depth sorting against cats (their feet). */
@@ -299,7 +303,7 @@ export function propFrom(parts: PropParts): Prop {
   const [base, front, mid] = parts.layers.map(layer);
   return {
     raster: base!.raster, lit: base!.lit, puffs: base!.puffs,
-    front: front && { raster: front.raster, lit: front.lit!, puffs: front.puffs! }, mid: mid && { raster: mid.raster, lit: mid.lit! },
+    front: front && { raster: front.raster, lit: front.lit, puffs: front.puffs }, mid: mid && { raster: mid.raster, lit: mid.lit },
     x: parts.x, y: parts.y, depthY: parts.depthY, kind: parts.kind, plan: TREES[parts.i],
   };
 }
@@ -325,6 +329,8 @@ const BARK_RAMP: RGB[] = [BARK_SHINE, ...BARK, BARK_CRACK];
  * normal map. The numbers kept are shade()'s, so it comes out the same.
  */
 export function paintedMaps(raster: Raster, lit?: LitPixels): { main: Uint8ClampedArray; normal: Uint8Array } {
+  // (a painted tree: its own colours, toned at its edges as they face the light)
+  if (!lit) return autoMaps(raster);
   const main = new Uint8ClampedArray(raster.data), normal = new Uint8Array(raster.data.length);
   // (all of it stands: what isn't shaded keeps its colours)
   for (let o = 3; o < main.length; o += 4) if (main[o]) normal[o] = PLAIN;
@@ -1107,7 +1113,69 @@ function treehouse(t: TreePlan, season: Season): Prop {
 /** The picture of tree i (they're drawn as the camera comes near them: the park has far too many to draw them all at once). */
 export function buildProp(i: number, season: Season = SEASON): Prop {
   const t = TREES[i];
+  if (t.painted) return painted(t);
+  return planned(t, season);
+}
+
+/** Tree plan t, drawn from its plan (painted or not). */
+export function planned(t: TreePlan, season: Season): Prop {
   return t.shape === 'pine' ? pine(t, season) : t.shape === 'treehouse' ? treehouse(t, season) : broadleaf(t, season);
+}
+
+/** A painted tree (art/paintedTrees.ts): its leaves at the back with its middle over them, and its leaves in front (mirrored if it is). */
+function painted(t: TreePlan): Prop {
+  const p = paintedTree(t.shape, treeSizeAt(t.tx, t.ty))!, flip = t.painted!.flip;
+  // (always a copy: the pictures are moved to the game's thread, and the painted ones are shared by every tree)
+  const turned = (r: Raster) => {
+    const o = new Raster(r.w, r.h);
+    if (!flip) o.data.set(r.data);
+    else
+      for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
+        const i = (y * r.w + x) * 4;
+        if (r.data[i + 3]) o.set(r.w - 1 - x, y, [r.data[i], r.data[i + 1], r.data[i + 2]]);
+      }
+    return o;
+  };
+  const back = new Raster(p.w, p.h);
+  back.blit(p.back, 0, 0);
+  back.blit(p.mid, 0, 0);
+  const front = turned(p.front), mid = turned(p.mid);
+  return {
+    raster: turned(back), front: front.data.some((v, i) => i % 4 === 3 && v > 0) ? { raster: front } : undefined, mid: { raster: mid },
+    x: t.x - p.w / 2, y: t.y - (p.h - 1) - t.elev, depthY: t.y, kind: t.shape === 'pine' ? 4 : 0, plan: t,
+  };
+}
+
+/**
+ * The template of a kind and size of tree (world/templates.ts) as drawn from its plan, in its three
+ * layers to paint over: the leaves at the back, the middle (trunk, branches, stumps: what isn't a
+ * leaf of what a cat up it sees solid round it), and the leaves in front. Each the plan's size,
+ * the trunk's foot at the bottom middle.
+ */
+export function templateLayers(shape: TemplateShape, size: number, season: Season = SEASON): { plan: TreePlan; back: Raster; mid: Raster; front: Raster } {
+  const plan = templatePlan(shape, size), prop = planned(plan, season), { w, h } = plan;
+  const back = new Raster(w, h), mid = new Raster(w, h), front = new Raster(w, h);
+  back.blit(prop.raster, 0, 0);
+  if (prop.front) front.blit(prop.front.raster, 0, 0);
+  // (the middle's bark, out of the back; its small leaves stay with the leaves)
+  const m = prop.mid;
+  if (m?.lit) {
+    const shaded = new Uint8Array(w * h);
+    for (let k = 0; k < m.lit.size; k++) shaded[m.lit.at[k]] = 1;
+    for (let k = 0; k < m.lit.size; k++) {
+      if (m.lit.flags[k] & LEAF) continue;
+      const i = m.lit.at[k], x = i % w, y = Math.floor(i / w), o = i * 4;
+      mid.set(x, y, [m.raster.data[o], m.raster.data[o + 1], m.raster.data[o + 2]]);
+      back.data[o + 3] = 0;
+    }
+    // (and whatever of it isn't shaded: a bird house, the outline of the bark)
+    for (let i = 0; i < w * h; i++) {
+      const o = i * 4;
+      if (!m.raster.data[o + 3] || mid.data[o + 3]) continue;
+      if (!shaded[i]) { mid.set(i % w, Math.floor(i / w), [m.raster.data[o], m.raster.data[o + 1], m.raster.data[o + 2]]); back.data[o + 3] = 0; }
+    }
+  }
+  return { plan, back, mid, front };
 }
 
 /**

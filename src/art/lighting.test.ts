@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_LIGHT, screenLight, sunLight } from './lighting.ts';
 import { groundTile, SUNLIT_TILES } from './tiles.ts';
-import { buildProp, relightProp } from './trees.ts';
+import { planned, relightProp } from './trees.ts';
+import { TREES } from '../world/trees.ts';
 import { seasonAt } from '../world/season.ts';
 import { MAP_H, MAP_W, TILE, tileAt } from '../world/map.ts';
 
 const SUMMER = seasonAt(Date.UTC(2026, 6, 10, 12));
 
 /** Mean brightness of a prop's lit pixels left and right of the middle. */
-const sides = (prop: ReturnType<typeof buildProp>) => {
+const sides = (prop: ReturnType<typeof planned>) => {
   const w = prop.raster.w, d = prop.raster.data;
   const sum = [0, 0], n = [0, 0];
   for (const i of prop.lit!.at) {
@@ -33,7 +34,7 @@ describe('lighting', () => {
   });
 
   it('draws the trees as they always were under the default light', () => {
-    const tree = buildProp(0, SUMMER);
+    const tree = planned(TREES[0], SUMMER);
     const before = tree.raster.data.slice();
     relightProp(tree, DEFAULT_LIGHT);
     expect(tree.raster.data).toEqual(before);
@@ -41,7 +42,7 @@ describe('lighting', () => {
   });
 
   it('lights a tree from the side the sun is on', () => {
-    const tree = buildProp(0, SUMMER);
+    const tree = planned(TREES[0], SUMMER);
     relightProp(tree, { x: -1, y: 0, k: 1 });
     const [l1, r1] = sides(tree);
     relightProp(tree, { x: 1, y: 0, k: 1 });

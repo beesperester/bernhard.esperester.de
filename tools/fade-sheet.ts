@@ -60,7 +60,7 @@ function behind(p: Prop, fx: number, fy: number, style: 'now' | 'new', open = 1)
   const r = R * open, hy = fy - CAT_MID;
   const hole: Opening = { x: fx, y: hy, r, up: style === 'new' ? reachUp(hy, r, 0) : r };
   lay(s, p.raster, PAD, PAD, hole, style === 'new' ? p.puffs ?? null : null);
-  if (p.front) lay(s, p.front.raster, PAD, PAD, hole, style === 'new' ? p.front.puffs : null);
+  if (p.front) lay(s, p.front.raster, PAD, PAD, hole, style === 'new' ? p.front.puffs ?? null : null);
   return s;
 }
 

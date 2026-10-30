@@ -33,6 +33,8 @@ export default defineConfig({
   base: './',
   plugins: [rebuildOnCommit()],
   build: { chunkSizeWarningLimit: 2000 },
+  // (the painter's thread is started as a module, and waits for the painted trees as it loads)
+  worker: { format: 'es' },
   define: {
     __BUILD__: JSON.stringify(BUILD),
     __BUILD_YEAR__: JSON.stringify(new Date().getFullYear()),

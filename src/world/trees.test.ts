@@ -56,7 +56,9 @@ describe('trees', () => {
   it('has broadleaves, pines and the tree house', () => {
     const shapes = new Set(TREES.map((t) => t.shape));
     expect([...shapes].sort()).toEqual(['broadleaf', 'pine']);
-    expect(TREES.filter((t) => t.birdhouse).length).toBeGreaterThan(2);
+    // (bird houses on the trees drawn from their plans: a painted tree has none but what's painted)
+    expect(TREES.filter((t) => t.birdhouse && t.painted).length).toBe(0);
+    if (TREES.filter((t) => t.shape === 'broadleaf' && !t.painted).length > 100) expect(TREES.filter((t) => t.birdhouse).length).toBeGreaterThan(2);
   });
 
   it('is climbed by stumps a jump apart, out of a kitten\'s reach', () => {

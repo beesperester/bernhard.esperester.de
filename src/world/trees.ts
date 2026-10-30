@@ -14,6 +14,8 @@
 
 import { hash2, mulberry32 } from '../art/raster.ts';
 import { treeSizeAt } from './layout.ts';
+import { TEMPLATE_SEED, TEMPLATE_TRUNK, paintedShape, type TemplateShape } from './templates.ts';
+import { paintedSize } from '../art/paintedTrees.ts';
 import { FEET, FORK_Z, LEVEL, TILE, heightUnder, levelAt, tileAt, treeTiles, trunkBase, trunkHalf, trunkTop } from './map.ts';
 
 /** How far a branch level is above the one below it (a pine's tiers, a crown's height). */
@@ -119,6 +121,8 @@ export interface TreePlan {
   trunk: number;
   /** A bird house hangs on the trunk (its roof is a perch). */
   birdhouse: boolean;
+  /** Painted by hand (art/paintedTrees.ts): planned as its template, and drawn as painted, maybe mirrored; null: drawn from its own plan. */
+  painted: { flip: boolean } | null;
 }
 
 type Made = Pick<TreePlan, 'perches' | 'crown' | 'w' | 'h' | 'trunk' | 'limbs' | 'fork'>;
@@ -340,8 +344,33 @@ function plan(tx: number, ty: number, i: number): TreePlan {
   const birdhouse = shape === 'broadleaf' && colour !== 2 && hash2(tx, ty, 56) < 0.3;
   const [x, y] = trunkBase(tx, ty);
   const trunk = trunkHalf(tx, ty), size = treeSizeAt(tx, ty);
+  const elev = levelAt(tx, ty) * LEVEL;
+  // a painted kind and size of tree: its template, as painted (every other one mirrored)
+  const painted = paintedShape(ch, size);
+  if (painted) {
+    const flip = hash2(tx, ty, 1601) < 0.5, tp = templatePlan(painted, size), [w, h] = paintedSize(painted, size)!;
+    const { perches, limbs, crown, fork } = flip ? mirrored(tp) : tp;
+    return { tx, ty, x, y, elev, shape, colour, seed, birdhouse: false, painted: { flip }, perches, limbs, crown, fork, trunk: tp.trunk, w, h };
+  }
   const made = shape === 'pine' ? pinePlan(seed, size, trunk) : shape === 'treehouse' ? treehousePlan(trunk) : broadleafPlan(seed, size, trunk, birdhouse);
-  return { tx, ty, x, y, elev: levelAt(tx, ty) * LEVEL, shape, colour, seed, birdhouse: false, ...made };
+  return { tx, ty, x, y, elev, shape, colour, seed, birdhouse: false, painted: null, ...made };
+}
+
+/** The template of a kind and size of tree (world/templates.ts), planned standing at the map's corner. */
+export function templatePlan(shape: TemplateShape, size: number): TreePlan {
+  const seed = TEMPLATE_SEED[shape][size], trunk = TEMPLATE_TRUNK[shape][size];
+  const made = shape === 'pine' ? pinePlan(seed, size, trunk) : broadleafPlan(seed, size, trunk, false);
+  return { tx: 0, ty: 0, x: 0, y: 0, elev: 0, shape, colour: 0, seed, birdhouse: false, painted: null, ...made };
+}
+
+/** Plan p the other way round (left for right). */
+function mirrored(p: TreePlan): TreePlan {
+  return {
+    ...p,
+    perches: p.perches.map((q) => ({ ...q, x0: -q.x1, z0: q.z1, x1: -q.x0, z1: q.z0 })),
+    limbs: p.limbs.map((l) => ({ ...l, x0: -l.x0, x1: -l.x1, bend: -l.bend })),
+    crown: p.crown.map((b) => ({ ...b, x: -b.x })),
+  };
 }
 
 /** Every tree in the garden, in the order of treeTiles(). */

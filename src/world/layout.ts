@@ -16,6 +16,7 @@
 // the trains run there.
 
 import { hash2 } from '../art/raster.ts';
+import { TEMPLATE_TRUNK, paintedShape } from './templates.ts';
 import { BASE, CLEARINGS, ELEV, LANDMARK_SPOTS, ZONES } from './garden.ts';
 import { LANDMARK_SIZE } from './landmarks.ts';
 import { trackside } from './track.ts';
@@ -326,6 +327,9 @@ export function treeSizeAt(tx: number, ty: number): 0 | 1 | 2 {
 export function trunkHalfOf(ch: string, tx: number, ty: number): number {
   if (ch === 'H') return 16;
   const size = treeSizeAt(tx, ty), u = hash2(tx, ty, 59);
+  // (a painted tree: its template's trunk)
+  const painted = paintedShape(ch, size);
+  if (painted) return TEMPLATE_TRUNK[painted][size];
   if (CHAMPIONS.has(ty * 4096 + tx)) return ch === 'P' ? 12 : 16;
   return ch === 'P' ? [5, 7, 10][size] + Math.floor(u * 2) : [5, 8, 13][size] + Math.floor(u * (size === 2 ? 4 : 3));
 }
