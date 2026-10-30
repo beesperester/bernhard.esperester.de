@@ -48,6 +48,8 @@ const COLOUR = [22 / 255, 34 / 255, 78 / 255];
 const ALPHA = 0.32;
 /** The shadow map's size (texels square). */
 const MAP = 1024;
+/** The shadow map's size and depth range change in steps of this many px. */
+const SNAP = 64;
 /** How tall anything is, at most (px), for the shadow map's reach. */
 const TALL = 340;
 /** Depths: a card's pixels are this far (px) either side of its foot, at most. */
@@ -543,8 +545,12 @@ export class Cards {
           const P = [x, y, z], u = dot(P, U), v = dot(P, V), d = dot(P, L);
           u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); d0 = Math.min(d0, d); d1 = Math.max(d1, d);
         }
-    this.box = [u0, v0, u1 - u0, v1 - v0];
-    this.dRange = [d0 - 400, d1 - d0 + 1200];
+    // (its size in steps, and its corner on whole texels: so its texels stay put in the world as the view moves, and
+    // the shadows of small things don't shimmer)
+    const su = Math.ceil((u1 - u0) / SNAP) * SNAP + SNAP, sv = Math.ceil((v1 - v0) / SNAP) * SNAP + SNAP;
+    const tu = su / MAP, tv = sv / MAP;
+    this.box = [Math.floor(u0 / tu) * tu, Math.floor(v0 / tv) * tv, su, sv];
+    this.dRange = [Math.floor((d0 - 400) / SNAP) * SNAP, Math.ceil((d1 - d0 + 1200) / SNAP) * SNAP + SNAP];
     // the balls that fall in it
     const data: number[] = [];
     for (let i = 0; i < TREES.length; i++) {
