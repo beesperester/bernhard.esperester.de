@@ -8,9 +8,13 @@ import { HOUSES, TREES, TRUNK_FRONT, standingOn, surfaceAt, treeHolding, zAt } f
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, COASTERS, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
 import { CatView, RemoteCat, catLight } from './CatView.ts';
-import { Meadow } from './Meadow.ts';
+import { Meadow, plantKey } from './Meadow.ts';
+import { Things } from './Things.ts';
+import { LEAF_GREEN, MOUTH_Z, PUT, TOSS, Thing, ThingStore, VARIANTS, newId, plantId, type Placed, type ThingKind } from '../world/things.ts';
+import { carriedCode } from '../world/thingKinds.ts';
+import { accountMsg } from '../net/protocol.ts';
 import { SHAFT_SOURCE, Shafts } from './Shafts.ts';
-import { isFlower, thicketAt, undergrowthAt } from '../art/flora.ts';
+import { FLOWER_0, isFlower, thicketAt, undergrowthAt } from '../art/flora.ts';
 import { FOG_SOURCE, FOG_TEXTURES, Fog } from './Fog.ts';
 import { fogAt } from '../world/fog.ts';
 import { Clouds } from './Clouds.ts';
@@ -33,7 +37,7 @@ import { Puddles } from './Puddles.ts';
 import { WaterSurface } from './WaterSurface.ts';
 import { Lighting } from './Lighting.ts';
 import { berlinClock } from '../world/sky.ts';
-import { SEASON, rainfall } from '../world/season.ts';
+import { SEASON, rainfall, seasonAt } from '../world/season.ts';
 import { Weather } from './Weather.ts';
 import { Ambient } from './Ambient.ts';
 import { DoubleTap, Emotes, Paw, dirOf } from './controls.ts';
@@ -120,6 +124,12 @@ type Pose = [number, number, number, number];
 const POUNCE_REACH = 56, KITTEN_POUNCE_REACH = 36, POUNCE_MS = 340;
 /** How high a pounce goes at most (px). */
 const POUNCE_HEIGHT = 7;
+/** A flower this close to the cat's mouth can be picked (px). */
+const REACH_FLOWER = 9;
+/** How likely a bird caught leaves a feather; one scared off by our cat; a paw at a tree knocks something down. */
+const FEATHER_CAUGHT = 0.8, FEATHER_SCARED = 0.25, KNOCK_DOWN = 0.45;
+/** Which way the cat faces, as a step (by Facing). */
+const FACE: [number, number][] = [[0, 1], [0, -1], [-1, 0], [1, 0]];
 /** A sniff of catnip works again after this long (ms). */
 const CATNIP_MS = 120000;
 /** How far from a piece of furniture a paw reaches it (px). */
@@ -151,6 +161,12 @@ export class GardenScene extends Phaser.Scene {
   private lastSentAt = 0;
   private garden = 1;
   private meadow!: Meadow;
+  /** The things lying about that a cat can carry, and their pictures. */
+  private store!: ThingStore;
+  private things!: Things;
+  /** The id of what our cat carries (what it is: me.carried). */
+  private heldId = 0;
+  private prunedAt = 0;
   private shafts!: Shafts;
   private glows!: Glows;
   private lightMap!: LightMap;
@@ -345,6 +361,13 @@ export class GardenScene extends Phaser.Scene {
     this.weather = new Weather(this, TREES, water);
     this.zones = new Zones(this, toCanvas, this.glows, this.lightMap);
     this.streams = new Streams(this, water);
+    this.store = new ThingStore();
+    this.things = new Things(this, water);
+    this.meadow.picked = (key) => this.store.picked(key, this.net.now());
+    // a bird our cat scares off may lose a feather
+    this.ambient.onBirdScared = (x, y, h, colour, by) => {
+      if (by === this.me && Math.random() < FEATHER_SCARED) this.featherFrom(x, y, h + 3, colour);
+    };
     this.puddles = new Puddles(this, this.ambient.fx);
 
     const spawns = spawnPoints();
@@ -434,6 +457,16 @@ export class GardenScene extends Phaser.Scene {
         if (cat && Math.abs(gt - this.net.now()) < 5000 && trunkNear(cat.x, cat.y, cat.z, 24) === tree) this.ambient.shakeTree(tree, gt);
       },
       onVote: (id, msg) => this.referee.receiveVote(id, msg, performance.now()),
+      // another cat picked something up or put it down (believed of one about where it says, as far as we can see)
+      onThing: (id, msg) => {
+        const cat = this.remotes.get(id);
+        if (!cat || this.referee.ignored(id) || Math.abs((msg[0] === 't' ? msg[2] : msg[9]) - this.net.now()) > 10000) return;
+        if (msg[0] === 't') this.store.take(msg[1], msg[2]);
+        else if (Math.hypot(msg[4] - cat.tx, msg[5] - cat.ty) < 48) {
+          const [, thing, kind, v, x0, y0, z0, x1, y1, gt] = msg;
+          this.store.place({ id: thing, kind: kind as ThingKind, v, x0, y0, z0, x1, y1, gt });
+        }
+      },
       // the train's driver says where it is (believed of a grown cat sitting in the lok's cab, as far as we can see)
       onTrain: (id, msg) => {
         const cat = this.remotes.get(id);
@@ -468,13 +501,14 @@ export class GardenScene extends Phaser.Scene {
         this.referee.join(id);
         this.board.greet(id, performance.now());
         const { caught, shakes } = this.ambient.memory(this.net.now());
-        this.net.world({ caught, shakes, train: this.train.account(this.net.now()) }, id);
+        this.net.world({ caught, shakes, train: this.train.account(this.net.now()), things: accountMsg(this.store.account(this.net.now())) }, id);
       },
       // what a cat already here knows: prey that's gone, fruit lying about
       onWorld: (id, msg) => {
         if (this.referee.ignored(id)) return;
         this.ambient.recall(msg.caught, msg.shakes);
         if (msg.train) this.train.recall(msg.train, this.net.now(), performance.now());
+        if (msg.things) this.store.recall(msg.things);
       },
       // (only what checks out: signed by whom it says, the sender's own entry for this very connection)
       onBoard: (id, msg) => {
@@ -574,7 +608,7 @@ export class GardenScene extends Phaser.Scene {
   private state(): CatMsg {
     const m = this.me;
     const r = (v: number) => Math.round(v * 10) / 10;
-    return [r(m.x), r(m.y), r(m.z), m.facing, m.act, m.seq, m.coat, m.mews, m.stage];
+    return [r(m.x), r(m.y), r(m.z), m.facing, m.act, m.seq, m.coat, m.mews, m.stage, carriedCode(m.carried)];
   }
 
   private sendState(): void {
@@ -691,6 +725,11 @@ export class GardenScene extends Phaser.Scene {
     this.ambient.update(gt, dt, cats, view);
     this.weather.update(gt, time, dt, cats, view, light);
     this.streams.update(gt, light.night, view);
+    this.things.update(this.store, gt, view);
+    if (gt - this.prunedAt > 30_000) {
+      this.prunedAt = gt;
+      this.store.prune(gt);
+    }
     this.landmarks.update(time, this.cameras.main.zoom, this.me.x, this.me.y);
     this.puddles.update(gt, time, dt, cats, view);
     this.furniture.update(time, cats, this.ambient.fx, view);
@@ -883,7 +922,7 @@ export class GardenScene extends Phaser.Scene {
       }
     }
     // in mid-jump: one swipe at whatever flies within reach, a bird or bat on the wing included
-    if (grab && me.act === Act.Jump && !this.airCatch) {
+    if (grab && me.act === Act.Jump && !this.airCatch && !me.carried) {
       this.airCatch = { got: null };
       const prey = this.ambient.preyNear(me);
       if (prey && !PREY[prey.kind].swipeOnly) {
@@ -897,6 +936,11 @@ export class GardenScene extends Phaser.Scene {
     // catching: swipe at a fish, butterfly, bee or bird within a tile of the cat
     const busy = me.act === Act.Jump || me.act === Act.Catch || me.act === Act.Eat || me.act === Act.Munch || me.act === Act.Feast;
     if (grab && !busy && !wetAt(me.x, me.y)) {
+      // carrying something: B puts it down in front of the cat
+      if (me.carried) {
+        this.drop(false, dx, dy);
+        return;
+      }
       const prey = this.ambient.preyNear(me);
       // (with nothing in reach it swipes the way it faces)
       if (prey) me.facing = facingTowards(me, prey);
@@ -918,6 +962,8 @@ export class GardenScene extends Phaser.Scene {
         begin(Act.Roll);
         return;
       }
+      // something lying in front of the cat (or a flower growing there): picked up in the mouth
+      else if (this.pickUp()) return;
       // pawing at a monument brings up its name; at a tree's trunk, maybe shakes something down
       else if (!this.landmarks.touch(me.x, me.y, now)) {
         const tree = trunkNear(me.x, me.y, me.z);
@@ -925,6 +971,7 @@ export class GardenScene extends Phaser.Scene {
           const gt = Math.round(this.net.now());
           this.ambient.shakeTree(tree, gt);
           this.net.shake(tree, gt);
+          this.knockDown(tree);
         }
       }
       this.catching = { swiped: false, got: null };
@@ -981,6 +1028,8 @@ export class GardenScene extends Phaser.Scene {
     }
     if (hiss && grounded) begin(Act.Hiss);
     else if (roll && grounded) begin(Act.Roll);
+    // a jump with something in the mouth tosses it ahead instead
+    else if (jump && grounded && me.carried) this.drop(true, dx, dy);
     else if (jump && grounded) {
       begin(Act.Jump);
       // (at a tree, a leap up to its next branch)
@@ -1392,12 +1441,89 @@ export class GardenScene extends Phaser.Scene {
 
   /** Count a catch (bigger prey, more points: a block on our chain), and at NAME_AT snacks offer a name of our own. */
   private ate(kind: Prey, id: number, colour: number): void {
+    // (whatever was in the mouth falls out; a bird leaves a feather or two about)
+    if (this.me.carried) this.drop(false, 0, 0);
+    if (kind === Prey.Bird && Math.random() < FEATHER_CAUGHT) this.featherFrom(this.me.x, this.me.y, this.me.z + MOUTH_Z + 4, colour);
     const points = preyPoints(kind, colour);
     this.scorePop(points);
     logSnack(this.board.me.name, kind, colour, true);
     void this.board.ate(kind, id, points).then((counted) => {
       if (counted) this.grown();
     });
+  }
+
+  /** Pick up the thing lying nearest the cat's mouth, or the flower growing there; false if there's none. */
+  private pickUp(): boolean {
+    const me = this.me;
+    if (me.z > 4) return false;
+    const [fx, fy] = FACE[me.facing], mx = me.x + fx * 5, my = me.y + fy * 3, gt = Math.round(this.net.now());
+    const t = this.store.nearest(mx, my, gt);
+    if (t) {
+      this.take(t.id, gt);
+      this.hold(t.id, t.kind, t.v);
+      return true;
+    }
+    // a flower out of the meadow: it grows again in a while (what's carried away is a new thing)
+    let best = -1, d0 = REACH_FLOWER;
+    this.meadow.plants.forEach((p, i) => {
+      if (!isFlower(p.kind) || Math.abs(p.x - mx) > d0 || Math.abs(p.y - my) > d0) return;
+      const d = Math.hypot(p.x - mx, (p.y - my) * 1.4);
+      if (d < d0 && !this.store.picked(plantKey(p), gt)) { best = i; d0 = d; }
+    });
+    if (best < 0) return false;
+    const plant = this.meadow.plants[best];
+    this.take(plantId(plantKey(plant)), gt);
+    this.hold(newId(), Thing.Flower, plant.kind - FLOWER_0);
+    return true;
+  }
+
+  private hold(id: number, kind: ThingKind, v: number): void {
+    this.heldId = id;
+    this.me.carried = { kind, v };
+    void sound.play('steps', { at: { x: this.me.x, y: this.me.y }, volume: 0.25, rate: 2.2 });
+  }
+
+  /** Thing id is gone from where it was: picked up (by us). */
+  private take(id: number, gt: number): void {
+    this.store.take(id, gt);
+    this.net.thing(['t', id, gt]);
+  }
+
+  /** Put down what's in the mouth just in front, or toss it ahead (the way the cat goes, or faces). */
+  private drop(toss: boolean, dx: number, dy: number): void {
+    const me = this.me, c = me.carried;
+    if (!c) return;
+    let [fx, fy] = FACE[me.facing];
+    if (dx || dy) { const n = Math.hypot(dx, dy); fx = dx / n; fy = dy / n; }
+    const far = toss ? TOSS : PUT;
+    // (up and down the screen a throw looks shorter: the ground is seen at a slant)
+    this.place({ id: this.heldId, kind: c.kind, v: c.v, x0: me.x + fx * 5, y0: me.y + fy * 2, z0: me.z + MOUTH_Z, x1: me.x + fx * far, y1: me.y + fy * far * 0.7 });
+    me.carried = null;
+    this.heldId = 0;
+  }
+
+  /** Something sets off from (x0, y0), z0 up, to come down at (x1, y1): now, for everyone. */
+  private place(p: Omit<Placed, 'gt'>): void {
+    const clampX = (x: number) => Math.round(Phaser.Math.Clamp(x, 1, WORLD_W - 1) * 10) / 10;
+    const clampY = (y: number) => Math.round(Phaser.Math.Clamp(y, 1, WORLD_H - 1) * 10) / 10;
+    const q: Placed = { ...p, x0: clampX(p.x0), y0: clampY(p.y0), z0: Math.round(Phaser.Math.Clamp(p.z0, 0, 399) * 10) / 10, x1: clampX(p.x1), y1: clampY(p.y1), gt: Math.round(this.net.now()) };
+    this.store.place(q);
+    this.net.thing(['p', q.id, q.kind, q.v, q.x0, q.y0, q.z0, q.x1, q.y1, q.gt]);
+  }
+
+  /** A feather drifting down from (x, y), z up, off a bird of that colour. */
+  private featherFrom(x: number, y: number, z: number, colour: number): void {
+    this.place({ id: newId(), kind: Thing.Feather, v: colour % VARIANTS[Thing.Feather], x0: x, y0: y, z0: z, x1: x + (Math.random() - 0.5) * 20, y1: y + Math.random() * 8 });
+  }
+
+  /** Pawing at a tree now and then knocks something out of it: a twig, a leaf, a pine's cone. */
+  private knockDown(tree: number): void {
+    if (Math.random() >= KNOCK_DOWN) return;
+    const t = TREES[tree], pine = t.shape === 'pine', season = seasonAt(this.net.now());
+    const kind: ThingKind = pine ? (Math.random() < 0.5 ? Thing.Cone : Thing.Twig) : Math.random() < 0.5 ? Thing.Twig : Thing.Leaf;
+    const v = kind === Thing.Leaf ? (season.turn < 0.2 ? LEAF_GREEN : Math.floor(Math.random() * LEAF_GREEN)) : Math.floor(Math.random() * VARIANTS[kind]);
+    const x0 = t.x + (Math.random() - 0.5) * 30, y0 = t.y + 2;
+    this.place({ id: newId(), kind, v, x0, y0, z0: 26 + Math.random() * 20, x1: x0 + (Math.random() - 0.5) * 14, y1: y0 + 3 + Math.random() * 10 });
   }
 
   private grown(): void {

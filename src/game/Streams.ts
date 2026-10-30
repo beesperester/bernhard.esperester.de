@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Raster, type Bits, type RGB } from '../art/raster.ts';
 import { toCanvas } from './textures.ts';
-import { STREAMS, along, type Stream } from '../world/streams.ts';
+import { FLOW, STREAMS, along, type Stream } from '../world/streams.ts';
 import { seasonAt } from '../world/season.ts';
 import { Pool, clamp01, hash2, remember, seedRng } from './fauna/kit.ts';
 import { LEAF_COLOURS } from './Weather.ts';
@@ -12,8 +12,6 @@ import { LEAF_COLOURS } from './Weather.ts';
 // follows the shared garden clock, so a leaf goes by every visitor's cat at
 // the same moment. Frozen over in winter, nothing moves.
 
-/** How fast the water runs (px/s). */
-const FLOW = 14;
 /** One glint every so many px along a stream. */
 const GLINT_GAP = 10;
 /** Something may fall into the top of each stream every DRIFT_SLOT ms. */

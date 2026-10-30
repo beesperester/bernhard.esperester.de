@@ -74,6 +74,11 @@ export class Ambient {
     return this.squirrels.shake(tree, gt, quiet);
   }
 
+  /** Told whenever a bird takes fright at a cat and flies off. */
+  set onBirdScared(fn: Birds['onScared']) {
+    this.birds.onScared = fn;
+  }
+
   /** What a cat arriving now should know of the garden: the prey caught lately and the fruit shaken down. */
   memory(gt: number): { caught: [Prey, number][]; shakes: [number, number][] } {
     return { caught: [...this.caught.values()], shakes: this.squirrels.shakes(gt) };

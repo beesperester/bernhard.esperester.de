@@ -14,7 +14,7 @@ export const LEANS = 5;
 /** Blades: a deep teal root, olive along them, a warm lit tip (the tall grass in tiles.ts, standing up). */
 const G = { d: hex('#28483a'), m: hex('#46724a'), l: hex('#76a056'), t: hex('#b4ba68') };
 const CATTAIL = { h0: hex('#6a3c20'), h1: hex('#9a6034'), s: hex('#5a8a34') };
-const PETALS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f8f8f8'), hex('#c078f0'), hex('#58a0f8'), hex('#f890c8')];
+export const PETALS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f8f8f8'), hex('#c078f0'), hex('#58a0f8'), hex('#f890c8')];
 
 interface Blade { x: number; h: number; tilt: number }
 

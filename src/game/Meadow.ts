@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { FLORA, LEANS, placeFlora, type Plant } from '../art/flora.ts';
+import { FLORA, LEANS, isFlower, placeFlora, type Plant } from '../art/flora.ts';
 import { autoMaps } from '../art/painted.ts';
 import { Raster } from '../art/raster.ts';
 import { addPainted, paint } from './Painted.ts';
@@ -31,6 +31,8 @@ export class Meadow {
   private readonly listed = new Set<number>();
   /** The cell range the sprites were last sorted for. */
   private range = '';
+  /** Whether the flower there (plantKey) has been picked (game/GardenScene.ts asks the things' store). */
+  picked: (key: number) => boolean = () => false;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -54,6 +56,7 @@ export class Meadow {
         for (const plant of this.cells.get(cellKey(cx, cy)) ?? []) {
           if (plant.x < left || plant.x > right || plant.y < top || plant.y > bottom) continue;
           this.sway(plant, t, gust, cats);
+          if (plant.img && isFlower(plant.kind)) plant.img.setVisible(!this.picked(plantKey(plant)));
         }
   }
 
@@ -116,6 +119,9 @@ export class Meadow {
     }
   }
 }
+
+/** A plant's key, from where it grows (the same for everyone, whatever else grows that day): for picking flowers. */
+export const plantKey = (p: Plant) => Math.round(p.y) * 8192 + Math.round(p.x);
 
 /**
  * The plants' sheets (one frame per lean): shaded and rimmed on the GPU from their outlines, like the furniture

@@ -3,7 +3,7 @@
 // over WebRTC. The web server is never involved.
 import { joinRoom, selfId, type Room } from 'trystero';
 import type { Prey, CatMsg } from '../game/state.ts';
-import { sanitizeCat, sanitizeCatch, sanitizeCoaster, sanitizeSeed, sanitizeShake, sanitizeTrain, sanitizeVote, sanitizeWorld, type CoasterMsg, type TrainMsg, type VoteMsg, type WorldMsg } from './protocol.ts';
+import { sanitizeCat, sanitizeCatch, sanitizeCoaster, sanitizeSeed, sanitizeShake, sanitizeTrain, sanitizeThing, sanitizeVote, sanitizeWorld, type CoasterMsg, type ThingMsg, type TrainMsg, type VoteMsg, type WorldIn, type WorldMsg } from './protocol.ts';
 import { sanitizeBoard, type BoardMsg } from '../game/Board.ts';
 import { newSeed, older, type WorldSeed } from '../world/seed.ts';
 import { MAX_ZONES } from '../world/themes.ts';
@@ -100,7 +100,9 @@ export interface NetEvents {
   /** Someone new in the garden. */
   onJoin: (peerId: string) => void;
   /** What a cat already here knows of the garden (sent to us as we arrive). */
-  onWorld: (peerId: string, msg: WorldMsg) => void;
+  onWorld: (peerId: string, msg: WorldIn) => void;
+  /** Another cat picked up or put down a thing (world/things.ts). */
+  onThing: (peerId: string, msg: ThingMsg) => void;
   /** Scoreboard news from another cat. */
   onBoard: (peerId: string, msg: BoardMsg) => void;
   onStatus: (garden: number, peers: number, settled: boolean) => void;
@@ -132,6 +134,7 @@ export class Net {
   private send: ((msg: CatMsg, target?: string) => void) | null = null;
   private sendCatch: ((kind: Prey, id: number) => void) | null = null;
   private sendShake: ((tree: number, gt: number) => void) | null = null;
+  private sendThing: ((msg: ThingMsg) => void) | null = null;
   private sendBoard: ((msg: BoardMsg, target?: string) => void) | null = null;
   private sendVote: ((msg: VoteMsg) => void) | null = null;
   private sendWorld: ((msg: WorldMsg, target: string) => void) | null = null;
@@ -249,6 +252,11 @@ export class Net {
     this.sendCatch?.(kind, id);
   }
 
+  /** We picked up or put down a thing. */
+  thing(msg: ThingMsg): void {
+    this.sendThing?.(msg);
+  }
+
   shake(tree: number, gt: number): void {
     this.sendShake?.(tree, gt);
   }
@@ -321,6 +329,12 @@ export class Net {
         const s = sanitizeShake(data, this.trees);
         if (s) ev.onShake(peerId, ...s);
       });
+    };
+    const thing = room.makeAction<ThingMsg>('thing');
+    this.sendThing = (msg) => void thing.send(msg).catch(() => {});
+    thing.onMessage = (data, { peerId }) => {
+      const msg = this.room === room ? sanitizeThing(data) : null;
+      if (msg) this.deliver((ev) => ev.onThing(peerId, msg));
     };
     const board = room.makeAction<BoardMsg>('board');
     this.sendBoard = (msg, target) => void board.send(msg, target ? { target } : undefined).catch(() => {});

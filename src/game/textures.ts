@@ -14,6 +14,9 @@ import { buildBasket, snowCap } from '../art/furniture.ts';
 import { SEASON } from '../world/season.ts';
 import { addFloraTextures } from './Meadow.ts';
 import { addWeatherTextures } from './Weather.ts';
+import { buildThing } from '../art/things.ts';
+import { autoMaps } from '../art/painted.ts';
+import { VARIANTS, type ThingKind } from '../world/things.ts';
 
 // Every picture in the game is drawn in code; this turns them all into Phaser
 // textures (sprite sheets cut into frames) once, when the garden starts.
@@ -49,6 +52,12 @@ const tex = scene.textures;
     return t;
   });
   const flora = addFloraTextures(scene, (i) => buildFloraSheet(FLORA[i]), toCanvas);
+  // the things a cat can carry: shaded on the GPU from their outlines (game/Things.ts)
+  for (const [k, n] of Object.entries(VARIANTS))
+    for (let v = 0; v < n; v++) {
+      const r = buildThing(Number(k) as ThingKind, v), { main, normal } = autoMaps(r);
+      addPainted(scene, `thing-${k}-${v}`, main, normal, r.w, r.h);
+    }
   for (const [k, make] of Object.entries(ICONS)) tex.addCanvas(k, toCanvas(make()));
   const sheet = (key: string, r: Raster, fw: number, fh: number) => {
     const t = tex.addCanvas(key, toCanvas(r))!;

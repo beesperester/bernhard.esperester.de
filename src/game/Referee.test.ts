@@ -19,7 +19,7 @@ function setup(seen = true) {
 }
 
 const [sx, sy] = spawnPoints()[0];
-const at = (x: number, y: number, act: number = Act.Idle): CatMsg => [x, y, groundAt(x, y), 0, act, 0, 0, 0, 2];
+const at = (x: number, y: number, act: number = Act.Idle): CatMsg => [x, y, groundAt(x, y), 0, act, 0, 0, 0, 2, 0];
 
 describe('the referee', () => {
   it('confirms a catch it saw, and votes for it', () => {

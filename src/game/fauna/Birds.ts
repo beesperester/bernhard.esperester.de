@@ -57,8 +57,10 @@ export class Birds implements Fauna {
   private readonly lawns: Spot[][];
   private readonly visits = new Map<number, Visit | null>();
   private readonly fled = new Map<number, Flee>();
-  /** Birds that spotted a crouching cat: when, and where the cat was. */
-  private readonly alert = new Map<number, { t: number; x: number; y: number }>();
+  /** Birds that spotted a crouching cat: when, where the cat was, and which cat. */
+  private readonly alert = new Map<number, { t: number; x: number; y: number; by: CatView }>();
+  /** A bird took fright at cat `by` and flew off from (x, y), h up (a feather may come down: game/GardenScene.ts). */
+  onScared: ((x: number, y: number, h: number, colour: number, by: CatView) => void) | null = null;
   private readonly marks: Pool;
   private readonly birds: Pool;
   private readonly shadows: Pool;
@@ -295,7 +297,7 @@ export class Birds implements Fauna {
       // a swipe that missed
       if (c.act === Act.Catch && now - c.actStart > SWIPE_AT_MS + 80 && Math.hypot(c.x - x, c.y - y) < 32) return this.scare(v, pos, c, gt);
       if (c.act === Act.Crouch || c.act === Act.Sneak) {
-        if (d < NOTICE && !alert) this.alert.set(v.id, (alert = { t: gt, x: c.x, y: c.y }));
+        if (d < NOTICE && !alert) this.alert.set(v.id, (alert = { t: gt, x: c.x, y: c.y, by: c }));
         // spotted: freeze, or it's gone
         else if (alert && d < NOTICE && c.speed > 5 && gt - alert.t > FREEZE_MS) return this.scare(v, pos, c, gt);
         continue;
@@ -311,6 +313,7 @@ export class Birds implements Fauna {
     if (alert) {
       if (gt - alert.t >= REACT_MS) {
         this.fled.set(v.id, { t: gt, x, y, h: s.h, dir: Math.sign(x - alert.x) || 1 });
+        this.onScared?.(x, y, s.h, v.colour, alert.by);
         void sound.play('rustle', { at: { x, y }, volume: 0.3, rate: 1.7 + Math.random() * 0.2 });
         return this.drawFlee(v, this.fled.get(v.id)!, gt);
       }
@@ -339,6 +342,7 @@ export class Birds implements Fauna {
   private scare(v: Visit, [x, y, h]: Pt3, c: CatView, gt: number): void {
     const f = { t: gt, x, y, h, dir: Math.sign(x - c.x) || 1 };
     this.fled.set(v.id, f);
+    this.onScared?.(x, y, h, v.colour, c);
     void sound.play('rustle', { at: { x, y }, volume: 0.3, rate: 1.7 + Math.random() * 0.2 });
     this.drawFlee(v, f, gt);
   }

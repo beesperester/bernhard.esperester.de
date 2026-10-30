@@ -7,6 +7,7 @@ import { TREES, surfaceAt, treeHolding } from '../world/trees.ts';
 import { DEPTH } from './Daylight.ts';
 import { STAGE_SIZE, Stage } from './growth.ts';
 import { paint } from './Painted.ts';
+import { carriedOf, type ThingKind } from '../world/thingKinds.ts';
 
 /** Growing up: it flickers between its old size and its new one, quicker and quicker, for this long (ms). */
 const GROW_MS = 1600;
@@ -70,6 +71,8 @@ export class CatView {
   readonly local: boolean;
   /** What is in its mouth while eating (fish, bird or frog). */
   heldKey = 'held-fish';
+  /** What it carries in its mouth (a feather, a leaf, a twig, a cone or a flower: world/things.ts), or null. */
+  carried: { kind: ThingKind; v: number } | null = null;
   /** Shown under the cat. */
   name = '';
   /** How grown up it is (growth.ts); the size it is drawn at lags behind for a moment while it grows. */
@@ -88,6 +91,7 @@ export class CatView {
   private readonly sprite: Phaser.GameObjects.Sprite;
   private readonly bubble: Phaser.GameObjects.Image;
   private readonly held: Phaser.GameObjects.Image;
+  private readonly carry: Phaser.GameObjects.Image;
   /** A solid green silhouette, drawn over the hill where it hides the cat. */
   private readonly ghost: Phaser.GameObjects.Sprite;
   /** Riding the train: its head again, on top of the car, so it always shows over the walls. */
@@ -111,6 +115,7 @@ export class CatView {
     this.sprite = paint(scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1));
     this.bubble = scene.add.image(x, y, 'bubble-hiss').setOrigin(0.5, 1).setVisible(false);
     this.held = scene.add.image(x, y, 'held-fish', 0).setVisible(false);
+    this.carry = paint(scene.add.image(x, y, 'thing-0-0').setVisible(false));
     this.ghost = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(98000).setVisible(false)
       .setTint(SILHOUETTE).setTintMode(Phaser.TintModes.FILL);
     this.head = paint(scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setVisible(false));
@@ -209,6 +214,16 @@ export class CatView {
       if (sideways) this.held.setFlipX(!right).setOrigin(right ? 0 : 1, 0.5).setPosition(x + (right ? 5 : -5) * k, y - 6 * k - lift);
       else this.held.setFlipX(false).setOrigin(0.3, 0.5).setPosition(x, y - 5 * k - lift);
     }
+    // something carried: in the mouth, sticking out in front side on, crosswise facing us (behind the head facing away)
+    const c = this.carried;
+    this.carry.setVisible(!!c && !eating && seen > 0 && this.act !== Act.Sleep);
+    if (c && this.carry.visible) {
+      const right = this.facing === Facing.Right, sideways = right || this.facing === Facing.Left;
+      const low = this.act === Act.Crouch || this.act === Act.Sneak ? 2 * k : 0;
+      this.carry.setTexture(`thing-${c.kind}-${c.v}`).setAlpha(seen);
+      if (sideways) this.carry.setFlipX(!right).setOrigin(right ? 0.15 : 0.85, 0.5).setPosition(x + (right ? 5 : -5) * k, Math.round(y - 6 * k - lift + low)).setDepth(d + 0.5);
+      else this.carry.setFlipX(false).setOrigin(0.5, 0.5).setPosition(x, Math.round(y - 5 * k - lift + low)).setDepth(this.facing === Facing.Up ? d - 0.2 : d + 0.5);
+    }
 
     // the name, just under the cat's feet (and under its shadow on a ledge)
     if (this.label.text !== this.name) this.label.setText(this.name);
@@ -238,6 +253,7 @@ export class CatView {
     this.sprite.destroy();
     this.bubble.destroy();
     this.held.destroy();
+    this.carry.destroy();
     this.ghost.destroy();
     this.head.destroy();
     this.eyes.destroy();
@@ -265,8 +281,9 @@ export class RemoteCat extends CatView {
   }
 
   apply(msg: CatMsg, now: number): void {
-    const [x, y, z, facing, act, seq, , mews, stage] = msg;
+    const [x, y, z, facing, act, seq, , mews, stage, carried] = msg;
     this.stage = stage as Stage;
+    this.carried = carriedOf(carried);
     if (mews !== this.mews) {
       this.mews = mews;
       this.mewAt = now;

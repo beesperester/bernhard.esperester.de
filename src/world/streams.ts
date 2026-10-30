@@ -34,6 +34,9 @@ function streamOf(pts: Pt[], river: boolean): Stream {
   return { pts, at, length: at[at.length - 1], box, river };
 }
 
+/** How fast the water runs (px/s). */
+export const FLOW = 14;
+
 /** A point `s` px along a stream, and the way the water flows there (a unit vector). */
 export interface Along { x: number; y: number; dx: number; dy: number }
 
