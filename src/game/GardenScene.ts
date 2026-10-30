@@ -313,7 +313,7 @@ export class GardenScene extends Phaser.Scene {
     this.lilies = new Lilies(this, toCanvas, this.glows);
     this.shadows = this.makeShadows(furniture);
     if (!params.has('flat')) {
-      this.cards = new Cards(this, { ground: this.ground, trees: this.trees });
+      this.cards = new Cards(this, { ground: this.ground, trees: this.trees, shafts: this.shafts });
       this.shadows.cast = false;
     }
     this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);

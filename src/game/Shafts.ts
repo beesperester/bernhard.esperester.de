@@ -14,7 +14,8 @@ import { COMMON } from './gpu.ts';
 // Strongest when the sun is low, at the golden hours; fainter at noon, gone
 // under rain clouds, thin when the trees are bare; and at night, by
 // moonlight, faint and blue. Each is a quad drawn by a shader (a Phaser
-// Shader).
+// Shader; or, drawn as cards, game/Cards.ts draws it with this shader, as a
+// card standing at its spot: see rays()).
 
 /** Rays standing this far (px) below the view are drawn (they reach up into it), fading out from FADE_BELOW on (so
  * none pops in or out as the view moves)... */
@@ -34,7 +35,8 @@ const GAIN = 2.2;
 
 const SUN_HIGH: number[] = [1, 0.96, 0.8], SUN_LOW: number[] = [1, 0.74, 0.4], MOON: number[] = [0.66, 0.78, 1];
 
-const SOURCE = `
+/** A ray's shader: its quad covers uBox (world px), outTexCoord across it (y up). */
+export const SHAFT_SOURCE = `
 precision highp float;
 uniform vec4 uBox;
 uniform vec2 uTop;
@@ -92,7 +94,11 @@ interface Drawn {
   u: { box: number[]; top: number[]; foot: number[]; strength: number };
   /** When it was first drawn (s). */
   born: number;
+  i: number;
 }
+
+/** A ray as drawn: its quad, its spot's depth, and its shader's numbers. */
+export interface Ray { quad: Phaser.GameObjects.Shader; foot: number; uniforms: Record<string, number | number[]> }
 
 export class Shafts {
   private readonly scene: Phaser.Scene;
@@ -170,7 +176,7 @@ export class Shafts {
     const u = { box: [0, 0, 1, 1], top: [0, 0], foot: [0, 0], strength: 0 };
     const quad = this.scene.add.shader({
       name: 'shaft',
-      fragmentSource: SOURCE,
+      fragmentSource: SHAFT_SOURCE,
       setupUniforms: (set: (name: string, value: unknown) => void) => {
         set('uBox', u.box);
         set('uTop', u.top);
@@ -184,9 +190,22 @@ export class Shafts {
         set('uView', this.view);
       },
     }, 0, 0, 1, 1).setOrigin(0).setDepth(s.y - 0.05).setBlendMode(Phaser.BlendModes.ADD);
-    const d = { quad, u, born: this.time };
+    const d = { quad, u, born: this.time, i };
     this.drawn.set(i, d);
     return d;
+  }
+
+  /** The rays drawn now, for game/Cards.ts. */
+  rays(): Ray[] {
+    const out: Ray[] = [];
+    for (const d of this.drawn.values()) {
+      const s = SHAFTS[d.i];
+      out.push({
+        quad: d.quad, foot: s.y,
+        uniforms: { uBox: d.u.box, uTop: d.u.top, uFoot: d.u.foot, uWidth: s.w, uLift: s.lift, uTime: this.time, uStrength: d.u.strength, uColour: this.colour, uSeed: d.i % 97, uView: this.view },
+      });
+    }
+    return out;
   }
 
   /** Lean ray s up from its spot towards the light till it is off the top of the view, and put its quad round it (on the view). */
