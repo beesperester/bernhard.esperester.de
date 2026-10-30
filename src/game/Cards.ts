@@ -434,6 +434,15 @@ ${source.replace(/gl_FragColor = ([^;]*);/, 'gl_FragColor = $1;\n  gl_FragDepthE
 
 type Box = { x: number; y: number; w: number; h: number };
 
+/** A Phaser Extern's render(): handed the renderer and the drawing context it draws into. */
+type Render = (renderer: unknown, dc: Phaser.Renderer.WebGL.DrawingContext) => void;
+
+/** What a pass draws back into: the drawing context's framebuffer (not whatever happens to be bound: Phaser binds it lazily) and viewport. */
+function backOf(dc: Phaser.Renderer.WebGL.DrawingContext): { back: WebGLFramebuffer | null; vp: number[] } {
+  const state = dc.state as unknown as { bindings: { framebuffer: { webGLFramebuffer: WebGLFramebuffer | null } | null }; viewport: number[] };
+  return { back: state.bindings.framebuffer?.webGLFramebuffer ?? null, vp: [...state.viewport] };
+}
+
 interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; depth: WebGLRenderbuffer; w: number; h: number }
 
 export class Cards {
@@ -535,11 +544,11 @@ export class Cards {
     gl.bindTexture(gl.TEXTURE_2D, this.blank);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     const ground = scene.add.extern().setDepth(GROUND_PASS);
-    (ground as unknown as { render: () => void }).render = () => this.drawGround();
+    (ground as unknown as { render: Render }).render = (_r, dc) => this.drawGround(dc);
     const reflections = scene.add.extern().setDepth(REFLECT_PASS);
-    (reflections as unknown as { render: () => void }).render = () => this.drawReflections();
+    (reflections as unknown as { render: Render }).render = (_r, dc) => this.drawReflections(dc);
     const things = scene.add.extern().setDepth(STANDING_PASS);
-    (things as unknown as { render: () => void }).render = () => this.drawThings();
+    (things as unknown as { render: Render }).render = (_r, dc) => this.drawThings(dc);
   }
 
   /** Gather what's drawn this frame (and hide it from Phaser's camera). */
@@ -797,9 +806,9 @@ export class Cards {
     return loc;
   }
 
-  private drawGround(): void {
+  private drawGround(dc: Phaser.Renderer.WebGL.DrawingContext): void {
     const t0 = performance.now(), gl = this.gl;
-    const back = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, vp = gl.getParameter(gl.VIEWPORT) as Int32Array;
+    const { back, vp } = backOf(dc);
     this.drawShadow();
     this.ground = this.target(this.ground, this.w, this.h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.ground.fb);
@@ -817,9 +826,9 @@ export class Cards {
     this.ms.push(performance.now() - t0);
   }
 
-  private drawThings(): void {
+  private drawThings(dc: Phaser.Renderer.WebGL.DrawingContext): void {
     const t0 = performance.now(), gl = this.gl;
-    const back = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, vp = gl.getParameter(gl.VIEWPORT) as Int32Array;
+    const { back, vp } = backOf(dc);
     this.drawShadow();
     this.things = this.target(this.things, this.w, this.h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.things.fb);
@@ -869,10 +878,10 @@ export class Cards {
   }
 
   /** What stands by the water, mirrored, laid over it. */
-  private drawReflections(): void {
+  private drawReflections(dc: Phaser.Renderer.WebGL.DrawingContext): void {
     if (!this.wet.length) return;
     const t0 = performance.now(), gl = this.gl;
-    const back = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, vp = gl.getParameter(gl.VIEWPORT) as Int32Array;
+    const { back, vp } = backOf(dc);
     // the mirrored picture: everything whose reflection reaches the water in view, hanging from its foot
     this.mirrored = this.target(this.mirrored, this.w, this.h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.mirrored.fb);
@@ -1069,7 +1078,7 @@ export class Cards {
   }
 
   /** Lay picture `tex` (the view, in world px) over the camera's framebuffer. */
-  private composite(tex: WebGLTexture, back: WebGLFramebuffer | null, vp: Int32Array, blend: boolean): void {
+  private composite(tex: WebGLTexture, back: WebGLFramebuffer | null, vp: number[], blend: boolean): void {
     const gl = this.gl, p = this.compProg, cam = this.scene.cameras.main, view = cam.worldView, z = cam.zoom;
     gl.bindFramebuffer(gl.FRAMEBUFFER, back);
     gl.viewport(vp[0], vp[1], vp[2], vp[3]);
