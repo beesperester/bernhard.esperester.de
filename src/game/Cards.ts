@@ -22,6 +22,9 @@ import { SILHOUETTE } from './CatView.ts';
 // soft edges are drawn in any order, batched by texture; those that are see-
 // through (fading, glowing) after them, back to front.
 //
+// Where a tree stands on the ground it darkens it, and its trunk's foot, a
+// little (contact shadows: the sky's light doesn't reach in there), dithered.
+//
 // The sun's shadows come from a shadow map: the crowns' balls and trunks
 // drawn from the sun, as ellipsoids, what stands on the tiles (hedges,
 // fences, bushes, rocks: world/map.ts' casterBox) as boxes, and everything else standing as its
@@ -48,6 +51,8 @@ const COLOUR = [22 / 255, 34 / 255, 78 / 255];
 const ALPHA = 0.32;
 /** The shadow map's size (texels square). */
 const MAP = 1024;
+/** Contact shadows: at most this dark, in this many dithered steps; and the trunk's foot darkened this far up (px). */
+const CONTACT_ALPHA = 0.42, CONTACT_STEPS = 3, CONTACT_UP = 5;
 /** The shadow map's size and depth range change in steps of this many px. */
 const SNAP = 64;
 /** How tall anything is, at most (px), for the shadow map's reach. */
@@ -178,6 +183,12 @@ void main() {
   // tinted: multiplied, or filled
   col.rgb = vTint.w > 0.5 ? vTint.rgb * col.a : col.rgb * vTint.rgb;
   if (shadowed) col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}) * col.a, ${ALPHA} * uStrength);
+  // a tree's trunk, darker just over the ground it stands in
+  float up = foot - world.y;
+  if (uHasDepth > 0.5 && off == 0.0 && up < ${CONTACT_UP}.0) {
+    float k = floor((1.0 - up / ${CONTACT_UP}.0) * ${CONTACT_STEPS}.0 + bayer(floor(world))) / ${CONTACT_STEPS}.0;
+    col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}) * col.a, k * ${CONTACT_ALPHA});
+  }
   gl_FragColor = uSoft > 0.5 ? col * alpha : vec4(col.rgb, 1.0);
 }`;
 
@@ -303,6 +314,39 @@ void main() {
   gl_FragDepthEXT = 1.0 - n;
 }`;
 
+/** A tree's contact shadow on the ground: an ellipse round its trunk's foot, darkest in the middle, dithered. */
+const CONTACT_VERT = `
+precision highp float;
+attribute vec2 aPos;
+attribute vec4 aEllipse;
+uniform vec4 uTarget;
+varying vec2 vWorld;
+varying vec4 vEllipse;
+void main() {
+  vWorld = aPos;
+  vEllipse = aEllipse;
+  vec2 v = aPos - uTarget.xy;
+  gl_Position = vec4(v.x / uTarget.z * 2.0 - 1.0, 1.0 - v.y / uTarget.w * 2.0, 0.0, 1.0);
+}`;
+
+const CONTACT_FRAG = `
+precision highp float;
+varying vec2 vWorld;
+varying vec4 vEllipse;
+float m2(vec2 p) { return mod(2.0 * p.x + 3.0 * p.y, 4.0); }
+float bayer(vec2 p) {
+  vec2 a = mod(p, 4.0);
+  return (4.0 * m2(mod(a, 2.0)) + m2(floor(a / 2.0)) + 0.5) / 16.0;
+}
+void main() {
+  vec2 w = floor(vWorld);
+  float d = length((w + 0.5 - vEllipse.xy) / vEllipse.zw);
+  if (d >= 1.0) discard;
+  float a = floor(pow(1.0 - d, 1.4) * ${CONTACT_STEPS}.0 + bayer(w)) / ${CONTACT_STEPS}.0 * ${CONTACT_ALPHA};
+  if (a <= 0.0) discard;
+  gl_FragColor = vec4(vec3(${COLOUR.join(', ')}) * a, a);
+}`;
+
 const COMP_VERT = `
 precision highp float;
 attribute vec2 aCorner;
@@ -362,6 +406,9 @@ export class Cards {
   private readonly indices: WebGLBuffer;
   private readonly balls: WebGLBuffer;
   private readonly boxesProg: WebGLProgram;
+  private readonly contactProg: WebGLProgram;
+  private readonly contactBuf: WebGLBuffer;
+  private contactData = new Float32Array(0);
   private readonly boxBuf: WebGLBuffer;
   /** Which tiles have a box (a texel a tile). */
   private readonly boxTiles: WebGLTexture;
@@ -416,6 +463,8 @@ export class Cards {
     this.verts = gl.createBuffer()!;
     this.balls = gl.createBuffer()!;
     this.boxesProg = program(gl, BOXES_VERT, BOXES_FRAG);
+    this.contactProg = program(gl, CONTACT_VERT, CONTACT_FRAG);
+    this.contactBuf = gl.createBuffer()!;
     this.boxBuf = gl.createBuffer()!;
     const tiles = new Uint8Array(MAP_W * MAP_H);
     for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) if (casterBox(tx, ty)) tiles[ty * MAP_W + tx] = 255;
@@ -492,6 +541,15 @@ export class Cards {
       if (d !== GROUND) this.ids.set(pic, Math.min(65535, TREES.length + 1 + this.ids.size));
     }
     this.softs.sort((a, b) => a.pic.depth - b.pic.depth);
+    // the trees' contact shadows: an ellipse round each trunk's foot, wider for a stouter trunk
+    const contact: number[] = [];
+    for (const t of TREES) {
+      const rx = t.trunk * 2.6 + 7, ry = rx * 0.55;
+      if (t.x + rx < x0 || t.x - rx > x1 || t.y + ry < y0 || t.y - ry > y1) continue;
+      const cy = t.y - 1, ex = Math.ceil(rx), ey = Math.ceil(ry);
+      for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [-1, 1], [1, -1], [1, 1]]) contact.push(t.x + cx * ex, cy + cz * ey, t.x, cy, rx, ry);
+    }
+    this.contactData = new Float32Array(contact);
     this.effects = this.src.effects.map((e) => e.now());
     for (const list of this.effects) for (const e of list) e.quad.cameraFilter = cam;
 
@@ -695,6 +753,7 @@ export class Cards {
     this.begin(true);
     for (const b of this.groundBatches.values()) this.drawBatch(b, false);
     this.end();
+    this.drawContact();
     this.composite(this.ground.tex, back, vp, false);
     this.ms.push(performance.now() - t0);
   }
@@ -748,6 +807,22 @@ export class Cards {
     this.composite(this.things.tex, back, vp, true);
     this.ms[this.ms.length - 1] += performance.now() - t0;
     if (this.ms.length > 240) this.ms.shift();
+  }
+
+  /** The trees' contact shadows, over the ground. */
+  private drawContact(): void {
+    if (!this.contactData.length) return;
+    const gl = this.gl, p = this.contactProg;
+    gl.useProgram(p);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    this.uniforms(p, { uTarget: [this.ox, this.oy, this.w, this.h] });
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.contactBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, this.contactData, gl.STREAM_DRAW);
+    const locs = [this.attr(p, 'aPos', 2, 24, 0), this.attr(p, 'aEllipse', 4, 24, 2)];
+    gl.drawArrays(gl.TRIANGLES, 0, this.contactData.length / 6);
+    for (const l of locs) gl.disableVertexAttribArray(l);
+    gl.disable(gl.BLEND);
   }
 
   /** Your cat, filled green, where the nearest thing in front of it is solid. */
