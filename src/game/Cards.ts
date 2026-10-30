@@ -4,6 +4,7 @@ import { paintedMaps, type Prop } from '../art/trees.ts';
 import type { Light } from '../world/sky.ts';
 import { TREES } from '../world/trees.ts';
 import { MAP_H, MAP_W, TILE, casterBox } from '../world/map.ts';
+import type { Mask } from '../art/raster.ts';
 import { FADE_GLSL } from '../art/fade.ts';
 import { HEADER, MAX_LAMPS, paintLight, syncRamps } from './Painted.ts';
 import type { Cut } from './HoleFilter.ts';
@@ -21,6 +22,11 @@ import { SILHOUETTE } from './CatView.ts';
 // the trunk or behind it, as its crown's balls are round. Pictures with no
 // soft edges are drawn in any order, batched by texture; those that are see-
 // through (fading, glowing) after them, back to front.
+//
+// The water mirrors what stands by it: every card drawn again upside down,
+// hanging from its foot, into a picture of its own; that is laid over the
+// open water (its patches, each with its mask), rippling, tinted towards the
+// water. Trees mirror fainter, so big crowns don't swamp it.
 //
 // Where a tree stands on the ground it darkens it, and its trunk's foot, a
 // little (contact shadows: the sky's light doesn't reach in there), dithered.
@@ -63,6 +69,10 @@ const OFF = 512;
 const GROUND = -100000, STANDING = [-1000, 89000] as const;
 /** The passes' places among Phaser's. */
 const GROUND_PASS = -99999.5, STANDING_PASS = 89500;
+/** The reflections' place: over the water's surface (-99994.5) and the shadows on it. */
+const REFLECT_PASS = -99990;
+/** Reflections: how strongly they show, trees fainter; tinted this much towards the water's colour. */
+const REFLECT_ALPHA = 0.65, TREE_REFLECT = 0.45, REFLECT_TINT = 0.4, WATER = [30 / 255, 64 / 255, 70 / 255];
 /** The tiles' boxes' id in the shadow map (the ground ignores them on their own tiles: they are drawn in it). */
 const BOX_ID = 65535;
 /** Floats per vertex: x, y, u, v; foot, depth, id, alpha; tint r, g, b, mode. */
@@ -122,6 +132,8 @@ uniform float uPainted;
 uniform float uGround;
 uniform float uSoft;
 uniform float uShade;
+uniform float uMirror;
+uniform float uOutAlpha;
 uniform vec2 uDepthRange;
 float m2(vec2 p) { return mod(2.0 * p.x + 3.0 * p.y, 4.0); }
 float bayer(vec2 p) {
@@ -185,11 +197,11 @@ void main() {
   if (shadowed) col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}) * col.a, ${ALPHA} * uStrength);
   // a tree's trunk, darker just over the ground it stands in
   float up = foot - world.y;
-  if (uHasDepth > 0.5 && off == 0.0 && up < ${CONTACT_UP}.0) {
+  if (uMirror < 0.5 && uHasDepth > 0.5 && off == 0.0 && up < ${CONTACT_UP}.0) {
     float k = floor((1.0 - up / ${CONTACT_UP}.0) * ${CONTACT_STEPS}.0 + bayer(floor(world))) / ${CONTACT_STEPS}.0;
     col.rgb = mix(col.rgb, vec3(${COLOUR.join(', ')}) * col.a, k * ${CONTACT_ALPHA});
   }
-  gl_FragColor = uSoft > 0.5 ? col * alpha : vec4(col.rgb, 1.0);
+  gl_FragColor = (uSoft > 0.5 ? col * alpha : vec4(col.rgb, 1.0)) * uOutAlpha;
 }`;
 
 /** The crowns' balls drawn from the sun: each a square in the sun's view, and in it the ellipsoid, at its depth. */
@@ -347,6 +359,38 @@ void main() {
   gl_FragColor = vec4(vec3(${COLOUR.join(', ')}) * a, a);
 }`;
 
+/** A patch of water's quad, over its box (world px), on the camera's framebuffer. */
+const WATER_VERT = `
+precision highp float;
+attribute vec2 aCorner;
+uniform vec4 uBox;
+uniform vec4 uCam;
+varying vec2 vWorld;
+void main() {
+  vWorld = uBox.xy + aCorner * uBox.zw;
+  vec2 v = (vWorld - uCam.xy) * uCam.zw;
+  gl_Position = vec4(v.x * 2.0 - 1.0, 1.0 - v.y * 2.0, 0.0, 1.0);
+}`;
+
+/** What's mirrored, on the open water of the patch (its mask): rippled (rows shifted sideways), tinted. */
+const WATER_FRAG = `
+precision highp float;
+uniform sampler2D uMask;
+uniform sampler2D uMirrored;
+uniform vec4 uBox;
+uniform vec4 uTarget;
+uniform float uTime;
+varying vec2 vWorld;
+void main() {
+  vec2 w = floor(vWorld);
+  if (texture2D(uMask, (w + 0.5 - uBox.xy) / uBox.zw).a < 0.5) discard;
+  float off = floor(sin(w.y * 0.8 + uTime * 3.0) * 0.9 + 0.5);
+  vec4 c = texture2D(uMirrored, vec2((w.x - off - uTarget.x + 0.5) / uTarget.z, 1.0 - (w.y - uTarget.y + 0.5) / uTarget.w));
+  if (c.a <= 0.0) discard;
+  c.rgb = mix(c.rgb, vec3(${WATER.join(', ')}) * c.a, ${REFLECT_TINT});
+  gl_FragColor = c * ${REFLECT_ALPHA};
+}`;
+
 const COMP_VERT = `
 precision highp float;
 attribute vec2 aCorner;
@@ -388,11 +432,13 @@ precision highp float;
 uniform float uCardDepth;
 ${source.replace(/gl_FragColor = ([^;]*);/, 'gl_FragColor = $1;\n  gl_FragDepthEXT = uCardDepth;')}`;
 
+type Box = { x: number; y: number; w: number; h: number };
+
 interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; depth: WebGLRenderbuffer; w: number; h: number }
 
 export class Cards {
   private readonly scene: Phaser.Scene;
-  private readonly src: { ground: unknown; trees: unknown; effects: Effects[]; me: () => Pic | null };
+  private readonly src: { ground: unknown; trees: unknown; effects: Effects[]; me: () => Pic | null; water: { boxes: Box[]; mask: Mask } };
   private readonly gl: WebGLRenderingContext;
   private readonly renderer: Phaser.Renderer.WebGL.WebGLRenderer;
   private readonly prog: WebGLProgram;
@@ -407,6 +453,13 @@ export class Cards {
   private readonly balls: WebGLBuffer;
   private readonly boxesProg: WebGLProgram;
   private readonly contactProg: WebGLProgram;
+  private readonly waterProg: WebGLProgram;
+  /** The water's patches: their boxes and (once seen) masks; and those in the view now. */
+  private readonly patches: { box: Box; mask: WebGLTexture | null }[];
+  private wet: { box: Box; mask: WebGLTexture | null }[] = [];
+  private mirrored: Target | null = null;
+  /** Drawing the reflections. */
+  private mirror = false;
   private readonly contactBuf: WebGLBuffer;
   private contactData = new Float32Array(0);
   private readonly boxBuf: WebGLBuffer;
@@ -446,7 +499,7 @@ export class Cards {
   /** ms of CPU the passes took, the last few frames (for measuring). */
   readonly ms: number[] = [];
 
-  constructor(scene: Phaser.Scene, src: { ground: unknown; trees: unknown; effects: Effects[]; me: () => Pic | null }) {
+  constructor(scene: Phaser.Scene, src: { ground: unknown; trees: unknown; effects: Effects[]; me: () => Pic | null; water: { boxes: Box[]; mask: Mask } }) {
     this.scene = scene;
     this.src = src;
     this.renderer = scene.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
@@ -464,6 +517,8 @@ export class Cards {
     this.balls = gl.createBuffer()!;
     this.boxesProg = program(gl, BOXES_VERT, BOXES_FRAG);
     this.contactProg = program(gl, CONTACT_VERT, CONTACT_FRAG);
+    this.waterProg = program(gl, WATER_VERT, WATER_FRAG);
+    this.patches = src.water.boxes.map((box) => ({ box, mask: null }));
     this.contactBuf = gl.createBuffer()!;
     this.boxBuf = gl.createBuffer()!;
     const tiles = new Uint8Array(MAP_W * MAP_H);
@@ -481,6 +536,8 @@ export class Cards {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     const ground = scene.add.extern().setDepth(GROUND_PASS);
     (ground as unknown as { render: () => void }).render = () => this.drawGround();
+    const reflections = scene.add.extern().setDepth(REFLECT_PASS);
+    (reflections as unknown as { render: () => void }).render = () => this.drawReflections();
     const things = scene.add.extern().setDepth(STANDING_PASS);
     (things as unknown as { render: () => void }).render = () => this.drawThings();
   }
@@ -550,6 +607,8 @@ export class Cards {
       for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [-1, 1], [1, -1], [1, 1]]) contact.push(t.x + cx * ex, cy + cz * ey, t.x, cy, rx, ry);
     }
     this.contactData = new Float32Array(contact);
+    // the water in view
+    this.wet = this.patches.filter(({ box: b }) => b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y);
     this.effects = this.src.effects.map((e) => e.now());
     for (const list of this.effects) for (const e of list) e.quad.cameraFilter = cam;
 
@@ -809,6 +868,74 @@ export class Cards {
     if (this.ms.length > 240) this.ms.shift();
   }
 
+  /** What stands by the water, mirrored, laid over it. */
+  private drawReflections(): void {
+    if (!this.wet.length) return;
+    const t0 = performance.now(), gl = this.gl;
+    const back = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, vp = gl.getParameter(gl.VIEWPORT) as Int32Array;
+    // the mirrored picture: everything whose reflection reaches the water in view, hanging from its foot
+    this.mirrored = this.target(this.mirrored, this.w, this.h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.mirrored.fb);
+    gl.viewport(0, 0, this.w, this.h);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clearDepth(1);
+    gl.depthMask(true);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.disable(gl.BLEND);
+    this.mirror = true;
+    this.begin(false);
+    const reaches = (pic: Pic, foot: number) => {
+      const top = pic.y - pic.displayOriginY * pic.scaleY, half = pic.displayWidth;
+      return this.wet.some(({ box: b }) => pic.x + half > b.x && pic.x - half < b.x + b.w && foot < b.y + b.h && 2 * foot - top + 2 > b.y);
+    };
+    for (const b of [...this.treeBatches, ...this.batches.values(), ...this.solids.values()]) {
+      const pics = b.pics.filter((p) => reaches(p, b.tree ? b.tree.foot + 1 : p.depth));
+      if (pics.length) this.drawBatch({ ...b, pics }, false, false);
+    }
+    this.end();
+    this.mirror = false;
+    gl.disable(gl.DEPTH_TEST);
+    // laid over the water: patch by patch, through its mask
+    gl.bindFramebuffer(gl.FRAMEBUFFER, back);
+    gl.viewport(vp[0], vp[1], vp[2], vp[3]);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    const p = this.waterProg, cam = this.scene.cameras.main, view = cam.worldView, z = cam.zoom;
+    gl.useProgram(p);
+    this.uniforms(p, { uCam: [view.x, view.y, z / vp[2], z / vp[3]], uTarget: [this.ox, this.oy, this.w, this.h], uTime: (performance.now() / 1000) % 10000 });
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.mirrored.tex);
+    gl.uniform1i(gl.getUniformLocation(p, 'uMirrored'), 1);
+    gl.uniform1i(gl.getUniformLocation(p, 'uMask'), 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    const loc = this.attr(p, 'aCorner', 2, 0, 0);
+    for (const patch of this.wet) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, (patch.mask ??= this.maskOf(patch.box)));
+      this.uniforms(p, { uBox: [patch.box.x, patch.box.y, patch.box.w, patch.box.h] });
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    gl.disableVertexAttribArray(loc);
+    gl.disable(gl.BLEND);
+    this.ms[this.ms.length - 1] += performance.now() - t0;
+  }
+
+  /** Where in `box` there is open water, as a texture. */
+  private maskOf(box: Box): WebGLTexture {
+    const gl = this.gl, r = this.src.water.mask.crop(box.x, box.y, box.w, box.h), tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    const flip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL), pre = gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, r.w, r.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(r.data.buffer));
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, flip);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, pre);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    return tex;
+  }
+
   /** The trees' contact shadows, over the ground. */
   private drawContact(): void {
     if (!this.contactData.length) return;
@@ -883,7 +1010,7 @@ export class Cards {
     this.uniforms(p, {
       uTarget: [this.ox, this.oy, this.w, this.h], uView: [this.ox, this.oy, 1], uSun: paintLight.sun, uRimDir: paintLight.rimDir, uRim: paintLight.rim,
       uGround: ground ? 1 : 0, uDepthRange: [this.oy, 1 / 4096], uU: this.U, uV: this.V, uL: this.L, uBox: this.box, uDRange: this.dRange,
-      uStrength: this.strength,
+      uStrength: this.strength, uMirror: this.mirror ? 1 : 0, uOutAlpha: 1,
     });
     gl.uniform4fv(gl.getUniformLocation(p, 'uLamps[0]'), paintLight.lamps);
     gl.uniform1i(gl.getUniformLocation(p, 'uLampCount'), Math.min(MAX_LAMPS, paintLight.lampCount));
@@ -912,7 +1039,8 @@ export class Cards {
     this.unit(1, b.normal, 'uNormSampler');
     this.unit(3, b.depth, 'uDepth');
     this.uniforms(p, { uTexRes: [b.tw, b.th], uHasDepth: b.depth ? 1 : 0, uPainted: b.normal ? 1 : 0, uSoft: soft ? 1 : 0, uShade: shade ? 1 : 0 });
-    this.cut(b.tree?.cut ?? null, b.pics[0]);
+    this.cut(this.mirror ? null : (b.tree?.cut ?? null), b.pics[0]);
+    if (this.mirror) this.uniforms(p, { uOutAlpha: b.tree ? TREE_REFLECT : 1 });
     const out = this.scratch;
     for (let start = 0; start < b.pics.length; start += MAX_QUADS) {
       const n = Math.min(MAX_QUADS, b.pics.length - start);
@@ -920,6 +1048,8 @@ export class Cards {
         const pic = b.pics[start + k];
         const foot = b.tree ? b.tree.foot : pic.depth;
         writeQuad(out, k * 4 * STRIDE, pic, foot, foot, b.tree ? b.tree.id : (this.ids.get(pic) ?? 0));
+        // (mirrored: upside down, hanging from its foot)
+        if (this.mirror) for (let c = 0, line = 2 * (b.tree ? foot + 1 : foot); c < 4; c++) out[(k * 4 + c) * STRIDE + 1] = line - out[(k * 4 + c) * STRIDE + 1];
       }
       gl.bufferData(gl.ARRAY_BUFFER, out.subarray(0, n * 4 * STRIDE), gl.STREAM_DRAW);
       gl.drawElements(gl.TRIANGLES, n * 6, gl.UNSIGNED_SHORT, 0);

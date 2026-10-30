@@ -280,7 +280,8 @@ export class GardenScene extends Phaser.Scene {
       trees: this.trees,
       plants: this.meadow.plants,
     };
-    this.ponds = waterBoxes().map((box) => new PondReflection(this, box, reflect));
+    // (drawn as cards, the cards mirror what stands by the water themselves)
+    if (params.has('flat')) this.ponds = waterBoxes().map((box) => new PondReflection(this, box, reflect));
     this.clouds = new Clouds(this, toCanvas);
     this.shafts = new Shafts(this);
     this.fog = new Fog(this);
@@ -318,6 +319,7 @@ export class GardenScene extends Phaser.Scene {
           { source: SHAFT_SOURCE, add: true, now: () => this.shafts.now() },
         ],
         me: () => this.me?.silhouette() ?? null,
+        water: { boxes: waterBoxes(), mask: canvases.water },
       });
       this.trees.cards = true;
       catLight.ghosts = false;
