@@ -584,7 +584,7 @@ export class Cards {
         if ((img.x + img.width < x0 || img.x > x1 || img.y + img.height < y0 || img.y > y1) && !this.reaches(img, TREES[i].y + 1)) continue;
         const r = which === 'base' ? t.p.raster : t.p.front!.raster, lit = which === 'base' ? t.p.lit : t.p.front!.lit;
         let depth = this.depths.get(img);
-        if (!depth) this.depths.set(img, (depth = this.treeDepth(i, r, lit, img.x, img.y, which === 'front')));
+        if (!depth) this.depths.set(img, (depth = this.treeDepth(i, r, lit, img.x, img.y, which === 'front', t.p.front?.raster ?? null)));
         const src = img.frame.source;
         this.treeBatches.push({ main: src.glTexture!.webGLTexture!, normal: normalOf(img), depth, tw: src.width, th: src.height, pics: [img], tree: { foot: TREES[i].y, id: i + 1, cut: which === 'base' ? t.cutBase : t.cutFrontAs } });
       }
@@ -628,8 +628,15 @@ export class Cards {
   }
 
   /** Tree i's picture (r, placed at x, y): how far in front of its trunk (px) each pixel is, as a texture. */
-  private treeDepth(i: number, r: Prop['raster'], lit: Prop['lit'], x: number, y: number, front: boolean): WebGLTexture {
+  /**
+   * Each pixel's depth off the tree's foot. The front picture's leaves stand out from it as far as the crown's balls do;
+   * the back picture's leaves sink in as far, but only where the front's leaves cover them: where nothing covers them
+   * they are the front of the tree, and stay at its foot (pushed back, the grass just in front of the trunk would cover them).
+   * `cover`: the tree's front picture, if it has one.
+   */
+  private treeDepth(i: number, r: Prop['raster'], lit: Prop['lit'], x: number, y: number, front: boolean, cover: Prop['raster'] | null): WebGLTexture {
     const t = TREES[i], { main, normal } = paintedMaps(r, lit), out = new Uint8Array(r.w * r.h * 4);
+    const covered = (px: number, py: number) => cover !== null && px < cover.w && py < cover.h && cover.data[(py * cover.w + px) * 4 + 3] > 0;
     for (let py = 0; py < r.h; py++)
       for (let px = 0; px < r.w; px++) {
         const o = (py * r.w + px) * 4;
@@ -643,7 +650,7 @@ export class Cards {
             const q = 1 - ((xr - b.x) / b.rx) ** 2 - ((hz - b.z) / b.rz) ** 2;
             if (q > 0) best = Math.max(best, b.rx * Math.sqrt(q));
           }
-          off = front ? best : -best;
+          off = front ? best : covered(px, py) ? -best : 0;
         }
         const v = Math.round((off + OFF) * 64);
         out[o] = v >> 8;
