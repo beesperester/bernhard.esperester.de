@@ -26,6 +26,11 @@ const MAX_DEPTH = 60;
 /** ...and over them, under the cast shadows (-99993) and the mirrored trees and cats (-99990). */
 const SURFACE_DEPTH = -99994.5;
 
+/** Caustics start where the water's this clear (art/water.ts' clarity: 0.72 at the bank), and are at full strength from here. */
+const CAUSTIC_FROM = 0.2, CAUSTIC_FULL = 0.45;
+/** How much light the caustics add to the bed at most. */
+const CAUSTIC_BRIGHT = 0.65;
+
 const v3 = (v: readonly number[]) => `vec3(${v.map((n) => n.toFixed(4)).join(', ')})`;
 
 const SURFACE = defineShader('WaterSurface', `
@@ -41,8 +46,25 @@ uniform vec2 uDrift;
 uniform float uRough;
 uniform float uGlint;
 uniform vec3 uSun;
+/** How bright the sunlight dancing on the bed in the shallows is (0: none, at night or under rain clouds). */
+uniform float uCaustic;
 
 const vec3 EYE = ${v3(EYE)};
+
+/** The web of light the waves focus onto the bed: near the edges between drifting cells (1 on an edge, 0 away from them). */
+float caustic(vec2 p, float t) {
+  vec2 i = floor(p), f = p - i;
+  float f1 = 8.0, f2 = 8.0;
+  for (int dy = -1; dy <= 1; dy++)
+    for (int dx = -1; dx <= 1; dx++) {
+      vec2 g = vec2(float(dx), float(dy));
+      float a = hash(i + g, 2130.0) * 6.2832, b = hash(i + g, 2131.0) * 6.2832;
+      vec2 o = g + 0.5 + 0.38 * vec2(sin(t * 0.9 + a), cos(t * 0.7 + b)) - f;
+      float d = dot(o, o);
+      if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d;
+    }
+  return clamp(1.0 - (sqrt(f2) - sqrt(f1)) / 0.3, 0.0, 1.0);
+}
 
 void main() {
   vec4 data = texture2D(uMainSampler, outTexCoord);
@@ -83,7 +105,18 @@ ${WAVES.map(([dx, dy, k, a, sp]) => `  { float c = cos((x * ${dx.toFixed(4)} + y
   }
   // pixel art: the opacity in a few dithered steps
   alpha = min(1.0, floor(alpha * 6.0 + bayer(w)) / 6.0);
-  gl_FragColor = vec4(col * alpha, alpha);
+  // caustics: in the very shallow water, sunlight the waves bend into a wobbling web on the bed
+  // (added on top, through the clear surface; seen through the slope of the water, so it shifts with the waves)
+  vec3 light = vec3(0.0);
+  float shallow = clamp((clear - ${CAUSTIC_FROM.toFixed(3)}) / ${(CAUSTIC_FULL - CAUSTIC_FROM).toFixed(3)}, 0.0, 1.0) * uCaustic;
+  if (shallow > 0.0) {
+    vec2 cp = (w + vec2(gx, gy) * 1.5) / vec2(6.0, 4.0);
+    float c = max(caustic(cp, t), caustic(cp * 1.4 + vec2(3.7, 1.3), t * 1.3) * 0.75);
+    // crisp lines a pixel or two wide, thinning out (dithered) as the water deepens; as bright as the bed shows through
+    c = step(0.55, c) * step(bayer(w + 2.0), shallow);
+    light = vec3(1.0, 0.96, 0.78) * c * (1.0 - alpha) * ${CAUSTIC_BRIGHT.toFixed(3)};
+  }
+  gl_FragColor = vec4(col * alpha + light, alpha);
 }
 `);
 
@@ -99,7 +132,7 @@ export class WaterSurface {
   /** The numbers the surface's shader is given, shared by every patch and set anew each frame. */
   private readonly uniforms: Uniforms = {
     uTime: 0, uZenith: [0, 0, 0], uHorizon: [0, 0, 0], uCloud: [0, 0, 0], uMurk: [0, 0, 0],
-    uCover: 0, uDrift: [0, 0], uRough: 1, uGlint: 0, uSun: [0, 0, 1],
+    uCover: 0, uDrift: [0, 0], uRough: 1, uGlint: 0, uSun: [0, 0, 1], uCaustic: 0,
   };
 
   constructor(scene: Phaser.Scene, boxes: Box[], mask: Mask) {
@@ -149,6 +182,8 @@ export class WaterSurface {
     u.uRough = sky.rough;
     u.uGlint = sky.glint;
     u.uSun = sky.sun;
+    // (the sun must be up and out: none at night, faint low in the sky, gone under rain clouds)
+    u.uCaustic = light.day * Math.min(1, Math.max(0, light.elevation) / 15) * (1 - overcast);
   }
 
   private skyFor(light: Light, gt: number, overcast: number): Sky {
