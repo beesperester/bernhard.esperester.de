@@ -21,6 +21,7 @@ plant({ seed: 8919, born: 0 });
 const { Raster } = await import('../src/art/raster.ts');
 const { templateLayers } = await import('../src/art/trees.ts');
 const { seasonAt } = await import('../src/world/season.ts');
+const { GUIDE } = await import('./guide.ts');
 
 const out = process.argv[2] ?? 'masters/sprites/trees';
 mkdirSync(out, { recursive: true });
@@ -29,13 +30,12 @@ mkdirSync(out, { recursive: true });
 const PAD = 24;
 export const SIZES = ['s', 'm', 'l'];
 const SUMMER = seasonAt(Date.UTC(2026, 6, 10, 10));
-const GUIDE = { perch: [232, 40, 60], stump: [255, 150, 30], top: [60, 120, 255], foot: [255, 255, 255] } as const;
 
 for (const shape of ['broadleaf', 'pine'] as const)
   for (let size = 0; size < 3; size++) {
     const { plan, back, mid, front } = templateLayers(shape, size, SUMMER);
     const W = plan.w + PAD * 2, H = plan.h + PAD, cx = W / 2, row = (z: number) => H - 1 - Math.round(z);
-    // the guide: every perch along its top, stumps orange, the top blue; a mark at the trunk's foot
+    // the guide: every perch along its top, branches red, stumps green, the top blue; a mark at the trunk's foot
     const guide = new Raster(W, H);
     for (const p of plan.perches) {
       const c = p.kind === 'stump' ? GUIDE.stump : p.kind === 'top' ? GUIDE.top : GUIDE.perch;
@@ -69,9 +69,13 @@ Layers (keep their names; RGB colour mode):
   back    the leaves behind the trunk
   mid     the trunk, branches and stumps: what a cat up the tree sees solid round it
   front   the leaves hanging in front of a cat up the tree
-  guide   where a cat can stand, as you draw it: red branches, orange stumps up the trunk, blue
-          the top (the white mark at the trunk's foot is only a mark). Move the lines, draw new
-          ones, rub some out. A cat stands on a line's top edge.
+  guide   where a cat can stand, as you draw it:
+            red   (255,0,0)  branches
+            green (0,255,0)  stumps up the trunk
+            blue  (0,0,255)  the top
+          (the white mark at the trunk's foot is only a mark; the first exports' softer red,
+          orange and blue still count). Move the lines, draw new ones, rub some out. A cat
+          stands on a line's top edge.
 
 back, mid and front can each be a group of layers instead (groups in groups too): it's brought
 in as Aseprite shows it, hidden layers left out. Use the Normal blend mode in them.
