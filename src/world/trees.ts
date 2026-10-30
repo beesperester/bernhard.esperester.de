@@ -15,7 +15,7 @@
 import { hash2, mulberry32 } from '../art/raster.ts';
 import { treeSizeAt } from './layout.ts';
 import { TEMPLATE_SEED, TEMPLATE_TRUNK, paintedShape, type TemplateShape } from './templates.ts';
-import { paintedSize } from '../art/paintedTrees.ts';
+import { paintedPerches, paintedSize } from '../art/paintedTrees.ts';
 import { FEET, FORK_Z, LEVEL, TILE, heightUnder, levelAt, tileAt, treeTiles, trunkBase, trunkHalf, trunkTop } from './map.ts';
 
 /** How far a branch level is above the one below it (a pine's tiers, a crown's height). */
@@ -345,10 +345,12 @@ function plan(tx: number, ty: number, i: number): TreePlan {
   const [x, y] = trunkBase(tx, ty);
   const trunk = trunkHalf(tx, ty), size = treeSizeAt(tx, ty);
   const elev = levelAt(tx, ty) * LEVEL;
-  // a painted kind and size of tree: its template, as painted (every other one mirrored)
+  // a painted kind and size of tree: its template, as painted (every other one mirrored), stood on where its guide says
   const painted = paintedShape(ch, size);
   if (painted) {
-    const flip = hash2(tx, ty, 1601) < 0.5, tp = templatePlan(painted, size), [w, h] = paintedSize(painted, size)!;
+    const flip = hash2(tx, ty, 1601) < 0.5, [w, h] = paintedSize(painted, size)!;
+    const tp = templatePlan(painted, size), drawn = paintedPerches(painted, size);
+    if (drawn) tp.perches = drawn.map((p) => ({ ...p }));
     const { perches, limbs, crown, fork } = flip ? mirrored(tp) : tp;
     return { tx, ty, x, y, elev, shape, colour, seed, birdhouse: false, painted: { flip }, perches, limbs, crown, fork, trunk: tp.trunk, w, h };
   }

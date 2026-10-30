@@ -2,11 +2,13 @@
 // tools/trees-in.ts): for a kind and size of tree, its leaves at the back,
 // its middle (trunk and branches) and its leaves in front. Where one is
 // painted, every tree of that kind and size is that one (world/trees.ts
-// plans it as its template, so a cat climbs what is painted); the rest are
+// plans it as its template, and a cat stands where the painter drew it
+// on its guide layer); the rest are
 // drawn from their plans as ever. Unpacked once as the game loads (here,
 // and in the painter's thread).
 import { Raster } from './raster.ts';
-import { PAINTED_PALETTE, PAINTED_PIXELS, PAINTED_SIZES } from './paintedTrees.data.ts';
+import { PAINTED_PALETTE, PAINTED_PERCHES, PAINTED_PIXELS, PAINTED_SIZES } from './paintedTrees.data.ts';
+import type { Perch } from '../world/trees.ts';
 
 /** A painted tree's layers, all the same size, its trunk's foot at the bottom middle. */
 export interface PaintedTree { w: number; h: number; back: Raster; mid: Raster; front: Raster }
@@ -55,3 +57,6 @@ export const isPainted = (shape: string, size: number): boolean => LAYERS.every(
 export function paintedSize(shape: string, size: number): [number, number] | null {
   return isPainted(shape, size) ? PAINTED_SIZES[layerKey(shape, size, 'back')] : null;
 }
+
+/** What a cat stands on in the painted tree of this kind and size, as drawn on its guide (null: as its template has it). */
+export const paintedPerches = (shape: string, size: number): Perch[] | null => PAINTED_PERCHES[`${shape}-${size}`] ?? null;

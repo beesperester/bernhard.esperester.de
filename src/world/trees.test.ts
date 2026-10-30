@@ -72,8 +72,8 @@ describe('trees', () => {
     }
     // never one straight above the last: a jump to one side, a little short of a full jump up
     expect(STUMP_STEP + STUMP_VARY).toBeLessThan(JUMP_HEIGHT - 0.5);
-    // (up the trunk, from the first)
-    for (const t of TREES.slice(0, 60)) {
+    // (up the trunk, from the first: as planned; a painted tree's stumps are where they're drawn, and climbed below)
+    for (const t of TREES.filter((t) => !t.painted).slice(0, 60)) {
       const s = t.perches.filter((p) => p.kind === 'stump' && p.z0 < Math.min(t.fork - 4, 90));
       expect(s[0].z0).toBeCloseTo(STUMP_LOW + 1.25);
       for (let k = 1; k < s.length; k++) {
@@ -110,6 +110,19 @@ describe('trees', () => {
       expect(reached.has(top), `the top of the ${t.shape} at ${t.tx},${t.ty}`).toBe(true);
       // (most of what's walkable: a stretch of a branch beyond a steep bit of it may be out of reach)
       expect(reached.size, `the perches of the ${t.shape} at ${t.tx},${t.ty}`).toBeGreaterThanOrEqual(t.perches.length * 0.6);
+    }
+  }, 60000);
+
+  it('can be climbed to the top as its guide is drawn, every painted kind and size', () => {
+    const kinds = new Map<string, TreePlan>();
+    for (const t of TREES) {
+      const k = t.painted && `${t.shape} ${t.w}x${t.h}${t.painted.flip ? ', mirrored' : ''}`;
+      if (k && !kinds.has(k)) kinds.set(k, t);
+    }
+    for (const [k, t] of kinds) {
+      const reached = climbable(t);
+      const top = t.perches.findIndex((p) => p.kind === 'top');
+      expect(reached.has(top), `the painted ${k} (at ${t.tx},${t.ty}): its top is out of reach (the guide's lines need to be a jump apart)`).toBe(true);
     }
   }, 60000);
 

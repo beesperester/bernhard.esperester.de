@@ -69,8 +69,9 @@ Layers (keep their names; RGB colour mode):
   back    the leaves behind the trunk
   mid     the trunk, branches and stumps: what a cat up the tree sees solid round it
   front   the leaves hanging in front of a cat up the tree
-  guide   not brought in: where a cat can stand (red: branches, orange: stumps up the trunk,
-          blue: the top), and the trunk's foot (white). Paint branches under the red lines.
+  guide   where a cat can stand, as you draw it: red branches, orange stumps up the trunk, blue
+          the top (the white mark at the trunk's foot is only a mark). Move the lines, draw new
+          ones, rub some out. A cat stands on a line's top edge.
 
 back, mid and front can each be a group of layers instead (groups in groups too): it's brought
 in as Aseprite shows it, hidden layers left out. Use the Normal blend mode in them.
@@ -79,5 +80,14 @@ The trunk's foot stays at the bottom middle of the canvas: if you make the canva
 evenly on the left and right (and only at the top). Fully see-through pixels are left out;
 half see-through ones count as solid where they're at least half covered.
 
-Then: node tools/trees-in.ts   (in the project folder) brings them into the game.
+The guide's rules (node tools/trees-in.ts says which line breaks one, at its x,y in Aseprite):
+  - a line slopes 35° at most (a bent line is a few straight ones: each of those)
+  - something is painted under most of each line, within 4 px (back, mid or front)
+  - there's a stump, and the lowest one is out of a kitten's jump but in a young cat's
+    (8 to 13 px up its trunk; the plans have it at 11)
+  - there's a top, and a cat can climb to it, a jump at a time (about 14 px up at most)
+No guide layer at all: the tree is stood on as planned.
+
+Then: node tools/trees-in.ts   (in the project folder) brings them into the game. It climbs
+every painted tree first, and if a cat can't get to the top of one, brings nothing in.
 `);
