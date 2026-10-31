@@ -39,6 +39,10 @@ Layers:
 - `mid`: the trunk, branches and stumps, all of them, even where leaves hide them.
   In winter it's all there is of a leafy tree. It's also what a cat up the tree sees solid round it.
 - `front`: the leaves hanging in front of the trunk and of a cat up the tree
+- `normal`: which way it faces, as a normal map (red to the right, green up, blue towards you).
+  It's optional and hidden, and read from the summer frame. Where it's painted, the game lights the
+  tree by it; elsewhere, and on a tree that's bare in winter, it works the normals out from the
+  outline, as the exported layer shows.
 - `guide`: where a cat can stand. It's read from the first frame that has it and is never shown.
   - red (255,0,0): branches
   - green (0,255,0): stumps up the trunk

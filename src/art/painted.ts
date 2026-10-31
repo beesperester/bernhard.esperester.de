@@ -95,14 +95,17 @@ export function outlineNormal(solid: (x: number, y: number) => boolean, x: numbe
   return [(ax / len) * k, (ay / len) * k];
 }
 
-/** A picture as the GPU draws anything with no normals of its own: its colours, and normals from its outline (AUTO). */
-export function autoMaps(r: { w: number; h: number; data: Uint8ClampedArray }): { main: Uint8ClampedArray; normal: Uint8Array } {
+/**
+ * A picture as the GPU draws anything with no normals of its own: its colours, and normals from its
+ * outline (AUTO), or where it has a normal map painted (`painted`, as fileNormal() has them), from that.
+ */
+export function autoMaps(r: { w: number; h: number; data: Uint8ClampedArray }, painted?: Uint8ClampedArray): { main: Uint8ClampedArray; normal: Uint8Array } {
   const { w, h, data } = r, main = new Uint8ClampedArray(data), normal = new Uint8Array(data.length);
   const solid = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && data[(y * w + x) * 4 + 3] > 0;
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       if (!solid(x, y)) continue;
-      const o = (y * w + x) * 4, [nx, ny] = outlineNormal(solid, x, y);
+      const o = (y * w + x) * 4, [nx, ny] = painted?.[o + 3] ? fromFileNormal(painted, o) : outlineNormal(solid, x, y);
       main[o + 3] = 255;
       normal[o] = toByte(nx, N_RANGE);
       normal[o + 1] = toByte(ny, N_RANGE);
@@ -110,3 +113,14 @@ export function autoMaps(r: { w: number; h: number; data: Uint8ClampedArray }): 
     }
   return { main, normal };
 }
+
+/**
+ * A normal as a normal map painted in a file shows it (the usual way: red to the right, green up,
+ * blue towards you), from the way it faces on screen (x right, y down; -1..1).
+ */
+export function fileNormal(nx: number, ny: number): [number, number, number] {
+  const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+  return [toByte(nx, 1), toByte(-ny, 1), toByte(nz, 1)];
+}
+/** ...and back (RGBA at o). */
+const fromFileNormal = (m: Uint8ClampedArray, o: number): [number, number] => [fromByte(m[o], 1), -fromByte(m[o + 1], 1)];

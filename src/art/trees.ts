@@ -23,10 +23,12 @@ export interface Prop {
   lit?: LitPixels;
   /** Which puff of leaves each pixel of `raster` belongs to (see Puffs), for opening a hole in the tree a puff at a time. */
   puffs?: Puffs;
+  /** A normal map painted for it (a tree drawn as a file: RGBA as art/painted.ts fileNormal() has them), else worked out from its outline. */
+  normals?: Uint8ClampedArray;
   /** The leaves in front of the branches (drawn in front of a cat sitting in the tree), if any (lit and puffs: not on a painted tree). */
-  front?: { raster: Raster; lit?: LitPixels; puffs?: Puffs };
+  front?: { raster: Raster; lit?: LitPixels; puffs?: Puffs; normals?: Uint8ClampedArray };
   /** Just the trunk, the branches and what grows on them, out of `raster` (up the tree, they stay solid round a cat). */
-  mid?: { raster: Raster; lit?: LitPixels };
+  mid?: { raster: Raster; lit?: LitPixels; normals?: Uint8ClampedArray };
   x: number;
   y: number;
   /** y used for depth sorting against cats (their feet). */
@@ -268,7 +270,7 @@ export function puffSheet(pal: RGB[] = CANOPIES[0].c): Raster {
 /** A tree drawn elsewhere (a worker), sent as plain data: its pictures' pixels and lit pixels, to move rather than copy. */
 export interface PropParts {
   i: number;
-  layers: ({ w: number; h: number; data: Uint8ClampedArray; lit: LitParts | null; puffs: Puffs | null } | null)[];
+  layers: ({ w: number; h: number; data: Uint8ClampedArray; lit: LitParts | null; puffs: Puffs | null; normals: Uint8ClampedArray | null } | null)[];
   x: number; y: number; depthY: number; kind: number;
 }
 type LitParts = { at: Int32Array; flags: Uint8Array; pal: Uint8Array; f: Int16Array; pals: RGB[][] };
@@ -276,14 +278,15 @@ type LitParts = { at: Int32Array; flags: Uint8Array; pal: Uint8Array; f: Int16Ar
 /** Tree i's prop as parts to send, and the buffers to move with them. */
 export function propParts(i: number, p: Prop): [PropParts, ArrayBuffer[]] {
   const moved: ArrayBuffer[] = [];
-  const layer = (r: Raster | undefined, lit: LitPixels | undefined, puffs?: Puffs) => {
+  const layer = (r: Raster | undefined, lit: LitPixels | undefined, puffs?: Puffs, normals?: Uint8ClampedArray) => {
     if (!r) return null;
     moved.push(r.data.buffer as ArrayBuffer);
     if (lit) moved.push(...[lit.at, lit.flags, lit.pal, lit.f].map((a) => a.buffer as ArrayBuffer));
     if (puffs) moved.push(puffs.buffer as ArrayBuffer);
-    return { w: r.w, h: r.h, data: r.data, lit: lit ? { at: lit.at, flags: lit.flags, pal: lit.pal, f: lit.f, pals: lit.pals } : null, puffs: puffs ?? null };
+    if (normals) moved.push(normals.buffer as ArrayBuffer);
+    return { w: r.w, h: r.h, data: r.data, lit: lit ? { at: lit.at, flags: lit.flags, pal: lit.pal, f: lit.f, pals: lit.pals } : null, puffs: puffs ?? null, normals: normals ?? null };
   };
-  const layers = [layer(p.raster, p.lit, p.puffs), layer(p.front?.raster, p.front?.lit, p.front?.puffs), layer(p.mid?.raster, p.mid?.lit)];
+  const layers = [layer(p.raster, p.lit, p.puffs, p.normals), layer(p.front?.raster, p.front?.lit, p.front?.puffs, p.front?.normals), layer(p.mid?.raster, p.mid?.lit, undefined, p.mid?.normals)];
   return [{ i, layers, x: p.x, y: p.y, depthY: p.depthY, kind: p.kind }, moved];
 }
 
@@ -298,12 +301,12 @@ export function propFrom(parts: PropParts): Prop {
       lit = new LitPixels(0, l.lit.pals);
       Object.assign(lit, { at: l.lit.at, flags: l.lit.flags, pal: l.lit.pal, f: l.lit.f });
     }
-    return { raster, lit, puffs: l.puffs ?? undefined };
+    return { raster, lit, puffs: l.puffs ?? undefined, normals: l.normals ?? undefined };
   };
   const [base, front, mid] = parts.layers.map(layer);
   return {
-    raster: base!.raster, lit: base!.lit, puffs: base!.puffs,
-    front: front && { raster: front.raster, lit: front.lit, puffs: front.puffs }, mid: mid && { raster: mid.raster, lit: mid.lit },
+    raster: base!.raster, lit: base!.lit, puffs: base!.puffs, normals: base!.normals,
+    front: front && { raster: front.raster, lit: front.lit, puffs: front.puffs, normals: front.normals }, mid: mid && { raster: mid.raster, lit: mid.lit, normals: mid.normals },
     x: parts.x, y: parts.y, depthY: parts.depthY, kind: parts.kind, plan: TREES[parts.i],
   };
 }
@@ -328,9 +331,9 @@ const BARK_RAMP: RGB[] = [BARK_SHINE, ...BARK, BARK_CRACK];
  * where nothing is shaded and each lit pixel's ramp and place in the crown where it is, and its
  * normal map. The numbers kept are shade()'s, so it comes out the same.
  */
-export function paintedMaps(raster: Raster, lit?: LitPixels): { main: Uint8ClampedArray; normal: Uint8Array } {
-  // (a painted tree: its own colours, toned at its edges as they face the light)
-  if (!lit) return autoMaps(raster);
+export function paintedMaps(raster: Raster, lit?: LitPixels, normals?: Uint8ClampedArray): { main: Uint8ClampedArray; normal: Uint8Array } {
+  // (a painted tree: its own colours, toned as they face the light: at its edges, or as its normal map has it)
+  if (!lit) return autoMaps(raster, normals);
   const main = new Uint8ClampedArray(raster.data), normal = new Uint8Array(raster.data.length);
   // (all of it stands: what isn't shaded keeps its colours)
   for (let o = 3; o < main.length; o += 4) if (main[o]) normal[o] = PLAIN;
@@ -1129,7 +1132,7 @@ export function planned(t: TreePlan, season: Season): Prop {
 function painted(t: TreePlan, season: Season): Prop {
   const p = paintedTree(t.painted!.kind, treeSizeAt(t.tx, t.ty), season)!, flip = t.painted!.flip;
   // (always a copy: the pictures are moved to the game's thread, and the painted ones are shared by every tree)
-  const turned = (r: Raster) => {
+  const turned = (r: Raster, snowy = true) => {
     const o = new Raster(r.w, r.h);
     if (!flip) o.data.set(r.data);
     else
@@ -1137,15 +1140,22 @@ function painted(t: TreePlan, season: Season): Prop {
         const i = (y * r.w + x) * 4;
         if (r.data[i + 3]) o.set(r.w - 1 - x, y, [r.data[i], r.data[i + 1], r.data[i + 2]]);
       }
-    if (season.snow > 0) snowOn(o, t, season);
+    if (snowy && season.snow > 0) snowOn(o, t, season);
     return o;
+  };
+  // (its normal map, mirrored with it: facing the other way across)
+  const normals = () => {
+    if (!p.normal) return undefined;
+    const n = turned(p.normal, false).data;
+    if (flip) for (let o = 0; o < n.length; o += 4) if (n[o + 3]) n[o] = 255 - n[o];
+    return n;
   };
   const back = new Raster(p.w, p.h);
   back.blit(p.back, 0, 0);
   back.blit(p.mid, 0, 0);
   const front = turned(p.front), mid = turned(p.mid);
   return {
-    raster: turned(back), front: front.data.some((v, i) => i % 4 === 3 && v > 0) ? { raster: front } : undefined, mid: { raster: mid },
+    raster: turned(back), normals: normals(), front: front.data.some((v, i) => i % 4 === 3 && v > 0) ? { raster: front, normals: normals() } : undefined, mid: { raster: mid, normals: normals() },
     x: t.x - p.w / 2, y: t.y - (p.h - 1) - t.elev, depthY: t.y, kind: t.shape === 'pine' ? 4 : t.colour, plan: t,
   };
 }

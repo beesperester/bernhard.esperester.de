@@ -14,11 +14,17 @@ import type { Effect } from './Cards.ts';
 // game/Cards.ts with this shader, as a card standing on its row: see now()).
 
 /** A slice for every this many rows (px)... */
-const STEP = 15;
-/** ...each the fog this high (px) over its row (two slices overlap). */
+const STEP = 5;
+/** ...each the fog this high (px) over its row (FOG_H / STEP slices overlap). */
 const FOG_H = 30;
-/** The most one slice adds (alpha), in this many dithered steps. */
-const MAX_ALPHA = 0.4, STEPS = 4;
+/**
+ * The most one slice adds (alpha, halfway up it: fading to nothing at its row and at its top, so
+ * over open ground the slices add up evenly), in this many dithered steps. (Faded so: a thing
+ * standing in the fog, a blade of tall grass, has a slice fewer in front of it as its row passes
+ * that slice's, and that slice is faint just above its own row, where it met the thing; so the fog
+ * over things doesn't come in bands a slice apart.)
+ */
+const MAX_ALPHA = 0.36, STEPS = 4;
 /** The noise the banks are made of: a tiling texture this big (px, a power of two), CELLS lattice cells across. */
 const NOISE = 128, CELLS = 8;
 /** One noise cell is this big in the world (px), across and down: the banks' long, low shape (and a finer one curling in them). */
@@ -45,15 +51,15 @@ varying vec2 outTexCoord;
 ${COMMON.replace(/vec2 worldPx\(\)[^\n]*\n/, '')}
 void main() {
   vec2 w = uBox.xy + floor(vec2(outTexCoord.x, 1.0 - outTexCoord.y) * uBox.zw);
-  // (the same all the way up its slice: the slices overlap evenly over open ground, and a thing standing in the
-  // fog has fewer of them over it the higher up it is)
+  // (the slices overlap evenly over open ground, and a thing standing in the fog has fewer of them over it
+  // the higher up it is; each fades out down to its row, so losing one as a row passes it is hardly to be seen)
   // the banks: long and low, drifting slowly sideways, curling as they go; thicker by the water
   // (where on the ground this pixel's fog is: the same for every slice over it, so they don't step)
   vec2 g = vec2(w.x, w.y + ${(FOG_H / 2).toFixed(1)});
   float n = texture2D(uNoise, vec2(g.x / ${BANK[0].toFixed(1)} - uTime * 0.012, g.y / ${BANK[1].toFixed(1)}) / ${CELLS.toFixed(1)}).r * 0.7
           + texture2D(uNoise, vec2(g.x / ${CURL[0].toFixed(1)} + uTime * 0.025, g.y / ${CURL[1].toFixed(1)} + uTime * 0.008) / ${CELLS.toFixed(1)} + 0.37).r * 0.3;
   float wet = texture2D(uWet, g / uWorld).r;
-  float a = uFog * smoothstep(0.47, 0.66, n + wet * 0.3);
+  float a = uFog * smoothstep(0.47, 0.66, n + wet * 0.3) * (1.0 - abs((uGround - w.y) / ${(FOG_H / 2).toFixed(1)} - 1.0));
   float q = floor(a * ${STEPS.toFixed(1)} + bayer(w)) / ${STEPS.toFixed(1)} * ${MAX_ALPHA.toFixed(3)};
   if (q <= 0.0) discard;
   gl_FragColor = vec4(uColour * q, q);

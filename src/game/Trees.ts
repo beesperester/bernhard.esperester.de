@@ -262,14 +262,14 @@ export class Trees {
     return [...out].sort((a, b) => Math.hypot(TREES[a].x - mx, TREES[a].y - my) - Math.hypot(TREES[b].x - mx, TREES[b].y - my));
   }
 
-  private pic(key: string, r: Raster, lit: LitPixels | undefined, x: number, y: number, depth: number): Pic {
+  private pic(key: string, r: Raster, lit: LitPixels | undefined, x: number, y: number, depth: number, normals?: Uint8ClampedArray): Pic {
     const { w, h } = r;
     const orig = new ImageData(new Uint8ClampedArray(r.data), w, h);
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     canvas.getContext('2d')!.putImageData(orig, 0, 0);
-    const { main, normal } = paintedMaps(r, lit);
+    const { main, normal } = paintedMaps(r, lit, normals);
     addPainted(this.scene, key, main, normal, w, h);
     const img = paint(this.scene.add.image(x, y, key).setOrigin(0).setDepth(depth));
     return { canvas, img, orig };
@@ -294,8 +294,8 @@ export class Trees {
 
   /** Show tree i. */
   private make(i: number, p: Prop): void {
-    const base = this.pic(`tree-${i}`, p.raster, p.lit, p.x, p.y, p.depthY);
-    const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.front.lit, p.x, p.y, p.depthY + FRONT) : null;
+    const base = this.pic(`tree-${i}`, p.raster, p.lit, p.x, p.y, p.depthY, p.normals);
+    const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.front.lit, p.x, p.y, p.depthY + FRONT, p.front.normals) : null;
     const puffs = this.puffMap(`tree-puffs-${i}`, p.puffs, p.raster), frontPuffs = p.front ? this.puffMap(`tree-front-puffs-${i}`, p.front.puffs, p.front.raster) : null;
     this.live.set(i, { p, base, front, hole: 0, open: 0, cutBase: null, cutFrontAs: null, cut: '', cutFront: '', puffs, frontPuffs });
     for (const w of this.watchers) w.added(i, p, base.canvas);

@@ -5,6 +5,7 @@
 //   back    the leaves behind the trunk
 //   mid     the trunk, its branches and stumps, all of them (also where leaves hide them: in winter it's all there is)
 //   front   the leaves hanging in front (drawn in front of a cat up the tree)
+//   normal  which way it faces (hidden; red right, green up, blue towards you), as worked out from its outline
 //   guide   where a cat can stand, and a mark at the trunk's foot
 //
 // and art/trees/seasons.aseprite, the colours the leaves turn in the other
@@ -24,6 +25,7 @@ plant({ seed: 8919, born: 0 });
 const { Raster } = await import('../src/art/raster.ts');
 const { templateLayers, CANOPIES, AUTUMN, NEEDLES } = await import('../src/art/trees.ts');
 const { hex } = await import('../src/art/raster.ts');
+const { fileNormal, outlineNormal } = await import('../src/art/painted.ts');
 const { COLUMN, BLOCK, RAMPS, SW, swatchAt } = await import('../src/art/treeSeasons.ts');
 const { seasonAt, SEASON_NAMES } = await import('../src/world/season.ts');
 const { TREE_KINDS } = await import('../src/world/templates.ts');
@@ -66,6 +68,12 @@ for (const kind of TREE_KINDS) {
     for (let d = -3; d <= 3; d++) { guide.set(cx + d, H - 1, [...GUIDE.foot]); guide.set(cx, H - 1 - Math.abs(d), [...GUIDE.foot]); }
     const layers = [{ name: 'back', r: back }, { name: 'mid', r: mid }, { name: 'front', r: front }]
       .map(({ name, r }) => ({ name, visible: true, data: placed(r, W, H, PAD, PAD) }));
+    // its normals, as the game works them out from the outline of it all (hidden: a base to paint them over)
+    const all = new Raster(plan.w, plan.h);
+    for (const r of [back, mid, front]) all.blit(r, 0, 0);
+    const solid = (x: number, y: number) => all.isSet(x, y), normal = new Raster(plan.w, plan.h);
+    for (let y = 0; y < plan.h; y++) for (let x = 0; x < plan.w; x++) if (solid(x, y)) normal.set(x, y, fileNormal(...outlineNormal(solid, x, y)));
+    layers.push({ name: 'normal', visible: false, data: placed(normal, W, H, PAD, PAD) });
     layers.push({ name: 'guide', visible: true, data: placed(guide, W, H, 0, 0) });
     const file = fresh(`${kind}-${SIZE_NAMES[size]}`);
     writeFileSync(file, writeAseprite(W, H, layers, [{ name: 'summer', from: 0, to: 0 }]));

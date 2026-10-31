@@ -13,7 +13,11 @@ import { seasonLayer } from './treeSeasons.ts';
 import type { Perch } from '../world/trees.ts';
 
 /** A painted tree's layers, all the same size, its trunk's foot at the bottom middle. */
-export interface PaintedTree { w: number; h: number; back: Raster; mid: Raster; front: Raster }
+export interface PaintedTree {
+  w: number; h: number; back: Raster; mid: Raster; front: Raster;
+  /** Its normal map, if one is painted (the file's `normal` layer, in summer: not for a tree bare in winter, its branches outlined each). */
+  normal: Raster | null;
+}
 
 export const LAYERS = ['back', 'mid', 'front'] as const;
 /** The sizes' names in the files' names. */
@@ -62,7 +66,10 @@ export function paintedTree(kind: string, size: number, season: Season = SEASON)
   if (!p) {
     const f = artFile(treePath(kind, size))!, [w, h] = paintedSize(kind, size)!;
     const [back, mid, front] = LAYERS.map((l) => blended(f, kind, size, l, from, to, t, w));
-    trees.set(key, (p = { w, h, back, mid, front }));
+    const bare = kind !== 'pine' && (from === 'winter' || to === 'winter') && !f.tags.has('winter');
+    const n = bare ? null : f.layer('normal', f.tags.get('summer')?.[0] ?? 0), normal = n && new Raster(w, h);
+    if (n && normal) normal.blit(n, 0, 0);
+    trees.set(key, (p = { w, h, back, mid, front, normal }));
   }
   return p;
 }
