@@ -16,6 +16,18 @@ import type { Puffs } from './trees.ts';
 /** A hole: its middle (world px), how wide, and how far above its middle it reaches (r: round). */
 export interface Opening { x: number; y: number; r: number; up: number }
 
+/**
+ * A tall tree thinned the higher up it is, so what's behind its crown shows: from `from` px above its
+ * foot (world y `foot`, as drawn) to `from + span`, more and more of it left out, up to `most` (0..1).
+ */
+export interface Tall { foot: number; from: number; span: number; most: number }
+
+/** How much of a tree is left out at world y for its height (0..1, dithered by shows()). */
+export function tallRest(t: Tall | null, y: number): number {
+  if (!t || t.most <= 0) return 0;
+  return t.most * Math.max(0, Math.min(1, (t.foot - y - t.from) / t.span));
+}
+
 /** Bark is cut clear out to this much of the hole, and dithered beyond. */
 export const CLEAR = 0.6;
 /** A puff is gone once the hole reaches somewhere between this much of its width and all of it... */
@@ -86,14 +98,14 @@ export function kept(o: Opening, x: number, y: number, puffs: Puffs | null, i: n
   return Math.max(0, Math.min(1, (d - o.r * CLEAR) / (o.r * (1 - CLEAR))));
 }
 
-/** Whether the pixel shows at all: through the hole (keeps()), and through the dither thinning the rest of the tree (0..1). */
-export function shows(o: Opening, rest: number, x: number, y: number, puffs: Puffs | null, i: number): boolean {
-  return keeps(o, x, y, puffs, i) && bayer(x, y) >= rest;
+/** Whether the pixel shows at all: through the hole (keeps()), and through the dither thinning the rest of the tree (0..1) and its height (tall). */
+export function shows(o: Opening, rest: number, x: number, y: number, puffs: Puffs | null, i: number, tall: Tall | null = null): boolean {
+  return keeps(o, x, y, puffs, i) && bayer(x, y) >= Math.max(rest, tallRest(tall, y));
 }
 
 /**
  * The same for the GPU: keeps(w, puff) with the hole in uniforms uHole (x, y, r, up), and shows(w, puff)
- * with the rest's dither in uRest. `puff` is the pixel's puff map texel (0..1 as sampled). Needs
+ * with the rest's dither in uRest and the height's in uTall (foot, from, span, most). `puff` is the pixel's puff map texel (0..1 as sampled). Needs
  * COMMON's bayer (game/gpu.ts).
  */
 export const FADE_GLSL = `
@@ -124,7 +136,9 @@ bool keeps(vec2 w, vec4 puff) {
   return bayer(w) >= (r - d) / (r * ${(1 - CLEAR).toFixed(4)});
 }
 uniform float uRest;
+uniform vec4 uTall;
 bool shows(vec2 w, vec4 puff) {
-  return keeps(w, puff) && bayer(w) >= uRest;
+  float tall = uTall.w > 0.0 ? uTall.w * clamp((uTall.x - w.y - uTall.y) / uTall.z, 0.0, 1.0) : 0.0;
+  return keeps(w, puff) && bayer(w) >= max(uRest, tall);
 }
 `;

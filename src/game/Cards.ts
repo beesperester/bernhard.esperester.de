@@ -7,7 +7,7 @@ import { MAP_H, MAP_W, TILE, casterBox } from '../world/map.ts';
 import type { Mask } from '../art/raster.ts';
 import { FADE_GLSL } from '../art/fade.ts';
 import { HEADER, MAX_LAMPS, paintLight, syncRamps } from './Painted.ts';
-import type { Cut } from './HoleFilter.ts';
+import { cuts, tallUniform, type Cut } from './HoleFilter.ts';
 import { isGrounded, isSolid } from './solid.ts';
 import { SILHOUETTE } from './CatView.ts';
 
@@ -1218,12 +1218,12 @@ export class Cards {
 
   /** Cut the tree picture `pic` as `cut` says (null: not at all): art/fade.ts' hole and thinning, with its puff map. */
   private cut(cut: Cut | null, pic: Pic): void {
-    const on = !!cut && (!!cut.hole || cut.rest > 0);
+    const on = cuts(cut);
     const puffs = on && cut!.puffs ? this.scene.textures.get(cut!.puffs) : null, f = puffs?.get();
     this.unit(5, f?.source.glTexture?.webGLTexture ?? null, 'uPuffs');
     const h = cut?.hole;
     this.uniforms(this.prog, {
-      uCut: on ? 1 : 0, uHole: [h?.x ?? 0, h?.y ?? 0, h?.r ?? 0, h?.up ?? 1], uRest: cut?.rest ?? 0, uPuffed: f ? 1 : 0,
+      uCut: on ? 1 : 0, uHole: [h?.x ?? 0, h?.y ?? 0, h?.r ?? 0, h?.up ?? 1], uRest: cut?.rest ?? 0, uTall: tallUniform(cut), uPuffed: f ? 1 : 0,
       uPuffUV: f ? [f.u0, f.v0, f.u1, f.v1] : [0, 0, 1, 1], uPicRect: [pic.x, pic.y, pic.width, pic.height],
     });
   }

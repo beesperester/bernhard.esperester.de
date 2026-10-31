@@ -7,7 +7,8 @@ import { toCanvas } from './textures.ts';
 import type { Painter } from './Painter.ts';
 import { cutIn, type Cut } from './HoleFilter.ts';
 import { addPainted, paint } from './Painted.ts';
-import { CLEAR, kept, reachUp, shows, type Opening } from '../art/fade.ts';
+import { params } from '../world/params.ts';
+import { CLEAR, kept, reachUp, shows, tallRest, type Opening, type Tall } from '../art/fade.ts';
 
 // The park's trees. They are big and there are many, so a tree is only drawn
 // while the camera is near it, nearest first, by the painter off the main
@@ -39,6 +40,16 @@ const FADE_MS = 280;
 const HOLE_R = 120;
 /** The rest of a tree hiding your cat is dithered this thin (0..1: the part of it left out). */
 const REST = 0.5;
+/**
+ * Every tree is thinned the higher up it is, so the ground behind its crown shows: solid up to this
+ * high above its foot (px; what a cat walks past)... */
+/** (to try others: ?tall=from,span,most, as ?tall=40,60,0.7; ?tall=0,1,0 not at all) */
+const TALL = (params.get('tall') ?? '').split(',').map(Number);
+const TALL_FROM = TALL[0] >= 0 && TALL.length === 3 ? TALL[0] : 56;
+/** ...more and more of it left out over this much higher... */
+const TALL_SPAN = TALL.length === 3 && TALL[1] > 0 ? TALL[1] : 72;
+/** ...up to this much of it (0..1); the one your cat is up, not at all. */
+const TALL_MOST = TALL.length === 3 && TALL[2] >= 0 && TALL[2] <= 1 ? TALL[2] : 0.85;
 /** Your cat's picture, round its feet, for whether a tree hides it: this far either side, and this tall (px)... */
 const CAT_HALF = 6, CAT_TALL = 14;
 /** ...this much further round, once a tree has opened (so it doesn't flicker at the edge)... */
@@ -68,8 +79,10 @@ interface Live {
   mid: Pic | null;
   /** How far the hole round your cat is open in it (0..1, it's in front of your cat)... */
   hole: number;
-  /** ...or round your cat up it (0..1); how each picture is cut now, and as what it was cut last. */
+  /** ...or round your cat up it (0..1); how far it's thinned for its height (0..1: not while your cat is up it)... */
   open: number;
+  tall: number;
+  /** ...how each picture is cut now, and as what it was cut last. */
   cutBase: Cut | null;
   cutFrontAs: Cut | null;
   cut: string;
@@ -195,14 +208,16 @@ export class Trees {
       const ahead = i !== mine && p.depthY > me.depth && this.hides(t, me.x, me.y - me.z, t.hole > 0);
       t.hole = ease(t.hole, ahead ? 1 : 0);
       t.open = ease(t.open, i === mine ? 1 : 0);
+      t.tall = ease(t.tall, i === mine ? 0 : 1);
+      const tall: Tall | null = t.tall > 0 ? { foot: p.y + h - 1, from: TALL_FROM, span: TALL_SPAN, most: TALL_MOST * t.tall } : null;
       if (t.hole > 0) this.holed.push(t);
       // (in front: the same hole through all of it, reaching up over what's left of it, and the rest of it thin;
       // up it: wide in front of the cat, and nothing behind it: the leaves behind stay, darker, for the branches to stand out on)
       const r = HOLE_R * Math.max(t.hole, t.open), rb = HOLE_R * t.hole, rest = REST * t.hole;
       const opening = (rr: number): Opening | null => (rr > 0 ? { x: hx, y: hy, r: rr, up: t.hole > 0 ? reachUp(hy, rr, p.y) : rr } : null);
-      const base: Cut | null = rb > 0 || rest > 0 ? { hole: opening(rb), rest, puffs: t.puffs } : null;
-      const front: Cut | null = r > 0 || rest > 0 ? { hole: opening(r), rest, puffs: t.frontPuffs } : null;
-      const key = (c: Cut | null) => (c ? `${c.hole ? `${c.hole.x},${c.hole.y},${c.hole.r.toFixed(1)},${c.hole.up.toFixed(1)}` : ''}/${c.rest.toFixed(2)}` : '');
+      const base: Cut | null = rb > 0 || rest > 0 || tall ? { hole: opening(rb), rest, tall, puffs: t.puffs } : null;
+      const front: Cut | null = r > 0 || rest > 0 || tall ? { hole: opening(r), rest, tall, puffs: t.frontPuffs } : null;
+      const key = (c: Cut | null) => (c ? `${c.hole ? `${c.hole.x},${c.hole.y},${c.hole.r.toFixed(1)},${c.hole.up.toFixed(1)}` : ''}/${c.rest.toFixed(2)}/${c.tall?.most.toFixed(2) ?? ''}` : '');
       const cut = key(base), cutFront = key(front);
       t.cutBase = base;
       t.cutFrontAs = front;
@@ -308,7 +323,7 @@ export class Trees {
     const base = this.pic(`tree-${i}`, p.raster, p.lit, p.x, p.y, p.depthY);
     const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.front.lit, p.x, p.y, p.depthY + FRONT) : null;
     const puffs = this.puffMap(`tree-puffs-${i}`, p.puffs, p.raster), frontPuffs = p.front ? this.puffMap(`tree-front-puffs-${i}`, p.front.puffs, p.front.raster) : null;
-    this.live.set(i, { p, base, front, mid: null, hole: 0, open: 0, cutBase: null, cutFrontAs: null, cut: '', cutFront: '', puffs, frontPuffs });
+    this.live.set(i, { p, base, front, mid: null, hole: 0, open: 0, tall: 1, cutBase: null, cutFrontAs: null, cut: '', cutFront: '', puffs, frontPuffs });
     for (const w of this.watchers) w.added(i, p, base.canvas);
   }
 
@@ -328,14 +343,14 @@ export class Trees {
 function leafAt(pic: Pic, cut: Cut | null, puffs: Puffs | null, px: number, py: number, x: number, y: number): boolean {
   const lx = Math.round(x) - px, ly = Math.round(y) - py, { orig } = pic, k = ly * orig.width + lx;
   if (lx < 0 || ly < 0 || lx >= orig.width || ly >= orig.height || orig.data[k * 4 + 3] === 0) return false;
-  return !cut || shows(cut.hole ?? NO_HOLE, cut.rest, Math.round(x), Math.round(y), puffs, k);
+  return !cut || shows(cut.hole ?? NO_HOLE, cut.rest, Math.round(x), Math.round(y), puffs, k, cut.tall);
 }
 
 /** How much of picture `pic` (placed at px, py; cut as `cut`) shows at world point (x, y) (0..1, undithered). */
 function leafAmount(pic: Pic, cut: Cut | null, puffs: Puffs | null, px: number, py: number, x: number, y: number): number {
   const lx = Math.round(x) - px, ly = Math.round(y) - py, { orig } = pic, k = ly * orig.width + lx;
   if (lx < 0 || ly < 0 || lx >= orig.width || ly >= orig.height || orig.data[k * 4 + 3] === 0) return 0;
-  return cut ? kept(cut.hole ?? NO_HOLE, Math.round(x), Math.round(y), puffs, k) * (1 - cut.rest) : 1;
+  return cut ? kept(cut.hole ?? NO_HOLE, Math.round(x), Math.round(y), puffs, k) * (1 - Math.max(cut.rest, tallRest(cut.tall, Math.round(y)))) : 1;
 }
 
 /** Tree i's outline (from its plan, not drawn) as a picture: what it hides of a light. */
