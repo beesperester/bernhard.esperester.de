@@ -6,6 +6,7 @@ import { LEGEND, isPath, isStairs, isWaterway } from '../world/legend.ts';
 import { trackPoints } from '../world/track.ts';
 import { dab, noise, patch, ramp, tone } from './paint.ts';
 import { J_RANGE, Kind, N_RANGE, PLAIN, ramps, toByte } from './painted.ts';
+import { artFile, type ArtFile } from './files.ts';
 
 /** The lawn, painted: deep teal shadows to warm yellow-green lights. */
 export const LAWN = ramp(7, '#2a4c3e', '#44744a', '#66944e', '#96b462');
@@ -42,12 +43,103 @@ export const bayer = (x: number, y: number) => BAYER[(y & 3) * 4 + (x & 3)];
 
 export { noise };
 
-function grass(r: Raster, ox: number, oy: number, tx: number, ty: number, dark = 0): void {
+// ---------------------------------------------------------------- the ground as files
+//
+// Each kind of ground is a seamless texture (art/ground/<name>.aseprite, layer `fill`, any size: the
+// park is covered with it, repeated) and, where it meets something else, a sheet of 16 edge pieces
+// over it (art/ground/<name>-edges.aseprite, layer `edges`: 4 x 4 tiles, piece m at column m % 4, row
+// m >> 2, m the sides that border something else: 1 north, 2 east, 4 south, 8 west). Without the
+// file, it's drawn from code, as below (which is how tools/art-ground.ts draws the files).
+
+const ground = (name: string): ArtFile | null => artFile(`ground/${name}`);
+const mod = (a: number, n: number) => ((a % n) + n) % n;
+
+/** Lay layer `layer` of art/ground/<name> on tile (tx, ty), as it lies at that place in the world (shifted `shift` px to the right). */
+function fromFile(r: Raster, ox: number, oy: number, tx: number, ty: number, name: string, layer = 'fill', shift = 0): boolean {
+  const t = ground(name)?.layer(layer);
+  if (!t) return false;
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const o = (mod(ty * TILE + y, t.h) * t.w + mod(tx * TILE + x - shift, t.w)) * 4;
+      if (t.data[o + 3]) r.set(ox + x, oy + y, [t.data[o], t.data[o + 1], t.data[o + 2]]);
+    }
+  return true;
+}
+
+/** Lay edge piece m of art/ground/<name>-edges on a tile (false: there's no such file). */
+function edgesFromFile(r: Raster, ox: number, oy: number, name: string, m: number): boolean {
+  const t = ground(`${name}-edges`)?.layer('edges');
+  if (!t) return false;
+  const px = (m % 4) * TILE, py = (m >> 2) * TILE;
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const o = ((py + y) * t.w + px + x) * 4;
+      if (t.data[o + 3]) r.set(ox + x, oy + y, [t.data[o], t.data[o + 1], t.data[o + 2]]);
+    }
+  return true;
+}
+
+/** Which sides of tile (tx, ty) border something that isn't `same`: 1 north, 2 east, 4 south, 8 west. */
+export function sidesOf(tx: number, ty: number, same: (ch: string) => boolean): number {
+  return (same(tileAt(tx, ty - 1)) ? 0 : 1) | (same(tileAt(tx + 1, ty)) ? 0 : 2) | (same(tileAt(tx, ty + 1)) ? 0 : 4) | (same(tileAt(tx - 1, ty)) ? 0 : 8);
+}
+
+/** The broad patches of lusher and drier lawn: how many of its tones lighter (or darker) the lawn is at (px, py). */
+const lushness = (px: number, py: number) => patch(px, py, 2, 56) * 0.55 * 0.72 * LAWN.length;
+
+/**
+ * The lawn file's tones, dark to light, that the broad patches shift it along: its layer `tones`, a
+ * pixel each along the top row; without one, the colours that cover at least 1% of it (not the daisies).
+ */
+let lawnTones: RGB[] | null = null;
+function tonesOfLawn(f: ArtFile, t: Raster): RGB[] {
+  if (lawnTones) return lawnTones;
+  const row = f.layer('tones');
+  if (row) {
+    lawnTones = [];
+    for (let x = 0; x < row.w && row.data[x * 4 + 3]; x++) lawnTones.push([row.data[x * 4], row.data[x * 4 + 1], row.data[x * 4 + 2]]);
+    return lawnTones;
+  }
+  const counts = new Map<number, number>();
+  for (let o = 0; o < t.data.length; o += 4) if (t.data[o + 3]) counts.set(key3(t.data, o), (counts.get(key3(t.data, o)) ?? 0) + 1);
+  const cs: RGB[] = [...counts].filter(([, n]) => n >= (t.w * t.h) / 100).map(([k]) => [k >> 16, (k >> 8) & 255, k & 255]);
+  return (lawnTones = cs.sort((a, b) => lum(a) - lum(b)));
+}
+const key3 = (d: ArrayLike<number>, o: number) => (d[o] << 16) | (d[o + 1] << 8) | d[o + 2];
+
+/** The lawn (and the flowers' lawn) from its file, its tones shifted in broad patches so the texture doesn't show repeating. */
+function grassFromFile(r: Raster, ox: number, oy: number, tx: number, ty: number, name: string): boolean {
+  if (!fromFile(r, ox, oy, tx, ty, name)) return false;
+  const f = ground('lawn'), lawnFill = f?.layer('fill');
+  if (!f || !lawnFill) return true;
+  const tones = tonesOfLawn(f, lawnFill), at = new Map(tones.map((c, i) => [key(c), i]));
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const o = ((oy + y) * r.w + ox + x) * 4, i = at.get(key3(r.data, o));
+      if (i === undefined) continue;
+      r.set(ox + x, oy + y, tones[Math.max(0, Math.min(tones.length - 1, Math.round(i + lushness(tx * TILE + x, ty * TILE + y))))]);
+    }
+  return true;
+}
+
+function grass(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
+  if (!grassFromFile(r, ox, oy, tx, ty, 'lawn')) grassCode(r, ox, oy, tx, ty);
+}
+
+/** The lawn as drawn from code (`broad`: with its broad patches of lusher and drier grass; the file has them laid on by the game). */
+function grassCode(r: Raster, ox: number, oy: number, tx: number, ty: number, broad = true): void {
+  lawnCode(r, ox, oy, tx, ty, broad);
+  daisy(r, ox, oy, tx, ty);
+}
+
+/** The lawn without its daisies. */
+function lawnCode(r: Raster, ox: number, oy: number, tx: number, ty: number, broad = true): void {
+  const lush = (px: number, py: number) => (broad ? patch(px, py, 2, 56) * 0.55 : 0);
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
       const px = tx * TILE + x, py = ty * TILE + y;
       // lusher and drier patches, broken into dabs of paint
-      const v = 0.5 + patch(px, py, 2, 56) * 0.55 + patch(px, py, 3, 15) * 0.25 + dab(px, py, 4) * 0.5 - dark;
+      const v = 0.5 + lush(px, py) + patch(px, py, 3, 15) * 0.25 + dab(px, py, 4) * 0.5;
       r.set(ox + x, oy + y, tone(LAWN, 0.12 + Math.max(0, Math.min(1, v)) * 0.72));
     }
   // short blades standing up out of it: a lit tip over a dark root
@@ -55,11 +147,15 @@ function grass(r: Raster, ox: number, oy: number, tx: number, ty: number, dark =
     for (let x = 0; x < TILE; x++) {
       const px = tx * TILE + x, py = ty * TILE + y, h = hash2(px, py, 1);
       if (h > 0.07) continue;
-      const v = 0.5 + patch(px, py, 2, 56) * 0.55 - dark;
+      const v = 0.5 + lush(px, py);
       r.set(ox + x, oy + y - 1, tone(LAWN, v + 0.3));
       r.set(ox + x, oy + y, tone(LAWN, v - 0.25));
     }
-  if (!dark && hash2(tx, ty, 90) < 0.18) {
+}
+
+/** Now and then a daisy, or a sprig of clover. */
+function daisy(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
+  if (hash2(tx, ty, 90) < 0.18) {
     const x = ox + 2 + Math.floor(hash2(tx, ty, 91) * 12), y = oy + 2 + Math.floor(hash2(tx, ty, 92) * 12);
     const white = hash2(tx, ty, 93) < 0.6;
     r.set(x, y, white ? C.daisy : C.clover); r.set(x + 1, y + 1, white ? C.daisy : C.clover);
@@ -67,13 +163,25 @@ function grass(r: Raster, ox: number, oy: number, tx: number, ty: number, dark =
   }
 }
 
-/** Tall grass: a thicket of blades, each dark at its root and lit at its tip, leaning a little every which way. */
 function tallGrass(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
+  if (!fromFile(r, ox, oy, tx, ty, 'tall-grass')) tallGrassCode(r, ox, oy, tx, ty);
+}
+
+/** Tall grass: a thicket of blades, each dark at its root and lit at its tip, leaning a little every which way. */
+function tallGrassCode(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
+  tallGrassBase(r, ox, oy, tx, ty);
+  blades(r, ox, oy, tx, ty);
+}
+
+function tallGrassBase(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
       const px = tx * TILE + x, py = ty * TILE + y;
       r.set(ox + x, oy + y, tone(TALL, 0.25 + dab(px, py, 6) * 0.4 + patch(px, py, 7, 30) * 0.3));
     }
+}
+
+function blades(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
   for (let k = 0; k < 34; k++) {
     const bx = Math.floor(hash2(tx, ty, 500 + k) * TILE), by = 3 + Math.floor(hash2(tx, ty, 600 + k) * TILE);
     const len = 3 + Math.floor(hash2(tx, ty, 700 + k) * 3), lean = hash2(tx, ty, 800 + k) < 0.3 ? -1 : hash2(tx, ty, 800 + k) > 0.8 ? 1 : 0;
@@ -88,9 +196,23 @@ function tallGrass(r: Raster, ox: number, oy: number, tx: number, ty: number): v
 }
 
 function flowers(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
-  grass(r, ox, oy, tx, ty);
+  if (!grassFromFile(r, ox, oy, tx, ty, 'flowers')) flowersCode(r, ox, oy, tx, ty);
+}
+
+function flowersCode(r: Raster, ox: number, oy: number, tx: number, ty: number, broad = true): void {
+  flowersBase(r, ox, oy, tx, ty, broad);
+  flowerSpots(r, ox, oy, tx, ty);
+}
+
+/** The flowers' lawn: with its daisies, flecked darker. */
+function flowersBase(r: Raster, ox: number, oy: number, tx: number, ty: number, broad = true): void {
+  lawnCode(r, ox, oy, tx, ty, broad);
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) if (hash2(tx * TILE + x, ty * TILE + y, 4) < 0.12) r.set(ox + x, oy + y, C.g2);
+}
+
+function flowerSpots(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
+  daisy(r, ox, oy, tx, ty);
   const spots: [number, number][] = [[3, 3], [11, 2], [7, 8], [2, 12], [12, 11]];
   for (const [i, [sx, sy]] of spots.entries()) {
     const col = FLOWERS[Math.floor(hash2(tx, ty, 40 + i) * FLOWERS.length)];
@@ -102,11 +224,14 @@ function flowers(r: Raster, ox: number, oy: number, tx: number, ty: number): voi
   }
 }
 
-/**
- * Gravel: beige stones in dabs, darker pebbles here and there with a lit side, a dark rim of earth
- * where it meets the grass, and the grass fraying over that edge.
- */
 function path(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
+  const m = sidesOf(tx, ty, isPathCh);
+  if (!fromFile(r, ox, oy, tx, ty, 'path')) pathFill(r, ox, oy, tx, ty);
+  if (!edgesFromFile(r, ox, oy, 'path', m)) pathEdges(r, ox, oy, tx, ty, m);
+}
+
+/** Gravel: beige stones in dabs, darker pebbles here and there with a lit side. */
+function pathFill(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
       const px = tx * TILE + x, py = ty * TILE + y;
@@ -120,8 +245,10 @@ function path(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
         if (h < 0.02) r.set(ox + x + 1, oy + y, GRAVEL[1]);
       } else if (h > 0.975) r.set(ox + x, oy + y, GRAVEL[4]);
     }
-  const n = !isPathCh(tileAt(tx, ty - 1)), s = !isPathCh(tileAt(tx, ty + 1));
-  const w = !isPathCh(tileAt(tx - 1, ty)), e = !isPathCh(tileAt(tx + 1, ty));
+}
+
+/** A dark rim of earth where the gravel meets the grass, and the grass fraying over that edge, on sides m. */
+function pathEdges(r: Raster, ox: number, oy: number, tx: number, ty: number, m: number): void {
   // (the grass's edge: 0 to 2 px in, ragged; the earth's rim just inside it)
   const fray = (i: number, side: number) => Math.floor(hash2(tx * TILE + i, ty * TILE + side, 6) * 2.4);
   const edge = (side: number, at: (i: number, d: number) => [number, number]) => {
@@ -135,30 +262,46 @@ function path(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
       r.set(ox + x, oy + y, RIM);
     }
   };
-  if (n) edge(1, (i, d) => [i, d]);
-  if (s) edge(2, (i, d) => [i, 15 - d]);
-  if (w) edge(3, (i, d) => [d, i]);
-  if (e) edge(4, (i, d) => [15 - d, i]);
+  if (m & 1) edge(1, (i, d) => [i, d]);
+  if (m & 4) edge(2, (i, d) => [i, 15 - d]);
+  if (m & 8) edge(3, (i, d) => [d, i]);
+  if (m & 2) edge(4, (i, d) => [15 - d, i]);
 }
 
 function water(r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number): void {
+  const m = sidesOf(tx, ty, isWaterCh);
+  if (fromFile(r, ox, oy, tx, ty, 'water')) fromFile(r, ox, oy, tx, ty, 'water', 'ripples', phase);
+  else { waterFill(r, ox, oy, tx, ty); waterRipples(r, ox, oy, tx, ty, phase); }
+  if (!edgesFromFile(r, ox, oy, 'water', m)) waterEdges(r, ox, oy, tx, ty, m);
+}
+
+/** Open water, deeper and lighter in dabs, like the brush left it. */
+function waterFill(r: Raster, ox: number, oy: number, tx: number, ty: number): void {
   r.rect(ox, oy, TILE, TILE, C.w0);
-  // (deeper and lighter in dabs, like the brush left it)
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
       const px = tx * TILE + x, py = ty * TILE + y, v = dab(px, py, 75) + patch(px, py, 76, 30) * 0.5;
       if (v < -0.3) r.set(ox + x, oy + y, C.wd);
       else if (v > 0.34) r.set(ox + x, oy + y, C.wl);
     }
+}
+
+/** The ripples on it (`phase` 0 or 1: they rock from one to the other). */
+function waterRipples(r: Raster, ox: number, oy: number, tx: number, ty: number, phase: number): void {
   for (let k = 0; k < 3; k++) {
     const x = ox + Math.floor(hash2(tx, ty, 70 + k) * 12) + (phase ? 1 : 0);
     const y = oy + 2 + k * 5 + Math.floor(hash2(tx, ty, 80 + k) * 2);
     r.set(x, y, C.w1); r.set(x + 1, y, C.w1); r.set(x + 2, y - 1 + phase, C.w1); r.set(x + 3, y, C.w1);
   }
-  const n = !isWaterCh(tileAt(tx, ty - 1)), s = !isWaterCh(tileAt(tx, ty + 1));
-  const w = !isWaterCh(tileAt(tx - 1, ty)), e = !isWaterCh(tileAt(tx + 1, ty));
-  // the banks, ragged: grass fraying 0 to 2 px over them, a dark rim of earth, a lip of pebbles, and
-  // the water's edge (in the bank's shade on the far side, catching the light on the near ones)
+}
+
+/**
+ * The banks on sides m, ragged: grass fraying 0 to 2 px over them, a dark rim of earth, a lip of
+ * pebbles, and the water's edge (in the bank's shade on the far side, catching the light on the near
+ * ones); and the outside corners rounded.
+ */
+function waterEdges(r: Raster, ox: number, oy: number, tx: number, ty: number, m: number): void {
+  const n = m & 1, e = m & 2, s = m & 4, w = m & 8;
   const bank = (side: number, at: (i: number, d: number) => [number, number], wet: RGB[]) => {
     for (let i = 0; i < TILE; i++) {
       const [ax, ay] = at(i, 0), along = side < 3 ? tx * TILE + ax : ty * TILE + ay;
@@ -179,7 +322,6 @@ function water(r: Raster, ox: number, oy: number, tx: number, ty: number, phase:
   if (s) bank(2, (i, d) => [i, 15 - d], [C.we]);
   if (w) bank(3, (i, d) => [d, i], [C.we]);
   if (e) bank(4, (i, d) => [15 - d, i], [C.we]);
-  // round the outside corners
   const corner = (cx: number, cy: number, dx: number, dy: number) => {
     for (let j = 0; j < 4; j++) for (let i = 0; i < 4 - j; i++) r.set(cx + i * dx, cy + j * dy, C.g0);
     r.set(cx + 3 * dx, cy, C.g3); r.set(cx + 2 * dx, cy + dy, C.g3); r.set(cx + dx, cy + 2 * dy, C.g3); r.set(cx, cy + 3 * dy, C.g3);
@@ -193,31 +335,41 @@ function water(r: Raster, ox: number, oy: number, tx: number, ty: number, phase:
 }
 
 function hedge(r: Raster, ox: number, oy: number, tx: number, ty: number, tall = false): void {
-  // maze hedges are a deeper green with a taller front face so they read as walls
-  const [top, lit, face, line] = tall ? [C.h2, C.h0, C.m0, C.h3] : [C.h0, C.h1, C.h2, C.h3];
-  const me = tileAt(tx, ty);
+  const name = tall ? 'maze-hedge' : 'hedge', me = tileAt(tx, ty), m = sidesOf(tx, ty, (ch) => ch === me);
+  if (!fromFile(r, ox, oy, tx, ty, name)) hedgeFill(r, ox, oy, tx, ty, tall);
+  if (!edgesFromFile(r, ox, oy, name, m)) hedgeEdges(r, ox, oy, tx, ty, m, tall);
+}
+
+/** Maze hedges are a deeper green with a taller front face, so they read as walls. */
+const hedgeTones = (tall: boolean) => (tall ? [C.h2, C.h0, C.m0, C.h3] : [C.h0, C.h1, C.h2, C.h3]);
+
+/** A hedge's top: leaves in dabs, lit clusters and darker hollows. */
+function hedgeFill(r: Raster, ox: number, oy: number, tx: number, ty: number, tall = false): void {
+  const [top, lit] = hedgeTones(tall);
   r.rect(ox, oy, TILE, TILE, top);
   for (let y = 0; y < TILE; y++)
     for (let x = 0; x < TILE; x++) {
       const h = hash2(tx * TILE + x, ty * TILE + y, 7);
-      // (leaves in dabs: lit clusters, darker hollows)
       const v = dab(tx * TILE + x, ty * TILE + y, 7);
       if (v > 0.2) r.set(ox + x, oy + y, lit);
       else if (v < -0.25 || h < 0.06) r.set(ox + x, oy + y, tall ? C.h3 : C.h2);
     }
-  const isH = (x: number, y: number) => tileAt(x, y) === me;
-  const n = !isH(tx, ty - 1), s = !isH(tx, ty + 1), w = !isH(tx - 1, ty), e = !isH(tx + 1, ty);
+}
+
+/** Its outline on sides m, and the face it shows to the south. */
+function hedgeEdges(r: Raster, ox: number, oy: number, tx: number, ty: number, m: number, tall = false): void {
+  const [, , face, line] = hedgeTones(tall);
   const faceTop = tall ? 6 : 10;
   for (let i = 0; i < TILE; i++) {
-    if (n) { r.set(ox + i, oy, line); r.set(ox + i, oy + 1, tall ? C.h1 : C.h1); }
-    if (s) {
+    if (m & 1) { r.set(ox + i, oy, line); r.set(ox + i, oy + 1, C.h1); }
+    if (m & 4) {
       for (let k = faceTop; k < 15; k++) r.set(ox + i, oy + k, (i + k) % 3 === 0 ? line : face);
       if (tall) for (let k = faceTop; k < 15; k += 3) if (hash2(tx * TILE + i, ty + k, 8) < 0.3) r.set(ox + i, oy + k, C.h2);
       r.set(ox + i, oy + faceTop - 1, line);
       r.set(ox + i, oy + 15, line);
     }
-    if (w) r.set(ox, oy + i, line);
-    if (e) r.set(ox + 15, oy + i, line);
+    if (m & 8) r.set(ox, oy + i, line);
+    if (m & 2) r.set(ox + 15, oy + i, line);
   }
 }
 
@@ -361,11 +513,10 @@ const BUSH = [
 ];
 
 /**
- * A round thing (a bush, a rock) lit by the sun: `art` is its picture, whose
- * characters in `tones` are its light, mid and dark shades. Each of those
- * pixels is shaded from which way the blob curves there; the picture's own
- * specks and patches are kept as an offset from how the default light would
- * shade it, so under that light it looks exactly as drawn.
+ * A round thing (a bush, a rock) lit by the sun: `pic` is its picture, and the pixels of it in
+ * `ramp`'s colours (light, mid and dark) are shaded from which way the blob curves there; the
+ * picture's own specks and patches are kept as an offset from how the default light would shade it,
+ * so under that light it looks exactly as drawn. The other pixels (its outline, say) are left as drawn.
  */
 /** While a piece of ground is drawn for the GPU: the bushes' and rocks' pixels as litBlob shades them, to be shaded there again. */
 interface BlobPx { i: number; colour: RGB; row: number; off: number; j: number; nx: number; ny: number }
@@ -373,28 +524,69 @@ let blobs: BlobPx[] | null = null;
 /** The blobs of the last piece drawn to `keep` them: those still as drawn after the season, at their place in it. */
 let lastBlobs: BlobPx[] = [];
 
-function litBlob(r: Raster, ox: number, oy: number, art: string[], fixed: Record<string, RGB>, tones: string, ramp: RGB[], tx: number, ty: number): void {
-  r.paint(art, ox, oy, fixed);
+function litBlob(r: Raster, ox: number, oy: number, { pic, ramp }: Blob, tx: number, ty: number): void {
+  r.blit(pic, ox, oy);
+  const tones = new Map(ramp.map((c, i) => [key(c), i]));
+  const drawnAt = (x: number, y: number) => {
+    const o = (y * pic.w + x) * 4;
+    return pic.data[o + 3] ? tones.get(key3(pic.data, o)) ?? -1 : -1;
+  };
   let x0 = 99, y0 = 99, x1 = -1, y1 = -1;
-  art.forEach((row, y) => [...row].forEach((ch, x) => {
-    if (!tones.includes(ch)) return;
-    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
-  }));
+  for (let y = 0; y < pic.h; y++)
+    for (let x = 0; x < pic.w; x++) {
+      if (drawnAt(x, y) < 0) continue;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    }
   const mx = (x0 + x1 + 1) / 2, my = (y0 + y1 + 1) / 2, rx = (x1 - x0 + 1) / 2, ry = (y1 - y0 + 1) / 2;
   const shade = (nx: number, ny: number, L: ScreenLight, j = 0) => {
     const v = (nx * L.x + ny * L.y) * L.k + j;
     return v > 0.35 ? 0 : v > -0.25 ? 1 : 2;
   };
-  art.forEach((row, y) => [...row].forEach((ch, x) => {
-    const drawn = tones.indexOf(ch);
-    if (drawn < 0) return;
-    const nx = (x + 0.5 - mx) / rx, ny = (y + 0.5 - my) / ry;
-    // (in dabs, like the leaves on the trees)
-    const j = dab(tx * TILE + x, ty * TILE + y, 13) * 0.6;
-    const off = drawn - shade(nx, ny, DEFAULT_LIGHT), tone = Math.max(0, Math.min(2, shade(nx, ny, sunLight, j) + off));
-    r.set(ox + x, oy + y, ramp[tone]);
-    blobs?.push({ i: (oy + y) * r.w + ox + x, colour: ramp[tone], row: ramps.row(ramp, Kind.Blob), off, j, nx, ny });
-  }));
+  for (let y = 0; y < pic.h; y++)
+    for (let x = 0; x < pic.w; x++) {
+      const drawn = drawnAt(x, y);
+      if (drawn < 0) continue;
+      const nx = (x + 0.5 - mx) / rx, ny = (y + 0.5 - my) / ry;
+      // (in dabs, like the leaves on the trees)
+      const j = dab(tx * TILE + x, ty * TILE + y, 13) * 0.6;
+      const off = drawn - shade(nx, ny, DEFAULT_LIGHT), tone = Math.max(0, Math.min(2, shade(nx, ny, sunLight, j) + off));
+      r.set(ox + x, oy + y, ramp[tone]);
+      blobs?.push({ i: (oy + y) * r.w + ox + x, colour: ramp[tone], row: ramps.row(ramp, Kind.Blob), off, j, nx, ny });
+    }
+}
+
+/** A blob's picture, and its light, mid and dark tones. */
+interface Blob { pic: Raster; ramp: RGB[] }
+const blobFiles = new Map<string, Blob>();
+/**
+ * Blob `name`: art/ground/<name> (layer `art`; its tones are the three colours most of its inside is
+ * painted in, by how light they are), or else as drawn from code.
+ */
+function blob(name: string, code: () => Blob): Blob {
+  let b = blobFiles.get(name);
+  if (b) return b;
+  const pic = ground(name)?.layer('art');
+  if (pic) {
+    // (inside: all four neighbours painted, so not the outline)
+    const counts = new Map<number, number>(), on = (x: number, y: number) => x >= 0 && y >= 0 && x < pic.w && y < pic.h && pic.data[(y * pic.w + x) * 4 + 3] > 0;
+    for (let y = 0; y < pic.h; y++)
+      for (let x = 0; x < pic.w; x++)
+        if (on(x, y) && on(x - 1, y) && on(x + 1, y) && on(x, y - 1) && on(x, y + 1)) {
+          const k = key3(pic.data, (y * pic.w + x) * 4);
+          counts.set(k, (counts.get(k) ?? 0) + 1);
+        }
+    const top: RGB[] = [...counts].sort((p, q) => q[1] - p[1]).slice(0, 3).map(([k]) => [k >> 16, (k >> 8) & 255, k & 255]);
+    b = { pic, ramp: top.sort((p, q) => lum(q) - lum(p)) };
+  } else b = code();
+  blobFiles.set(name, b);
+  return b;
+}
+
+/** A blob drawn from code: `art` its picture, whose characters in `tones` are its light, mid and dark shades. */
+function blobCode(art: string[], fixed: Record<string, RGB>, tones: string, ramp: RGB[]): Blob {
+  const pic = new Raster(TILE, TILE);
+  pic.paint(art, 0, 0, { ...fixed, ...Object.fromEntries([...tones].map((ch, i) => [ch, ramp[i]])) });
+  return { pic, ramp };
 }
 
 const ROCK = [
@@ -415,6 +607,10 @@ const ROCK = [
   '...gggggggggg...',
   '................',
 ];
+
+const bushCode = () => blobCode(BUSH, { o: C.h3 }, 'ld2', [C.h1, C.h0, C.h2]);
+const rockCode = () => blobCode(ROCK, { o: C.r3, g: C.g2 }, 'lmd', [C.r0, C.r1, C.r2]);
+const bush = () => blob('bush', bushCode), rock = () => blob('rock', rockCode);
 
 function fountain(r: Raster, ox: number, oy: number): void {
   // drawn once from the left tile, spanning two tiles
@@ -464,8 +660,8 @@ export const TILE_ART: Record<string, { ground?: Painter; upright?: Painter }> =
   m: { upright: (r, ox, oy, tx, ty) => hedge(r, ox, oy, tx, ty, true) },
   F: { upright: (r, ox, oy, tx, ty) => fence(r, ox, oy, tx, ty) },
   g: { ground: (r, ox, oy, tx, ty) => path(r, ox, oy, tx, ty), upright: (r, ox, oy, tx, ty) => gate(r, ox, oy, tx, ty) },
-  b: { upright: (r, ox, oy, tx, ty) => litBlob(r, ox, oy, BUSH, { o: C.h3 }, 'ld2', [C.h1, C.h0, C.h2], tx, ty) },
-  r: { upright: (r, ox, oy, tx, ty) => litBlob(r, ox, oy, ROCK, { o: C.r3, g: C.g2 }, 'lmd', [C.r0, C.r1, C.r2], tx, ty) },
+  b: { upright: (r, ox, oy, tx, ty) => litBlob(r, ox, oy, bush(), tx, ty) },
+  r: { upright: (r, ox, oy, tx, ty) => litBlob(r, ox, oy, rock(), tx, ty) },
   o: { upright: (r, ox, oy) => fountain(r, ox, oy) },
 };
 
@@ -592,6 +788,51 @@ export function drabFor(c: RGB, t: number): RGB {
   return mixRGB(c, [Math.min(255, l * 1.15 + 18), l * 1.0 + 4, l * 0.5], t);
 }
 
+/** The ground as drawn from code: what tools/art-ground.ts writes the files from. */
+export const GROUND_CODE = {
+  lawnCode, daisy, tallGrassBase, blades, flowersBase, flowerSpots, pathFill, pathEdges, waterFill, waterRipples, waterEdges, hedgeFill, hedgeEdges,
+  bush: bushCode, rock: rockCode,
+};
+
+/** The ground's files (art/ground/), and the layers of them that are drawn. */
+export const GROUND_FILES: Record<string, string[]> = {
+  lawn: ['fill'], 'tall-grass': ['fill'], flowers: ['fill'], path: ['fill'], 'path-edges': ['edges'], water: ['fill', 'ripples'], 'water-edges': ['edges'],
+  hedge: ['fill'], 'hedge-edges': ['edges'], 'maze-hedge': ['fill'], 'maze-hedge-edges': ['edges'], bush: ['art'], rock: ['art'],
+};
+
+/**
+ * The seasons know the ground by its colours (the lawn's go straw-coloured, snow settles on what's
+ * green or earthy, the water freezes). A colour painted in a ground file that they don't know is
+ * taken for the nearest one they do, if it's near (as a colour, RGB).
+ */
+const ALIAS_NEAR = 80;
+let aliasMap: Map<number, RGB> | null = null;
+function aliases(): Map<number, RGB> {
+  if (aliasMap) return aliasMap;
+  aliasMap = new Map();
+  const known = [...SNOWY, ...GREENS, ...ICE.map(([c]) => c), ...Object.values(C), RIM, ...RAIL_DECK_ALL, ...FLOWERS];
+  const knownKeys = new Set(known.map(key));
+  for (const [name, layers] of Object.entries(GROUND_FILES))
+    for (const l of layers) {
+      const t = ground(name)?.layer(l);
+      if (!t) continue;
+      for (let o = 0; o < t.data.length; o += 4) {
+        const k = key3(t.data, o);
+        if (!t.data[o + 3] || knownKeys.has(k) || aliasMap.has(k)) continue;
+        let best: RGB | null = null, d = ALIAS_NEAR;
+        for (const c of known) {
+          const e = Math.hypot(c[0] - t.data[o], c[1] - t.data[o + 1], c[2] - t.data[o + 2]);
+          if (e < d) { d = e; best = c; }
+        }
+        if (best) aliasMap.set(k, best);
+      }
+    }
+  return aliasMap;
+}
+/** The colour the seasons take colour k for (its key). */
+const like = (k: number) => { const a = aliases().get(k); return a ? key(a) : k; };
+const RAIL_DECK_ALL = [...Object.values(RAIL_DECK), ...Object.values(GIRDER)];
+
 /**
  * Dress a piece of garden art for the season: flowers gone over, lawns dull,
  * snow over everything, ice on the water. (ox, oy) is where it sits in the world.
@@ -604,7 +845,7 @@ export function applySeason(r: Raster, ox: number, oy: number, s: Season = SEASO
     for (let x = 0; x < r.w; x++) {
       const i = (y * r.w + x) * 4;
       if (!r.data[i + 3]) continue;
-      const k = (r.data[i] << 16) | (r.data[i + 1] << 8) | r.data[i + 2];
+      const own = (r.data[i] << 16) | (r.data[i + 1] << 8) | r.data[i + 2], k = like(own);
       const wx = ox + x, wy = oy + y;
       let c: RGB | undefined;
       if (s.frozen && !isChannel(Math.floor(wx / TILE), Math.floor(wy / TILE))) c = ice.get(k);
@@ -612,9 +853,10 @@ export function applySeason(r: Raster, ox: number, oy: number, s: Season = SEASO
       if (!c && s.snow > 0 && noise(wx / 20, wy / 20, 1203) * 0.8 + bayer(wx, wy) * 0.2 < s.snow * 1.25 - 0.1) c = snowy.get(k);
       // flowers: some still out, some gone over
       if (!c && FLOWERY.has(k) && hash2(wx >> 2, wy >> 2, 1204) >= s.bloom) c = hash2(wx, wy, 1205) < 0.5 ? C.g0 : C.g4;
-      if (c) k === key(c) || r.set(x, y, c);
+      if (c) own === key(c) || r.set(x, y, c);
       if (s.drab > 0) {
-        const g = greens.get(c ? key(c) : k);
+        // (a colour of its own goes straw-coloured as it is)
+        const g = c ? greens.get(key(c)) : k !== own && greens.has(k) ? drabFor([own >> 16, (own >> 8) & 255, own & 255], s.drab) : greens.get(k);
         if (g) r.set(x, y, g);
       }
     }
@@ -626,7 +868,9 @@ const LEAF_COLOURS: RGB[] = ['#e8b030', '#e07828', '#c84828', '#a85a28', '#f0d05
 function scatterLitter(r: Raster, s: Season, ox = 0, oy = 0): void {
   if (s.litter <= 0 || s.snow >= 0.6) return;
   const amount = s.litter * (1 - s.snow);
-  const grassy = new Set([...GREENS].map((c) => key(drabFor(c, s.drab))));
+  const greens = new Set(GREENS.map(key));
+  const own = [...aliases()].filter(([, c]) => greens.has(key(c))).map(([k]): RGB => [k >> 16, (k >> 8) & 255, k & 255]);
+  const grassy = new Set([...GREENS, ...own].map((c) => key(drabFor(c, s.drab))));
   const trees = treeTiles().map(([tx, ty]) => trunkBase(tx, ty)).filter(([x, y]) => x > ox - 40 && x < ox + r.w + 40 && y > oy - 20 && y < oy + r.h + 20);
   for (let y = 0; y < r.h; y += 1)
     for (let x = 0; x < r.w; x += 1) {
@@ -732,7 +976,7 @@ export function buildWaterMask(season: Season = SEASON): Mask {
       for (let y = 0; y < TILE; y++)
         for (let x = 0; x < TILE; x++) {
           const i = (y * scratch.w + x) * 4;
-          if (open.has((scratch.data[i] << 16) | (scratch.data[i + 1] << 8) | scratch.data[i + 2])) m.set(tx * TILE + x, ty * TILE + y);
+          if (open.has(like((scratch.data[i] << 16) | (scratch.data[i + 1] << 8) | scratch.data[i + 2]))) m.set(tx * TILE + x, ty * TILE + y);
         }
     }
   return m;

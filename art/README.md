@@ -106,3 +106,31 @@ is anchored to them.
 
 `node tools/art-plants.ts [plants | water | woodland]` draws these fresh from
 code, in the same way as the trees.
+
+## ground/
+
+The park's ground, a tile (16 px) at a time. It has only summer: the game
+dresses it for the seasons itself (straw-coloured lawns, fallen leaves, snow,
+frozen ponds, flowers going over). It knows what to dress by its colours, and
+takes a colour you've painted for the nearest one it knows, so keep new colours
+near the old ones (a green for the grass, a blue for the water).
+
+- `lawn`, `tall-grass`, `flowers`, `path`, `water`, `hedge` and `maze-hedge`:
+  layer `fill`, a texture laid over the park, repeated. Paint it so it repeats
+  without a seam (View > Tiled Mode). It can be any size.
+  - `lawn` also has a hidden layer `tones`: the lawn's colours, dark to light,
+    a pixel each along the top row. The game shifts the lawn along them in broad
+    patches, lusher and drier, so it doesn't show repeating.
+  - `water` also has `ripples`, rocked a pixel to the right and back.
+- `path-edges`, `water-edges`, `hedge-edges` and `maze-hedge-edges`: layer
+  `edges`, 16 pieces laid over the fill where it meets something else. They're
+  4 x 4 tiles; piece m is at column m % 4, row m / 4 (rounded down), where m adds
+  up the sides that border something else: 1 north, 2 east, 4 south, 8 west.
+  So the top-left piece (0) is empty, and the bottom-right one (15) is a tile
+  with something else all round. The hidden layer `under` is the fill, to paint
+  against.
+- `bush` and `rock`: layer `art`, one tile. The sun shades them as they curve:
+  the three colours most of the inside is painted in, by how light they are,
+  are its light, mid and dark. The other colours (the outline) stay as painted.
+
+`node tools/art-ground.ts [names]` draws these fresh from code, as the others.

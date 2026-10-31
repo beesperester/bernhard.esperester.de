@@ -73,3 +73,26 @@ describe('the small things drawn as files (art/plants/, art/water/, art/woodland
     expect([...log.data]).toEqual([...seasonalArt('woodland', 'log', { ...SEASON, day: 190 })!.data]);
   });
 });
+
+describe('the ground drawn as files (art/ground/)', () => {
+  it('has every kind of ground: its texture, and 16 edge pieces where it meets something else', async () => {
+    const { GROUND_FILES } = await import('./tiles.ts');
+    for (const [name, layers] of Object.entries(GROUND_FILES)) {
+      const f = artFile(`ground/${name}`);
+      expect(f, name).not.toBeNull();
+      for (const l of layers) expect(f!.layer(l), `${name} ${l}`).not.toBeNull();
+      if (name.endsWith('-edges')) expect([f!.w, f!.h], name).toEqual([64, 64]);
+    }
+    const tones = artFile('ground/lawn')!.layer('tones')!;
+    expect(tones.data[3]).toBeGreaterThan(0);
+  });
+
+  it('covers the park, dressed for the seasons', async () => {
+    const { buildGroundRegion } = await import('./tiles.ts');
+    const { seasonAt } = await import('../world/season.ts');
+    const summer = buildGroundRegion(40, 30, 12, 12, 0, seasonAt(Date.UTC(2026, 6, 10, 10)));
+    for (let o = 3; o < summer.data.length; o += 4) expect(summer.data[o]).toBe(255);
+    const winter = buildGroundRegion(40, 30, 12, 12, 0, seasonAt(Date.UTC(2027, 0, 15, 10)));
+    expect([...winter.data]).not.toEqual([...summer.data]);
+  });
+});
