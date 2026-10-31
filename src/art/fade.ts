@@ -8,7 +8,7 @@
 // top if little of the tree is left above it; and the rest of that tree is
 // dithered thin (`rest`), so nothing of it stands solid in front of your cat.
 //
-// The game cuts the hole on the GPU (game/HoleFilter.ts, FADE_GLSL below); the
+// The game cuts the hole on the GPU (game/Cards.ts, FADE_GLSL below); the
 // same in TypeScript (keeps()) answers what's seen where, and draws the sheet.
 import { bayer } from './tiles.ts';
 import type { Puffs } from './trees.ts';

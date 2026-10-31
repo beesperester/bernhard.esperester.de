@@ -7,7 +7,7 @@ import { MAP_H, MAP_W, TILE, casterBox } from '../world/map.ts';
 import type { Mask } from '../art/raster.ts';
 import { FADE_GLSL } from '../art/fade.ts';
 import { HEADER, MAX_LAMPS, paintLight, syncRamps } from './Painted.ts';
-import type { Cut } from './HoleFilter.ts';
+import type { Cut } from './Trees.ts';
 import { isGrounded, isSolid } from './solid.ts';
 import { SILHOUETTE } from './CatView.ts';
 
@@ -49,7 +49,7 @@ import { SILHOUETTE } from './CatView.ts';
 // their systems, but hidden from the camera, and drawn here instead, in two
 // passes (Phaser externs, which hand over the GL context and take it back):
 // the ground, under what lies on it (water, reflections), and all that
-// stands, over that. (?flat: Phaser draws them, sorted, as it used to.)
+// stands, over that.
 
 const RAD = Math.PI / 180;
 const MIN_EL = 15;
@@ -620,11 +620,10 @@ export class Cards {
     this.wet = this.patches.filter(({ box: b }) => b.x < view.right && b.x + b.w > view.x && b.y < view.bottom && b.y + b.h > view.y);
 
     // the trees: back and front pictures, their leaves at the depth of their crown's balls
-    // (cut round your cat as game/Trees.ts says; their trunk and branches shown over your cat up one aren't needed here)
+    // (cut round your cat as game/Trees.ts says)
     const trees = new Set<Pic>();
-    const live = (this.src.trees as { live: Map<number, { p: Prop; base: { img: Phaser.GameObjects.Image }; front: { img: Phaser.GameObjects.Image } | null; mid: { img: Phaser.GameObjects.Image } | null; cutBase: Cut | null; cutFrontAs: Cut | null }> }).live;
+    const live = (this.src.trees as { live: Map<number, { p: Prop; base: { img: Phaser.GameObjects.Image }; front: { img: Phaser.GameObjects.Image } | null; cutBase: Cut | null; cutFrontAs: Cut | null }> }).live;
     for (const [i, t] of live) {
-      if (t.mid) trees.add(t.mid.img);
       for (const which of ['base', 'front'] as const) {
         const pic = t[which];
         if (!pic) continue;

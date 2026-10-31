@@ -5,7 +5,6 @@ import { TREES, treeHolding } from '../world/trees.ts';
 import type { CatView } from './CatView.ts';
 import { toCanvas } from './textures.ts';
 import type { Painter } from './Painter.ts';
-import { cutIn, type Cut } from './HoleFilter.ts';
 import { addPainted, paint } from './Painted.ts';
 import { CLEAR, kept, reachUp, shows, type Opening } from '../art/fade.ts';
 
@@ -36,7 +35,7 @@ const CELL = 256;
 /** A hole opens over this long (ms). */
 const FADE_MS = 280;
 /** The hole round your cat: this wide (px). */
-const HOLE_R = 120;
+const HOLE_R = 180;
 /** The rest of a tree hiding your cat is dithered this thin (0..1: the part of it left out). */
 const REST = 0.5;
 /** Your cat's picture, round its feet, for whether a tree hides it: this far either side, and this tall (px)... */
@@ -47,16 +46,14 @@ const CAT_SLACK = 6;
 const HIDES = 3;
 /** Above its feet, the middle of a cat. */
 const CAT_MID = 8;
-/** A front picture is drawn this far in front of its tree (a cat up in it is at +0.6, the birds at +0.5)... */
+/** A front picture is drawn this far in front of its tree (a cat up in it is at +0.6, the birds at +0.5). */
 const FRONT = 0.8;
-/** ...and its trunk and branches this far, while your cat is up it. */
-const MIDDLE = 0.2;
 
 interface Pic {
-  /** The picture as shaded when it was drawn (for its reflection: PondReflection.ts)... */
+  /** The picture as shaded when it was drawn... */
   canvas: HTMLCanvasElement;
   img: Phaser.GameObjects.Image;
-  /** ...and its pixels (the hole is cut from what's shown on the GPU: HoleFilter.ts). */
+  /** ...and its pixels (the hole is cut from what's shown on the GPU: game/Cards.ts). */
   orig: ImageData;
 }
 
@@ -64,8 +61,6 @@ interface Live {
   p: Prop;
   base: Pic;
   front: Pic | null;
-  /** Its trunk and branches, while your cat is up it. */
-  mid: Pic | null;
   /** How far the hole round your cat is open in it (0..1, it's in front of your cat)... */
   hole: number;
   /** ...or round your cat up it (0..1); how each picture is cut now, and as what it was cut last. */
@@ -78,6 +73,9 @@ interface Live {
   puffs: string | null;
   frontPuffs: string | null;
 }
+
+/** A cut through a tree (game/Cards.ts cuts it so): the hole (null: none), how thin the rest of it is (0..1), and the texture of its puff map, if any. */
+export interface Cut { hole: Opening | null; rest: number; puffs: string | null }
 
 const NO_HOLE: Opening = { x: 0, y: 0, r: 0, up: 1 };
 
@@ -94,8 +92,6 @@ export class Trees {
   private readonly live = new Map<number, Live>();
   private readonly cells = new Map<number, number[]>();
   private readonly watchers: TreeWatcher[] = [];
-  /** Drawn as cards (game/Cards.ts cuts them itself, and needs no trunk and branches over a hole up one). */
-  cards = false;
   private readonly painter: Painter;
   /** Trees asked of the painter and not back yet. */
   private readonly asked = new Set<number>();
@@ -206,14 +202,7 @@ export class Trees {
       const cut = key(base), cutFront = key(front);
       t.cutBase = base;
       t.cutFrontAs = front;
-      if (cut !== t.cut) {
-        if (!this.cards) cutIn(t.base.img, base);
-        for (const wt of this.watchers) wt.holed(i, base);
-      }
-      if (t.front && cutFront !== t.cutFront && !this.cards) cutIn(t.front.img, front);
-      // (up it, its trunk and branches over the hole in it)
-      if (t.open > 0 && !t.mid && p.mid && !this.cards) t.mid = this.pic(`tree-mid-${i}`, p.mid.raster, p.mid.lit, p.x, p.y, p.depthY + MIDDLE);
-      else if (t.open === 0 && t.mid) this.unpic(t, 'mid', `tree-mid-${i}`);
+      if (cut !== t.cut) for (const wt of this.watchers) wt.holed(i, base);
       t.cut = cut;
       t.cutFront = cutFront;
     }
@@ -295,7 +284,7 @@ export class Trees {
     return key;
   }
 
-  private unpic(t: Live, which: 'front' | 'mid', key: string): void {
+  private unpic(t: Live, which: 'front', key: string): void {
     const pic = t[which];
     if (!pic) return;
     pic.img.destroy();
@@ -308,7 +297,7 @@ export class Trees {
     const base = this.pic(`tree-${i}`, p.raster, p.lit, p.x, p.y, p.depthY);
     const front = p.front ? this.pic(`tree-front-${i}`, p.front.raster, p.front.lit, p.x, p.y, p.depthY + FRONT) : null;
     const puffs = this.puffMap(`tree-puffs-${i}`, p.puffs, p.raster), frontPuffs = p.front ? this.puffMap(`tree-front-puffs-${i}`, p.front.puffs, p.front.raster) : null;
-    this.live.set(i, { p, base, front, mid: null, hole: 0, open: 0, cutBase: null, cutFrontAs: null, cut: '', cutFront: '', puffs, frontPuffs });
+    this.live.set(i, { p, base, front, hole: 0, open: 0, cutBase: null, cutFrontAs: null, cut: '', cutFront: '', puffs, frontPuffs });
     for (const w of this.watchers) w.added(i, p, base.canvas);
   }
 
@@ -317,7 +306,6 @@ export class Trees {
     t.base.img.destroy();
     this.scene.textures.remove(`tree-${i}`);
     this.unpic(t, 'front', `tree-front-${i}`);
-    this.unpic(t, 'mid', `tree-mid-${i}`);
     for (const key of [t.puffs, t.frontPuffs]) if (key) this.scene.textures.remove(key);
     this.live.delete(i);
     for (const w of this.watchers) w.removed(i);

@@ -3,7 +3,6 @@ import { PIXEL_FONT } from '../ui/pixel.ts';
 import { COATS } from '../art/cat.ts';
 import { uprightAt } from '../art/tiles.ts';
 import { Ground } from './Ground.ts';
-import { LANTERN_W, LANTERN_H } from '../art/critters.ts';
 import { HOUSES, TREES, TRUNK_FRONT, lineCrossed, standingOn, surfaceAt, treeHolding, zAt } from '../world/trees.ts';
 import { WORLD_W, WORLD_H, TILE, MAP_W, MAP_H, LEVEL, LANTERNS, FEET, COASTERS, furnitureNear, inBox, levelAt, wetAt, iceAt, spawnPoints, tileAt, pondBounds, waterBoxes, elevAt, heightUnder, terrainCover } from '../world/map.ts';
 import { Act, CATCH_MS, EAT_MS, MEW_MS, MUNCH_MS, Prey, Facing, GRAVITY, HISS_MS, LICK_MS, ROLL_MS, SIT_AFTER_MS, SLEEP_AFTER_MS, SWIPE_AT_MS, type CatMsg } from './state.ts';
@@ -18,12 +17,11 @@ import { FLOWER_0, isFlower, thicketAt, undergrowthAt } from '../art/flora.ts';
 import { FOG_SOURCE, FOG_TEXTURES, Fog } from './Fog.ts';
 import { fogAt } from '../world/fog.ts';
 import { Clouds } from './Clouds.ts';
-import { PondReflection } from './PondReflection.ts';
 import { Trees, outlineCanvas } from './Trees.ts';
 import { Furniture } from './Furniture.ts';
 import { Landmarks } from './Landmarks.ts';
 import { trunkNear } from '../world/fruit.ts';
-import { Shadows, type Caster } from './Shadows.ts';
+import { Shadows } from './Shadows.ts';
 import { Vignette } from './Vignette.ts';
 import { Daylight } from './Daylight.ts';
 import { RimLight } from './RimLight.ts';
@@ -74,7 +72,6 @@ import { PLATFORM } from '../world/coaster.ts';
 import { loaded, loading } from '../ui/loading.ts';
 import { castsNightBlob, groundOf } from '../world/legend.ts';
 import { catnipUp } from '../art/furniture.ts';
-import { params } from '../world/params.ts';
 import { Cards } from './Cards.ts';
 
 /** How high the engine driver sits up on its seat (px): its head well over the cab's side. */
@@ -92,8 +89,6 @@ const STEP_DOWN = 3;
 const THICKET_PACE = 0.6;
 /** Another cat down in the undergrowth has its name shown only this close to ours (px). */
 const SEEN_IN_UNDERGROWTH = 48;
-/** How often the pond reflections are redrawn, ms. */
-const REFLECTION_MS = 33;
 // send up to 20x/s while airborne (jumps are short), otherwise up to 10x/s
 const TICK_MS = 50;
 const SEND_MS = 100;
@@ -173,7 +168,6 @@ export class GardenScene extends Phaser.Scene {
   private lilies!: Lilies;
   private fog!: Fog;
   private clouds!: Clouds;
-  private ponds: PondReflection[] = [];
   private readonly catSounds = new CatSounds();
   private trees!: Trees;
   private vignette!: Vignette;
@@ -181,10 +175,9 @@ export class GardenScene extends Phaser.Scene {
   private rims!: RimLight;
   private lanterns!: Lanterns;
   private shadows!: Shadows;
-  /** The world drawn as cards in 3D, with a depth buffer and a sun shadow map (?flat: by Phaser, sorted). */
-  private cards: Cards | null = null;
+  /** The world drawn as cards in 3D, with a depth buffer and a sun shadow map. */
+  private cards!: Cards;
   private nightWater!: NightWater;
-  private nextReflection = 0;
   private nextClock = 0;
   private board!: Board;
   /** Offered a name of our own already (or the dialog is open). */
@@ -289,15 +282,6 @@ export class GardenScene extends Phaser.Scene {
     });
     this.meadow = new Meadow(this);
     const water = canvases.water;
-    const reflect = {
-      waterMask: water,
-      catSheets: canvases.cats,
-      floraSheets: canvases.flora,
-      trees: this.trees,
-      plants: this.meadow.plants,
-    };
-    // (drawn as cards, the cards mirror what stands by the water themselves)
-    if (params.has('flat')) this.ponds = waterBoxes().map((box) => new PondReflection(this, box, reflect));
     this.clouds = new Clouds(this, toCanvas);
     this.shafts = new Shafts(this);
     this.fog = new Fog(this);
@@ -326,30 +310,24 @@ export class GardenScene extends Phaser.Scene {
     this.lanterns = new Lanterns(this, this.glows, this.lightMap);
     this.lilies = new Lilies(this, toCanvas, this.glows);
     this.shadows = this.makeShadows(furniture);
-    if (!params.has('flat')) {
-      this.cards = new Cards(this, {
-        ground: this.ground,
-        trees: this.trees,
-        effects: [
-          { source: FOG_SOURCE, textures: FOG_TEXTURES, add: false, now: () => this.fog.now() },
-          { source: SHAFT_SOURCE, add: true, now: () => this.shafts.now() },
-        ],
-        me: () => this.me?.silhouette() ?? null,
-        water: { boxes: waterBoxes(), mask: canvases.water },
-        // (the tree your cat is up, as it's sorted in front of it, and how high)
-        climb: () => {
-          const me = this.me, i = me ? treeHolding(me.x, me.y, me.z) : -1;
-          return me && i >= 0 ? { tree: i, z: me.z - TREES[i].elev } : null;
-        },
-      });
-      this.trees.cards = true;
-      catLight.ghosts = false;
-    }
-    this.nightWater = new NightWater(this, waterBoxes(), reflect.waterMask, occluders);
+    this.cards = new Cards(this, {
+      ground: this.ground,
+      trees: this.trees,
+      effects: [
+        { source: FOG_SOURCE, textures: FOG_TEXTURES, add: false, now: () => this.fog.now() },
+        { source: SHAFT_SOURCE, add: true, now: () => this.shafts.now() },
+      ],
+      me: () => this.me?.silhouette() ?? null,
+      water: { boxes: waterBoxes(), mask: canvases.water },
+      // (the tree your cat is up, as it's sorted in front of it, and how high)
+      climb: () => {
+        const me = this.me, i = me ? treeHolding(me.x, me.y, me.z) : -1;
+        return me && i >= 0 ? { tree: i, z: me.z - TREES[i].elev } : null;
+      },
+    });
+    this.nightWater = new NightWater(this, waterBoxes(), water, occluders);
     this.waterSurface = new WaterSurface(this, waterBoxes(), water);
     this.lighting = new Lighting();
-    // (drawn as cards, cats take the sun's shadow from its shadow map)
-    catLight.shade = (x, y) => (this.cards ? 0 : this.shadows.shadeAt(x, y));
     catLight.seeThrough = (x, y, depth) => this.trees.seeThrough(x, y, depth);
     catLight.lostIn = (x, y, z) => z < 6 && undergrowthAt(x, y) && Math.hypot(x - this.me.x, y - this.me.y) > SEEN_IN_UNDERGROWTH;
     sight.through = catLight.seeThrough;
@@ -565,27 +543,20 @@ export class GardenScene extends Phaser.Scene {
     }, TICK_MS);
   }
 
-  /** Who casts what shadow: lanterns, furniture and follies by their outlines (trees from their plans), and soft blobs under everything for the night. */
+  /** The soft shadows under everything for the night (the sun's are game/Cards.ts', from its shadow map). */
   private makeShadows(furniture: Furniture): Shadows {
-    const casters: Caster[] = [];
     const blobs: { x: number; y: number; w: number; h: number; depth: number }[] = [];
     for (const t of TREES) blobs.push({ x: t.x, y: t.y - t.elev - 1, w: Math.round(t.w * 0.65), h: 18, depth: t.y - 0.01 });
-    const lantern = this.textures.get('lantern').getSourceImage() as HTMLCanvasElement;
     for (const [x, y] of LANTERNS) {
       const top = y - elevAt(x, y);
-      casters.push({ src: lantern, sx: 0, sy: 0, w: LANTERN_W, h: LANTERN_H, x: x - LANTERN_W / 2, y: top - LANTERN_H, ground: y, cap: LANTERN_H, depth: 1 });
       blobs.push({ x, y: top - 1, w: 12, h: 5, depth: y - 0.01 });
     }
     for (const { p, canvas } of furniture.pieces) {
       const w = canvas.width, h = canvas.height;
-      // the furniture casts their outlines (their tops are deep, not tall)
-      if (h < 40) casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.y + h - 1, cap: 14, depth: 3 });
       blobs.push({ x: p.x + w / 2, y: p.y + h - 2, w: w + 8, h: h < 40 ? 10 : 18, depth: p.depthY - 0.01 });
     }
-    // the follies cast their whole outlines, as tall as they are
-    for (const { p, canvas, depth } of this.landmarks.pieces) {
-      const w = canvas.width, h = canvas.height;
-      casters.push({ src: canvas, sx: 0, sy: 0, w, h, x: p.x, y: p.y, ground: p.depthY + 1, cap: Infinity, depth });
+    for (const { p, canvas } of this.landmarks.pieces) {
+      const w = canvas.width;
       blobs.push({ x: p.x + w / 2, y: p.depthY, w: w + 8, h: 14, depth: p.depthY - 0.01 });
     }
     // bushes and rocks in the ground art
@@ -595,7 +566,7 @@ export class GardenScene extends Phaser.Scene {
           const l = levelAt(tx, ty);
           blobs.push({ x: tx * TILE + 8, y: ty * TILE + 13 - l * LEVEL, w: 20, h: 8, depth: l ? ty * TILE + 0.0012 : -99992 });
         }
-    return new Shadows(this, { casters, blobs, cast: params.has('flat') });
+    return new Shadows(this, blobs);
   }
 
   private fitZoom(): void {
@@ -698,19 +669,8 @@ export class GardenScene extends Phaser.Scene {
     this.trees.update(this.me, view, dt * 1000);
     this.catSounds.update(cats, time);
     // (and what stands just above it, when its reflection hangs into the water in view)
-    cullerFor(this).update(view, this.cards?.reach(view) ?? 0);
+    cullerFor(this).update(view, this.cards.reach(view));
     this.meadow.update(gt, cats, view);
-    // the ripple is slow, so trees' reflections only need redrawing about 30 times a second;
-    // cats move, so theirs are redrawn every frame (only where one is near the water)
-    const reflectTrees = time >= this.nextReflection;
-    if (reflectTrees) this.nextReflection = time + REFLECTION_MS;
-    for (const pond of this.ponds) {
-      const b = pond.box;
-      // (on screen, and just off it, so they're ready when the camera gets there)
-      if (b.x >= view.right + 48 || b.x + b.w <= view.x - 48 || b.y >= view.bottom + 48 || b.y + b.h <= view.y - 48) continue;
-      if (reflectTrees) pond.update(time);
-      pond.updateCats(time, cats);
-    }
     this.daylight.update(gt);
     const light = this.daylight.light;
     // trees, bushes and rocks lit from where the sun is
@@ -718,8 +678,8 @@ export class GardenScene extends Phaser.Scene {
     // under rain clouds the sun's rims, shadows and shafts of light fade
     const overcast = Math.min(1, rainfall(gt) * 1.4);
     this.rims.update(overcast ? { ...light, rim: light.rim * (1 - overcast * 0.85) } : light);
-    this.shadows.update(light, cats, overcast, view);
-    this.cards?.update(view, light, overcast);
+    this.shadows.update(light, overcast);
+    this.cards.update(view, light, overcast);
     catLight.soft = 0.06 + 0.2 * (1 - this.shadows.strength);
     catLight.night = light.night;
     this.ambient.update(gt, dt, cats, view);

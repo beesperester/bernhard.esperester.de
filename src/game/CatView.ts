@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { PIXEL_FONT } from '../ui/pixel.ts';
 import { Act, ACT_MAX, EAT_MS, MEW_MS, MUNCH_MS, Facing, frameFor, type CatMsg } from './state.ts';
 import { CAT, COATS, stageRow } from '../art/cat.ts';
-import { WORLD_W, WORLD_H, terrainCover, upOnFolly } from '../world/map.ts';
+import { WORLD_W, WORLD_H, upOnFolly } from '../world/map.ts';
 import { TREES, surfaceAt, treeHolding } from '../world/trees.ts';
 import { DEPTH } from './Daylight.ts';
 import { STAGE_SIZE, Stage } from './growth.ts';
@@ -26,20 +26,14 @@ export const catLight = {
   night: 0,
   /** How strong soft round shadows are (the night's, and faint by day under the cast ones). */
   soft: 0.22,
-  /** How shaded the ground at (x, y) is, 0..1. */
-  shade: (_x: number, _y: number): number => 0,
   /** True if something stands in front of world point (x, y) for a cat whose feet are at feetY. */
   occluded: (_x: number, _y: number, _feetY: number): boolean => false,
   /** Whether a cat at (x, y, z) is down among the forest floor's plants, out of our cat's sight (its name hidden). */
   lostIn: (_x: number, _y: number, _z: number): boolean => false,
   /** How much shows (0..1) of something at world (x, y) drawn at `depth` (up a tree with a hole cut round our cat, less). */
   seeThrough: (_x: number, _y: number, _depth: number): number => 1,
-  /** Whether our cat's silhouette, where a hill or a folly hides it, is drawn here (not when game/Cards.ts draws it, wherever anything solid does). */
-  ghosts: true,
 };
 
-/** Walking into shade, a cat takes this long to darken fully. */
-const SHADE_IN_MS = 700;
 /** Riding the train, the part of a cat drawn over the car's walls: all of it this high over its feet and up (px, grown). */
 const HEAD_FROM = 7;
 
@@ -86,14 +80,11 @@ export class CatView {
   mewAt = -Infinity;
 
   readonly shadow: Phaser.GameObjects.Image;
-  /** How shaded the cat looks now (0..1), catching up with the ground under it. */
-  private shaded = 0;
   private readonly sprite: Phaser.GameObjects.Sprite;
   private readonly bubble: Phaser.GameObjects.Image;
   private readonly held: Phaser.GameObjects.Image;
   private readonly carry: Phaser.GameObjects.Image;
   /** A solid green silhouette, drawn over the hill where it hides the cat. */
-  private readonly ghost: Phaser.GameObjects.Sprite;
   /** Riding the train: its head again, on top of the car, so it always shows over the walls. */
   private readonly head: Phaser.GameObjects.Sprite;
   private readonly eyes: Phaser.GameObjects.Sprite;
@@ -116,8 +107,6 @@ export class CatView {
     this.bubble = scene.add.image(x, y, 'bubble-hiss').setOrigin(0.5, 1).setVisible(false);
     this.held = scene.add.image(x, y, 'held-fish', 0).setVisible(false);
     this.carry = paint(scene.add.image(x, y, 'thing-0-0').setVisible(false));
-    this.ghost = scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setDepth(98000).setVisible(false)
-      .setTint(SILHOUETTE).setTintMode(Phaser.TintModes.FILL);
     this.head = paint(scene.add.sprite(x, y, `cat-${this.coat}`, 0).setOrigin(0.5, 1).setVisible(false));
     this.eyes = scene.add.sprite(x, y, 'cat-eyes', 0).setOrigin(0.5, 1).setDepth(DEPTH.glow)
       .setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
@@ -172,35 +161,19 @@ export class CatView {
     // the shadow lies on whatever surface is below the cat (riding, the floor of its car)
     const below = Math.round(this.ride !== null ? z : surfaceAt(this.x, this.y, z));
     this.shadow.setPosition(x, y - 1 - below).setDepth(d - 0.5).setAlpha(catLight.soft * seen).setScale(Math.min(1, k + 0.15));
-    // standing in the shade of something: it darkens step by step (a sliver of shadow crossed
-    // on the way barely shows, so the cat doesn't flicker) and brightens at once in the sun
-    // (riding in a car it is lit like the car: the shadows on the ground below don't reach it)
-    const dark = this.ride !== null ? 0 : catLight.shade(this.x, this.y);
-    this.shaded = dark < this.shaded ? dark : Math.min(dark, this.shaded + (dtm > 0 ? dtm / SHADE_IN_MS : 0));
-    const shade = this.shaded;
     this.sprite.setPosition(x, y - lift).setDepth(d).setAlpha(seen).setVisible(seen > 0);
     this.frame = stageRow(stage) + frameFor(this.act, this.facing, ms, now, this.speed > 110);
     this.sprite.setFrame(this.frame);
-    if (shade > 0) this.sprite.setTint(Phaser.Display.Color.GetColor(255 - 90 * shade, 255 - 80 * shade, 255 - 50 * shade));
-    else this.sprite.clearTint();
     // (just above the car's near half: everything of the cat higher than HEAD_FROM over its feet)
     this.head.setVisible(this.ride !== null);
     if (this.ride !== null)
-      this.head.setPosition(x, y - lift).setDepth(this.ride + 0.7).setFrame(this.frame).setTint(this.sprite.tintTopLeft)
+      this.head.setPosition(x, y - lift).setDepth(this.ride + 0.7).setFrame(this.frame)
         .setCrop(0, 0, CAT, CAT - Math.round(HEAD_FROM * k));
     const top = y - lift;
     // eyes shine in the dark, unless something stands in front of this cat
     const glow = catLight.night > 0.05 && seen > 0 && (this.local || !catLight.occluded(x, top - 9 * k, y));
     this.eyes.setVisible(glow);
     if (glow) this.eyes.setPosition(x, top).setFrame(this.frame).setAlpha(catLight.night * seen * (this.act === Act.Sleep ? 0 : 0.9));
-    // our own cat, where a hill hides it: the covered part shows as a silhouette
-    const cover = this.local && catLight.ghosts ? terrainCover(x, this.y, lift, CAT, CAT) : null;
-    this.ghost.setVisible(!!cover);
-    if (cover) {
-      const left = x - CAT / 2, top = y - lift - CAT;
-      this.ghost.setPosition(x, y - lift).setFrame(this.frame)
-        .setCrop(cover.x0 - left, cover.y0 - top, cover.x1 - cover.x0, cover.y1 - cover.y0);
-    }
 
     // a fish or a bird in the mouth while eating: whole, half, bones (or a last tuft)
     const eating = (this.act === Act.Eat || this.act === Act.Feast) && ms < EAT_MS - 400;
@@ -254,7 +227,6 @@ export class CatView {
     this.bubble.destroy();
     this.held.destroy();
     this.carry.destroy();
-    this.ghost.destroy();
     this.head.destroy();
     this.eyes.destroy();
     this.label.destroy();
