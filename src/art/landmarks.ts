@@ -8,6 +8,7 @@
 import { Raster, hex, hash2, outline, type RGB } from './raster.ts';
 import { dab, paintOver } from './paint.ts';
 import { snowCap } from './furniture.ts';
+import { artPicture } from './files.ts';
 import { SEASON, type Season } from '../world/season.ts';
 import { LANDMARK_SHAPES, LANDMARK_SPRITE, LOOKOUT_LANTERNS, PAPER_LANTERNS, ROUND, type LandmarkKind, type Material, type Shape } from '../world/landmarks.ts';
 
@@ -237,9 +238,15 @@ export const hasRoof = (kind: LandmarkKind): boolean => LANDMARK_SHAPES[kind].so
 
 /** The folly of this kind, dressed for the season (snow on its ledges in winter): all but its roof, or (`over`) its roof alone. */
 export function buildLandmark(kind: LandmarkKind, s: Season = SEASON, over = false): Raster {
+  const seed = kind.length * 13 + kind.charCodeAt(0);
+  // (drawn as a file, art/follies/<kind>.aseprite: its layer `art`, the roof `roof`)
+  const file = artPicture(`follies/${kind}`, over ? 'roof' : 'art');
+  if (file) {
+    snowCap(file, s.snow, seed);
+    return file;
+  }
   const { w, h, ox, oy } = LANDMARK_SPRITE[kind];
   const c = new Canvas(w, h);
-  const seed = kind.length * 13 + kind.charCodeAt(0);
   const shapes = LANDMARK_SHAPES[kind].filter((sh) => !!sh.over === over);
   for (const shape of shapes) drawShape(c, shape, -ox, -oy, seed);
   if (!over) {

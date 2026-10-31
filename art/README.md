@@ -104,8 +104,8 @@ canvas.
 year (snow is laid on them in winter). Keep the canvas sizes: where they stand
 is anchored to them.
 
-`node tools/art-plants.ts [plants | water | woodland]` draws these fresh from
-code, in the same way as the trees.
+`node tools/art-plants.ts [plants | water]` draws plants/ and water/ fresh from
+code, in the same way as the trees; woodland/ is drawn with the furniture (below).
 
 ## ground/
 
@@ -134,3 +134,24 @@ near the old ones (a green for the grass, a blue for the water).
   are its light, mid and dark. The other colours (the outline) stay as painted.
 
 `node tools/art-ground.ts [names]` draws these fresh from code, as the others.
+
+## furniture/, funfair/, follies/
+
+One layer `art` each, unless said otherwise. They look the same all year: the
+game lays snow on their tops in winter, and freezes the bird bath and the
+pump's puddle. Keep the canvas sizes, because where each stands is anchored to
+them (and what a cat can stand on is still worked out in code).
+
+- `furniture/`: `bench`, `picnic`, `bistro`, `chair`, `birdbath`, `blanket`,
+  `basket`, `pump`, `puddle` and `hotel`.
+  - `box` has two layers: `back` (behind a cat sitting in it) and `front` (over it).
+  - Three change with what's growing in them, a frame for each, tagged:
+    `catnip` (bare, young, grown, flowering), `bed` (bare, young, grown) and
+    `barrow` (empty, soil).
+- `funfair/`: `tent`, `booth` and `pole`.
+- `follies/<kind>`: rotunda, tower, colonnade, terrace, obelisk, catstatue,
+  urn, pavilion, teahouse and lookout. Those with a roof have it in a second
+  layer, `roof`, which is drawn over a cat up on the folly.
+
+`node tools/art-furniture.ts [furniture | funfair | woodland | follies]` draws
+these fresh from code, painted over as the game paints them.

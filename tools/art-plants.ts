@@ -4,12 +4,11 @@
 //   art/plants/<kind>.aseprite   the meadow's and the forest floor's plants, standing upright
 //                                (the game bends them in the wind itself), and seasons.aseprite
 //   art/water/lily-pad-<0..3>, lily-flower-<0..3>, and seasons.aseprite
-//   art/woodland/log, stump, stone, boulder (the same all year: snow is laid on them in winter)
 //
 // Each has one layer, `art`. A file that's already there is left alone (it may
 // be painted): a fresh one goes next to it as *.new.aseprite.
 //
-//   node tools/art-plants.ts [plants | water | woodland]
+//   node tools/art-plants.ts [plants | water]
 process.env.ART = 'off';
 // (drawn as in summer: the plants' colours go by the season the page loads in)
 const SUMMER = Date.UTC(2026, 6, 10, 10);
@@ -22,7 +21,6 @@ const { Raster, mix } = await import('../src/art/raster.ts');
 const { FLORA, G, CATTAIL } = await import('../src/art/flora.ts');
 const { FERN, BRACKEN, RUST, SHRUB, SHRUB_TURNED, BRAMBLE_LEAF, BERRY } = await import('../src/art/undergrowth.ts');
 const { PAD, PAD_TURNED, PAD_SIZES, buildPad, buildFlower } = await import('../src/art/lilies.ts');
-const { buildLog, buildStump, buildStone, buildBoulder } = await import('../src/art/woodland.ts');
 const { drabFor } = await import('../src/art/tiles.ts');
 const { seasonAt } = await import('../src/world/season.ts');
 type RGB = readonly [number, number, number];
@@ -70,6 +68,3 @@ if (want('water')) {
   };
   await writeSeasons('water', Object.fromEntries(PAD_SIZES.map((_, i) => [`lily-pad-${i}`, pad])));
 }
-
-if (want('woodland'))
-  for (const [name, build] of [['log', buildLog], ['stump', buildStump], ['stone', buildStone], ['boulder', buildBoulder]] as const) writeArt('woodland', name, build());

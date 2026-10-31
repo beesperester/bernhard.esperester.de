@@ -3,11 +3,10 @@
 // some clearings (a boulder at its foot to climb it by). Drawn in the
 // painted style (paint.ts ramps and dabs), lit from the top left, each with
 // a dark outline of itself; the furniture's season dressing puts snow on
-// them in winter. Drawn as a file (art/woodland/<name>.aseprite), that instead.
+// them in winter. Drawn as a file (art/woodland/<name>.aseprite), the game draws that
+// instead (game/Furniture.ts).
 import { Raster, hash2, outline, type RGB } from './raster.ts';
 import { dab, ramp, tone } from './paint.ts';
-import { seasonalArt } from './seasonal.ts';
-import { SEASON } from '../world/season.ts';
 
 const BARK = ramp(6, '#20161c', '#3a2622', '#58382a', '#7a5034', '#9a6a40', '#b8885a');
 const HEART = ramp(5, '#5a3824', '#8a5e3a', '#b08454', '#ccA46c', '#e4c48a');
@@ -26,8 +25,6 @@ function mossy(r: Raster, x: number, y: number, v: number, seed: number, amount:
 
 /** A fallen log lying across: 48×16, its cut end towards us on the right, moss along its top. */
 export function buildLog(): Raster {
-  const drawn = seasonalArt('woodland', 'log', SEASON);
-  if (drawn) return drawn;
   const r = new Raster(48, 16), seed = 811;
   const x0 = 2, x1 = 40, cy = 9, rad = 5;
   // the trunk: a cylinder seen from the side, lit along its top, bark grain running along it
@@ -58,8 +55,6 @@ export function buildLog(): Raster {
 
 /** An old stump: 18×18, a squat cylinder with its cut top showing rings, roots spreading at its foot, mossy. */
 export function buildStump(): Raster {
-  const drawn = seasonalArt('woodland', 'stump', SEASON);
-  if (drawn) return drawn;
   const r = new Raster(18, 18), seed = 823;
   const cx = 9, top = 6, foot = 15, rad = 5;
   // roots running out into the ground either side
@@ -89,8 +84,6 @@ export function buildStump(): Raster {
 
 /** The standing stone: 26×40, tall, weathered and leaning a little, lichen and moss on it. */
 export function buildStone(): Raster {
-  const drawn = seasonalArt('woodland', 'stone', SEASON);
-  if (drawn) return drawn;
   const r = new Raster(26, 40), seed = 839;
   const foot = 38, top = 3;
   for (let y = top; y <= foot; y++) {
@@ -122,8 +115,6 @@ export function buildStone(): Raster {
 
 /** The boulder at the standing stone's foot (a step up onto it): 16×11, round and mossy on top. */
 export function buildBoulder(): Raster {
-  const drawn = seasonalArt('woodland', 'boulder', SEASON);
-  if (drawn) return drawn;
   const r = new Raster(16, 11), seed = 853;
   for (let y = 1; y < 11; y++)
     for (let x = 1; x < 15; x++) {

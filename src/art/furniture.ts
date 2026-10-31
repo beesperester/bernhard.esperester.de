@@ -191,6 +191,28 @@ export function growth(s: Season = SEASON): 0 | 1 | 2 {
   return s.bloom > 0.1 ? 1 : 0;
 }
 
+/** The barrow has soil heaped in it in spring. */
+const soiled = (s: Season) => s.day > 59 && s.day < 166 && s.snow < 0.1;
+
+/** How the catnip looks: cut back, coming up, grown, or in flower. */
+const catnipLook = (s: Season) => (growth(s) === 2 && s.bloom > 0.3 ? 3 : growth(s));
+
+/**
+ * The pieces that look different through the year, by what's in them: the tags of their files'
+ * frames, which of them shows in a season, and (for drawing each from code) a season it shows in.
+ */
+export const VARIANTS: Record<string, { tags: string[]; at: (s: Season) => number; season: (i: number) => Season }> = {
+  catnip: {
+    tags: ['bare', 'young', 'grown', 'flowering'], at: catnipLook,
+    season: (i) => ({ ...SEASON, snow: 0, turn: 0, leaves: i >= 2 ? 1 : 0, bloom: [0, 0.3, 0.2, 1][i] }),
+  },
+  bed: { tags: ['bare', 'young', 'grown'], at: (s) => growth(s), season: (i) => ({ ...SEASON, snow: 0, turn: 0, leaves: i === 2 ? 1 : 0, bloom: i === 1 ? 0.3 : 0 }) },
+  barrow: { tags: ['empty', 'soil'], at: (s) => (soiled(s) ? 1 : 0), season: (i) => ({ ...SEASON, snow: 0, day: i ? 100 : 200 }) },
+};
+
+/** The seed a piece's dabs of paint are laid on with (paintOver), by its name. */
+export const paintSeed = (key: string): number => key.length * 31 + key.charCodeAt(0);
+
 /** Catnip is up (and worth a roll in) from spring to autumn. */
 export const catnipUp = (s: Season = SEASON): boolean => growth(s) > 0;
 
@@ -393,8 +415,7 @@ export function buildBarrow(s: Season = SEASON): Raster {
     r.rect(x0, y, x1 - x0, 1, y === 8 ? RED.l : y > 11 ? RED.d : RED.b);
   }
   // soil heaped up in it in spring
-  const d = s.day;
-  if (d > 59 && d < 166 && s.snow < 0.1)
+  if (soiled(s))
     for (let y = 2; y < 8; y++)
       for (let x = 9; x < 27; x++) {
         const dx = (x + 0.5 - 18) / 9, dy = (y + 0.5 - 8) / 5.5;
@@ -457,13 +478,12 @@ export function snowCap(r: Raster, amount: number, seed = 0): void {
 
 /** Furniture in winter: snow on top, a frozen bird bath. */
 export function dressForSeason(r: Raster, kind: string, s: Season = SEASON): void {
+  // (by colour, or near it: the dabs of paint over it, or painted so)
   const swap = (from: RGB[], to: (c: RGB) => RGB, p = 1) => {
-    const keys = new Set(from.map((c) => c.join()));
     for (let y = 0; y < r.h; y++)
       for (let x = 0; x < r.w; x++) {
-        const i = (y * r.w + x) * 4;
-        const k = `${r.data[i]},${r.data[i + 1]},${r.data[i + 2]}`;
-        if (r.data[i + 3] && keys.has(k) && hash2(x, y, 1503) < p) r.set(x, y, to([r.data[i], r.data[i + 1], r.data[i + 2]]));
+        const i = (y * r.w + x) * 4, c: RGB = [r.data[i], r.data[i + 1], r.data[i + 2]];
+        if (r.data[i + 3] && from.some((f) => Math.hypot(f[0] - c[0], f[1] - c[1], f[2] - c[2]) < 40) && hash2(x, y, 1503) < p) r.set(x, y, to(c));
       }
   };
   if (s.frozen && kind === 'puddle') swap([GLASS.l, PUDDLE], (c) => (c[0] > 150 ? hex('#f2fbff') : hex('#a6d4ec')));

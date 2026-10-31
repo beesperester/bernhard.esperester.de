@@ -96,3 +96,27 @@ describe('the ground drawn as files (art/ground/)', () => {
     expect([...winter.data]).not.toEqual([...summer.data]);
   });
 });
+
+describe('the furniture and follies drawn as files', () => {
+  it('look as drawn from code in summer, painted over as the game paints them', async () => {
+    const { artPicture } = await import('./files.ts');
+    const F = await import('./furniture.ts');
+    const { paintOver } = await import('./paint.ts');
+    const bench = F.buildBench();
+    paintOver(bench, F.paintSeed('bench'));
+    expect([...artPicture('furniture/bench')!.data]).toEqual([...bench.data]);
+    for (const p of ['furniture/pump', 'funfair/tent', 'woodland/log', 'follies/teahouse']) expect(artPicture(p), p).not.toBeNull();
+    expect(artPicture('furniture/box', 'front')).not.toBeNull();
+    expect(artPicture('follies/teahouse', 'roof')).not.toBeNull();
+  });
+
+  it('have a frame for each look of those that change through the year', async () => {
+    const { artFile } = await import('./files.ts');
+    const { VARIANTS } = await import('./furniture.ts');
+    for (const [key, v] of Object.entries(VARIANTS)) {
+      const f = artFile(`furniture/${key}`)!;
+      expect([...f.tags.keys()], key).toEqual(v.tags);
+      v.tags.forEach((_, i) => expect(v.at(v.season(i)), `${key} ${v.tags[i]}`).toBe(i));
+    }
+  });
+});

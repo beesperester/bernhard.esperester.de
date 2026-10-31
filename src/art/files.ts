@@ -68,3 +68,15 @@ export const artFile = (path: string): ArtFile | null => FILES.get(path) ?? null
 
 /** Whether there's a file art/<path>.aseprite. */
 export const hasArt = (path: string): boolean => FILES.has(path);
+
+/**
+ * Layer `layer` of art/<path>.aseprite, in the frame tagged `tag` (else its first), as a picture of
+ * its own to draw on (snow, say); null if there's no such file or layer.
+ */
+export function artPicture(path: string, layer = 'art', tag?: string): Raster | null {
+  const f = artFile(path), r = f?.layer(layer, (tag && f.tags.get(tag)?.[0]) || 0);
+  if (!r) return null;
+  const out = new Raster(r.w, r.h);
+  out.data.set(r.data);
+  return out;
+}

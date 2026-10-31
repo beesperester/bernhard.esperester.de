@@ -2,8 +2,10 @@ import Phaser from 'phaser';
 import type { Raster } from '../art/raster.ts';
 import {
   buildBarrow, buildBasket, buildBench, buildBirdBath, buildBistroTable, buildBlanket, buildBox, buildCatnip, buildChair, buildInsectHotel,
-  buildPicnicTable, buildPump, buildPumpPuddle, buildRaisedBed, dressForSeason,
+  buildPicnicTable, buildPump, buildPumpPuddle, buildRaisedBed, dressForSeason, paintSeed, VARIANTS,
 } from '../art/furniture.ts';
+import { artPicture } from '../art/files.ts';
+import { seasonalArt } from '../art/seasonal.ts';
 import { buildBooth, buildPlatform, buildPole, buildTent } from '../art/funfair.ts';
 import { buildBoulder, buildLog, buildStone, buildStump } from '../art/woodland.ts';
 import { PLATFORM } from '../world/coaster.ts';
@@ -27,6 +29,22 @@ export const SPOUT = { x: 15, y: 13, z: 13 };
 /** The middle of the puddle under it, relative to the same. */
 export const PUDDLE = { x: 17, y: 13 };
 
+/** Where a piece's file is, when it isn't art/furniture/<its name>: [file, layer]. */
+const FILES: Record<string, [string, string]> = {
+  'box-back': ['furniture/box', 'back'], 'box-front': ['furniture/box', 'front'],
+  tent: ['funfair/tent', 'art'], booth: ['funfair/booth', 'art'], pole: ['funfair/pole', 'art'],
+  log: ['woodland/log', 'art'], stump: ['woodland/stump', 'art'], stone: ['woodland/stone', 'art'], boulder: ['woodland/boulder', 'art'],
+};
+
+/** Piece `key` as painted in its file (in the season, or the frame for what's in it now), if there's one. */
+function fromFile(key: string): Raster | null {
+  const [path, layer] = FILES[key] ?? [`furniture/${key}`, 'art'];
+  const v = VARIANTS[key];
+  if (v) return artPicture(path, layer, v.tags[v.at(SEASON)]);
+  const [dir, name] = path.split('/');
+  return seasonalArt(dir, name, SEASON, layer);
+}
+
 /**
  * The garden furniture. Each piece is sorted by the back edge of what it
  * stands on, so a cat that jumps up onto a bench or table is drawn on top of
@@ -45,9 +63,10 @@ export class Furniture {
     const sprite = (key: string, build: () => Raster, x: number, y: number, depth: number, flip = false) => {
       let canvas = art.get(key);
       if (!canvas) {
-        const r = build();
+        // (drawn from code, it's painted over as it is in the files)
+        const file = fromFile(key), r = file ?? build();
         dressForSeason(r, key);
-        paintOver(r, key.length * 31 + key.charCodeAt(0));
+        if (!file) paintOver(r, paintSeed(key));
         art.set(key, (canvas = toCanvas(r)));
         // (shaded and rimmed in the sun on the GPU, from its outline: Painted.ts)
         const { main, normal } = autoMaps(r);
