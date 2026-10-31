@@ -243,8 +243,8 @@ function broadleafPlan(seed: number, size: number, trunk: number, birdhouse: boo
   const rnd = mulberry32(seed * 7919 + 3);
   const n = levelsOf(seed, size);
   const top = FORK_Z + (n - 1) * RISE;
-  // the crown's underside: just under the lowest branch (a big old tree's lowest limbs reach out bare below it)
-  const base = size === 2 ? FORK_Z + RISE * 0.55 : FORK_Z - 8 - rnd() * 6;
+  // the crown's underside: just under the lowest branch
+  const base = FORK_Z - 8 - rnd() * 6;
   // a squashed round crown, wider than it is tall, its underside flattened
   const rz = (top - base) / 1.7, zc = top - rz, flat = base;
   const rx = Math.max(32, rz * (1.15 + rnd() * 0.3));

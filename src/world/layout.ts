@@ -222,7 +222,7 @@ export function layOut(seed: number): Layout {
   const treeAt = new Map<number, number>();
   // (each tree keeps room round it as big as it grows, the next tree's room besides: across more than in depth)
   const crowded = (x: number, y: number, wood: boolean) => {
-    const r = (wood ? WOOD_ROOM : TREE_ROOM)[treeSizeAt(x, y)], R = r + TREE_ROOM[2];
+    const r = (wood ? WOOD_ROOM : TREE_ROOM)[roomSizeAt(x, y)], R = r + TREE_ROOM[2];
     for (let j = -R; j <= R; j++)
       for (let i = -R; i <= R; i++) {
         const other = treeAt.get((y + j) * W + x + i);
@@ -255,7 +255,7 @@ export function layOut(seed: number): Layout {
     const pine = z === 'g' ? hash(x, y, 63) < PINES[biomeOf(x, y)] : hash(x, y, 63) < (z === 'o' ? 0.45 : PINES.park) || noise(x, y, 12, 64) > 0.78;
     T[y][x] = pine ? 'P' : 'T';
     trees.push([x, y]);
-    treeAt.set(y * W + x, (z === 'g' || wall ? WOOD_ROOM : TREE_ROOM)[treeSizeAt(x, y)]);
+    treeAt.set(y * W + x, (z === 'g' || wall ? WOOD_ROOM : TREE_ROOM)[roomSizeAt(x, y)]);
   }
 
   // bushes and rocks, here and there on the lawns
@@ -316,22 +316,26 @@ export function layOut(seed: number): Layout {
   return { rows: T.map((r) => r.join('')), furniture, zones, biomes: biomes.map((r) => r.join('')) };
 }
 
-/** How big the tree on tile (tx, ty) grows: 0 small (most of them), 1 medium, 2 one of the few really big old ones. */
-export function treeSizeAt(tx: number, ty: number): 0 | 1 | 2 {
+/** How big the tree on tile (tx, ty) grows: 0 small (most of them), 1 medium. */
+export function treeSizeAt(tx: number, ty: number): 0 | 1 {
+  return Math.min(roomSizeAt(tx, ty), 1) as 0 | 1;
+}
+
+/** The room a tree keeps round it, by the size it once grew to: 2 where the really big old ones stood, now medium (kept so they stand where they did). */
+function roomSizeAt(tx: number, ty: number): 0 | 1 | 2 {
   if (CHAMPIONS.has(ty * 4096 + tx)) return 2;
   const u = hash2(tx, ty, 58);
   return u < 0.55 ? 0 : u < 0.88 ? 1 : 2;
 }
 
-/** Half the width of the trunk of a tree (tile ch) on tile (tx, ty) at its foot: the big old ones up to two tiles across. */
+/** Half the width of the trunk of a tree (tile ch) on tile (tx, ty) at its foot. */
 export function trunkHalfOf(ch: string, tx: number, ty: number): number {
   if (ch === 'H') return 16;
   const size = treeSizeAt(tx, ty), u = hash2(tx, ty, 59);
   // (a painted tree: its template's trunk)
   const painted = paintedShape(ch, size);
   if (painted) return TEMPLATE_TRUNK[painted][size];
-  if (CHAMPIONS.has(ty * 4096 + tx)) return ch === 'P' ? 12 : 16;
-  return ch === 'P' ? [5, 7, 10][size] + Math.floor(u * 2) : [5, 8, 13][size] + Math.floor(u * (size === 2 ? 4 : 3));
+  return ch === 'P' ? [5, 7][size] + Math.floor(u * 2) : [5, 8][size] + Math.floor(u * 3);
 }
 
 /** Whether the park has its tree house (left out while the trees are drawn anew). */

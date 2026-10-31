@@ -22,7 +22,7 @@ describe('the woods', () => {
     expect(share('mixed')).toBeLessThan(0.65);
   });
 
-  it('hide clearings no path leads to, open but for a big old tree (or a stone) in the middle', () => {
+  it('hide clearings no path leads to, open but for a tree (or a stone) in the middle', () => {
     expect(CLEARINGS.length).toBeGreaterThan(2);
     for (const c of CLEARINGS) {
       const R = c.r + 3;
@@ -35,7 +35,7 @@ describe('the woods', () => {
         }
       if (c.heart === 'tree') {
         expect('TP').toContain(tileAt(c.tx, c.ty));
-        expect(treeSizeAt(c.tx, c.ty)).toBe(2);
+        expect(treeSizeAt(c.tx, c.ty)).toBe(1);
       }
     }
   });

@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Perch } from './trees.ts';
 
-// The big broadleaf painted, with lines drawn on its guide to try: a V (a steep arm
+// The medium broadleaf painted, with lines drawn on its guide to try: a V (a steep arm
 // down to a flat bottom, then a gentle one up), and further up a flat line with a
 // step in it a cat walks up (3 px) and one it doesn't (6 px).
 const line = (x0: number, zs: number[], kind: Perch['kind'] = 'branch'): Perch => ({ x0, x1: x0 + zs.length, z0: zs[0], z1: zs[zs.length - 1], kind, zs });
 const V = [...Array.from({ length: 20 }, (_, i) => 130 - 1.5 * i), ...Array(10).fill(101.5), ...Array.from({ length: 20 }, (_, i) => 101.5 + 0.5 * i)].map(Math.round);
 const STEPS = [...Array(20).fill(160), 161, 162, 163, ...Array(20).fill(163), 165, 167, 169, ...Array(20).fill(169)];
 vi.mock('../art/paintedTrees.data.ts', () => ({
-  PAINTED_SIZES: { 'broadleaf-2-back': [404, 283], 'broadleaf-2-mid': [404, 283], 'broadleaf-2-front': [404, 283] },
-  PAINTED_PERCHES: { 'broadleaf-2': [line(40, V), line(-60, STEPS), line(-3, [11, 11, 11, 11, 11, 11], 'stump')] },
+  PAINTED_SIZES: { 'broadleaf-1-back': [404, 283], 'broadleaf-1-mid': [404, 283], 'broadleaf-1-front': [404, 283] },
+  PAINTED_PERCHES: { 'broadleaf-1': [line(40, V), line(-60, STEPS), line(-3, [11, 11, 11, 11, 11, 11], 'stump')] },
   PAINTED_PALETTE: '',
   PAINTED_PIXELS: '',
 }));

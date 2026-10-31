@@ -4,7 +4,7 @@
 // the park is then the painted one (world/templates.ts). Kinds and sizes
 // with no file are drawn from their plans as before.
 //
-//   node tools/trees-in.ts [dir] [names]   (default: masters/sprites/trees; names: only these, as broadleaf-l pine-s)
+//   node tools/trees-in.ts [dir] [names]   (default: masters/sprites/trees; names: only these, as broadleaf-m pine-s)
 //   node tools/trees-in.ts --none          (back to none painted)
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -17,11 +17,11 @@ const { guidePerches } = await import('./guide.ts');
 
 const OUT = 'src/art/paintedTrees.data.ts';
 const none = process.argv[2] === '--none';
-const NAME = /^(broadleaf|pine)-[sml]$/;
+const NAME = /^(broadleaf|pine)-[sm]$/;
 const args = process.argv.slice(2), only = args.filter((a) => NAME.test(a));
 const dir = none ? '' : args.find((a) => !NAME.test(a)) ?? 'masters/sprites/trees';
 const round = (v: number) => Math.round(v * 2) / 2;
-const SIZES = ['s', 'm', 'l'], LAYERS = ['back', 'mid', 'front'];
+const SIZES = ['s', 'm'], LAYERS = ['back', 'mid', 'front'];
 
 const sizes: string[] = [];
 const palette = new Map<number, number>();

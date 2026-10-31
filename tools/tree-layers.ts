@@ -28,11 +28,11 @@ mkdirSync(out, { recursive: true });
 
 /** Room to paint round the tree: either side and above (px). */
 const PAD = 24;
-export const SIZES = ['s', 'm', 'l'];
+export const SIZES = ['s', 'm'];
 const SUMMER = seasonAt(Date.UTC(2026, 6, 10, 10));
 
 for (const shape of ['broadleaf', 'pine'] as const)
-  for (let size = 0; size < 3; size++) {
+  for (let size = 0; size < SIZES.length; size++) {
     const { plan, back, mid, front } = templateLayers(shape, size, SUMMER);
     const W = plan.w + PAD * 2, H = plan.h + PAD, cx = W / 2, row = (z: number) => H - 1 - Math.round(z);
     // the guide: every perch along its top, stumps green, the rest red; a mark at the trunk's foot
@@ -62,7 +62,7 @@ for (const shape of ['broadleaf', 'pine'] as const)
 
 writeFileSync(`${out}/README.txt`, `The park's trees, to paint over (made by tools/tree-layers.ts).
 
-broadleaf-s/m/l and pine-s/m/l: every tree of that kind and size in the park is this one
+broadleaf-s/m and pine-s/m: every tree of that kind and size in the park is this one
 (every other one mirrored), once it's painted and brought in.
 
 Layers (keep their names; RGB colour mode):
@@ -94,7 +94,7 @@ down (a shorter steep bit is walked up like a stair). trees-in says where those 
 No guide layer at all: the tree is stood on as planned.
 
 Then: node tools/trees-in.ts   (in the project folder) brings them into the game
-(node tools/trees-in.ts broadleaf-l pine-s: only those). It climbs
+(node tools/trees-in.ts broadleaf-m pine-s: only those). It climbs
 every painted tree first, and if a cat can't get to the highest line of one, brings
 nothing in.
 `);
