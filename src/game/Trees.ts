@@ -49,7 +49,7 @@ const TALL_FROM = TALL[0] >= 0 && TALL.length === 3 ? TALL[0] : 56;
 /** ...more and more of it left out over this much higher... */
 const TALL_SPAN = TALL.length === 3 && TALL[1] > 0 ? TALL[1] : 72;
 /** ...up to this much of it (0..1); the one your cat is up, not at all. */
-const TALL_MOST = TALL.length === 3 && TALL[2] >= 0 && TALL[2] <= 1 ? TALL[2] : 0.85;
+const TALL_MOST = TALL.length === 3 && TALL[2] >= 0 && TALL[2] <= 1 ? TALL[2] : 1;
 /** Your cat's picture, round its feet, for whether a tree hides it: this far either side, and this tall (px)... */
 const CAT_HALF = 6, CAT_TALL = 14;
 /** ...this much further round, once a tree has opened (so it doesn't flicker at the edge)... */
