@@ -47,7 +47,7 @@ export type Puffs = Uint8ClampedArray;
 // [highlight, light, mid, dark, outline]
 // (painted, and a little whimsical: the lights a warm lime-yellow, the shadows cool teal, and the
 // deepest a plum-violet, the complement of the yellow-greens, so the greens sing against it)
-const CANOPIES: { c: RGB[]; dots?: RGB[] }[] = [
+export const CANOPIES: { c: RGB[]; dots?: RGB[] }[] = [
   { c: ['#e8f08c', '#a2d066', '#5fa25a', '#367260', '#3a3260'].map(hex) },
   { c: ['#d6ee9c', '#82c270', '#4a9268', '#2c6068', '#2e2a56'].map(hex) },
   { c: ['#fff0ee', '#f6c4d2', '#e494b4', '#b46290', '#4e2440'].map(hex), dots: [hex('#ffffff')] },
@@ -59,7 +59,7 @@ const COOLER: RGB[] = ['#c8eeb0', '#6cbc84', '#3a8a74', '#285a6c', '#2a2858'].ma
 /** The little blossoms some green trees are sprinkled with: pinks and corals, against the green. */
 const WHIMSY: RGB[] = ['#ff9ab8', '#ffd2de', '#ff8a6a'].map(hex);
 /** A pine's needles: darker and bluer than the leaves, the same all year. */
-const NEEDLES = ['#cce88e', '#6cb066', '#3a8066', '#2a5664', '#2a2652'].map(hex);
+export const NEEDLES = ['#cce88e', '#6cb066', '#3a8066', '#2a5664', '#2a2652'].map(hex);
 /** Bark: warm orange-brown in the light, falling away to plum in the shadow. */
 const BARK = ['#d8955e', '#a05c46', '#6c3a4c', '#3a2240'].map(hex);
 /** Bark ridges catching the full sun, and the deep cracks between them. */
@@ -68,7 +68,7 @@ const BARK_SHINE = hex('#ecb87a'), BARK_CRACK = hex('#4c2a44');
 const MOSS = ['#c4d27a', '#8eae58', '#5e844c', '#3c5a48'].map(hex);
 /** Autumn foliage: yellow, orange, red and russet, same tone order as the canopies. */
 // (their shadows falling to plum and violet, cool against the warm leaves)
-const AUTUMN: RGB[][] = [
+export const AUTUMN: RGB[][] = [
   ['#fff0a0', '#f2c25a', '#d08a3a', '#9a5440', '#4a2a4a'].map(hex),
   ['#ffd49a', '#f09a54', '#c8623e', '#8a3e48', '#42203e'].map(hex),
   ['#ffb4a0', '#e4605a', '#b03a4c', '#742a4e', '#3a1838'].map(hex),

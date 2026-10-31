@@ -11,9 +11,11 @@ are less than half covered are left out.
 
 ## Seasons
 
-A file has a frame for each season, tagged `summer`, `autumn`, `winter` and
-`spring`, with summer first. The game shows the season's frame and dithers
-into the next one as the season turns:
+A file can have a frame for each season, tagged `summer`, `autumn`, `winter`
+and `spring`. Trees need only summer: the other seasons are worked out from it
+(see `trees/seasons.aseprite` below), unless you paint that season's frame too,
+in which case yours is shown. Keep the shape the same all year, because the
+game dithers from one season into the next as it turns:
 
 | holds | turns to the next |
 |---|---|
@@ -24,7 +26,6 @@ into the next one as the season turns:
 
 Paint winter without snow. The game lays snow on top as much as is lying, along
 the tops of what's painted and of boughs (a lit edge with shadow just above it).
-A file without tags shows its first frame all year.
 
 ## trees/
 
@@ -35,8 +36,9 @@ cherry, apple and pine.
 Layers:
 
 - `back`: the leaves behind the trunk
-- `mid`: the trunk, branches and stumps, which is what a cat up the tree sees solid round it
-- `front`: the leaves hanging in front of a cat up the tree
+- `mid`: the trunk, branches and stumps, all of them, even where leaves hide them.
+  In winter it's all there is of a leafy tree. It's also what a cat up the tree sees solid round it.
+- `front`: the leaves hanging in front of the trunk and of a cat up the tree
 - `guide`: where a cat can stand. It's read from the first frame that has it and is never shown.
   - red (255,0,0): branches
   - green (0,255,0): stumps up the trunk
@@ -55,6 +57,25 @@ The guide's rules (`npm test` checks them, at x,y as Aseprite shows them):
 - There's a stump, and the lowest one is 8 to 13 px up the trunk: out of a kitten's jump, but in a young cat's.
 - A cat can climb to the highest line, a jump at a time (13 px up at most).
 
-`node tools/art-trees.ts [kinds]` draws the trees fresh from code. A file
+### trees/seasons.aseprite
+
+These are the colours the leaves (`back` and `front`) turn to in each season.
+There's a column per season (summer, autumn, winter, spring) and a block of
+rows per kind (broadleaf, beech, cherry, apple, pine, top to bottom). Each
+swatch is 8 px square.
+
+In each block:
+
+- **Rows 1 to 3** are ramps, light to dark.
+  - In summer, row 1 is the leaves as painted. Each leaf pixel finds its tone
+    there, by brightness, and takes the same tone from the season's ramp.
+  - With more than one ramp, the leaves turn in soft clouds, mostly to the first ramp.
+- **Row 4** is dots: little blossoms or apples sprinkled over the leaves.
+- **An empty season** means the leaves look as they do in summer.
+
+In winter, every kind but the pine loses its leaves.
+
+`node tools/art-trees.ts [kinds | seasons]` draws the trees (in summer) and the
+seasons' colours fresh from code. A file
 that's already there is left alone, and the fresh one goes next to it as
 `*.new.aseprite`.
