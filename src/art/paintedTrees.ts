@@ -52,7 +52,7 @@ export function paintedTree(kind: string, size: number, season: Season = SEASON)
     const get = (l: string) => (s: SeasonName) => (s === 'winter' && kind !== 'pine' && l !== 'mid' && !f.tags.has('winter') ? null : seasonal(f, 'trees', `${kind}-${SIZE_NAMES[size]}`, l, s, l === 'mid' ? null : kind));
     const [back, mid, front] = LAYERS.map((l) => blendSeasons(get(l), w, h, season));
     const bare = kind !== 'pine' && (from === 'winter' || to === 'winter') && !f.tags.has('winter');
-    const n = bare ? null : f.layer('normal', f.tags.get('summer')?.[0] ?? 0), normal = n && new Raster(w, h);
+    const n = bare ? null : f.layer('normal', 0), normal = n && new Raster(w, h);
     if (n && normal) normal.blit(n, 0, 0);
     trees.set(key, (p = { w, h, back, mid, front, normal }));
   }

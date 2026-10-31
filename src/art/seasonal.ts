@@ -1,5 +1,5 @@
-// Art drawn as a file needs only its summer: the other seasons are worked out
-// from it, unless the file has a frame of its own tagged with the season. The
+// Art drawn as a file is its summer (its first frame): the other seasons are
+// worked out from it, unless the file has a frame of its own tagged with the season. The
 // colours come from the folder's seasons.aseprite (art/<folder>/seasons.aseprite):
 // a layer for each file, named as it is ('fern'; the trees: by kind, 'broadleaf'), in it a column of
 // swatches for each season, summer first; a row for each ramp, light to dark
@@ -105,13 +105,13 @@ const DOTS = 1 / 120;
 const made = new Map<string, Raster | null>();
 /**
  * Layer `layer` of file f (art/<dir>/<name>.aseprite) in a season: its own frame for the season if
- * it's painted, else the summer frame, recoloured with the colours of `swatches` (the layer of
+ * it's painted, else its first frame (summer), recoloured with the colours of `swatches` (the layer of
  * seasons.aseprite: as a rule the file's name; null: as it is).
  */
 export function seasonal(f: ArtFile, dir: string, name: string, layer: string, season: SeasonName, swatches: string | null = name): Raster | null {
   const own = f.tags.get(season);
   if (own) return f.layer(layer, own[0]);
-  const summer = f.layer(layer, f.tags.get('summer')?.[0] ?? 0);
+  const summer = f.layer(layer, 0);
   if (!summer || swatches === null || season === 'summer') return summer;
   const key = `${dir}/${name}/${layer}/${season}`;
   if (!made.has(key)) made.set(key, recoloured(summer, dir, swatches, season));

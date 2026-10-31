@@ -72,7 +72,7 @@ const layer = (name: string, r: R, visible = true): AseLayer => ({ name, visible
 function write(name: string, w: number, h: number, layers: AseLayer[]): void {
   if (!want(name)) return;
   const file = fresh('ground', name);
-  writeFileSync(file, writeAseprite(w, h, layers, [{ name: 'summer', from: 0, to: 0 }]));
+  writeFileSync(file, writeAseprite(w, h, layers));
   console.log(file, `${w}x${h}`);
 }
 

@@ -12,7 +12,7 @@ describe('the trees drawn as files (art/trees/)', () => {
     for (const { kind, size, f } of trees) {
       expect(f, treePath(kind, size)).not.toBeNull();
       expect(isPainted(kind, size), `${treePath(kind, size)}: back, mid and front`).toBe(true);
-      expect(f!.layer('mid', f!.tags.get('summer')?.[0] ?? 0), `${treePath(kind, size)}: a trunk`).not.toBeNull();
+      expect(f!.layer('mid', 0), `${treePath(kind, size)}: a trunk`).not.toBeNull();
       for (const [tag] of f!.tags) expect(SEASON_NAMES, `${treePath(kind, size)}: a frame tagged ${tag}`).toContain(tag);
     }
   });

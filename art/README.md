@@ -11,11 +11,11 @@ are less than half covered are left out.
 
 ## Seasons
 
-A file can have a frame for each season, tagged `summer`, `autumn`, `winter`
-and `spring`. Only summer is needed: the other seasons are worked out from it
-(from the folder's `seasons.aseprite`, see below), unless you paint that season's frame too,
-in which case yours is shown. Keep the shape the same all year, because the
-game dithers from one season into the next as it turns:
+A file is its picture in summer (its first frame). The game works out the
+other seasons from it, with the colours in the folder's `seasons.aseprite` (see
+below). To paint a season yourself instead, add a frame and tag it `autumn`,
+`winter` or `spring`; yours is shown then. Keep the shape the same all year,
+because the game dithers from one season into the next as it turns:
 
 | holds | turns to the next |
 |---|---|
@@ -40,7 +40,7 @@ Layers:
   In winter it's all there is of a leafy tree. It's also what a cat up the tree sees solid round it.
 - `front`: the leaves hanging in front of the trunk and of a cat up the tree
 - `normal`: which way it faces, as a normal map (red to the right, green up, blue towards you).
-  It's optional and hidden, and read from the summer frame. Where it's painted, the game lights the
+  It's optional and hidden, and read from the first frame. Where it's painted, the game lights the
   tree by it; elsewhere, and on a tree that's bare in winter, it works the normals out from the
   outline, as the exported layer shows.
 - `guide`: where a cat can stand. It's read from the first frame that has it and is never shown.
@@ -109,8 +109,8 @@ code, in the same way as the trees.
 
 ## ground/
 
-The park's ground, a tile (16 px) at a time. It has only summer: the game
-dresses it for the seasons itself (straw-coloured lawns, fallen leaves, snow,
+The park's ground, a tile (16 px) at a time. Season frames aren't read here:
+the game dresses the ground for the seasons itself (straw-coloured lawns, fallen leaves, snow,
 frozen ponds, flowers going over). It knows what to dress by its colours, and
 takes a colour you've painted for the nearest one it knows, so keep new colours
 near the old ones (a green for the grass, a blue for the water).

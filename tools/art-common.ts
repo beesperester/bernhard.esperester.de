@@ -14,7 +14,7 @@ export function fresh(dir: string, name: string): string {
 /** Write one picture (in summer) as art/<dir>/<name>.aseprite, its layer `layer`, and more layers on top if given. */
 export function writeArt(dir: string, name: string, r: Raster, more: AseLayer[] = [], layer = 'art'): void {
   const file = fresh(dir, name);
-  writeFileSync(file, writeAseprite(r.w, r.h, [{ name: layer, visible: true, data: placed(r, r.w, r.h, 0, 0) }, ...more], [{ name: 'summer', from: 0, to: 0 }]));
+  writeFileSync(file, writeAseprite(r.w, r.h, [{ name: layer, visible: true, data: placed(r, r.w, r.h, 0, 0) }, ...more]));
   console.log(file, `${r.w}x${r.h}`);
 }
 

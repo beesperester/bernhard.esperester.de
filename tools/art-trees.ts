@@ -73,7 +73,7 @@ for (const kind of TREE_KINDS) {
     layers.push({ name: 'normal', visible: false, data: placed(normal, W, H, PAD, PAD) });
     layers.push({ name: 'guide', visible: true, data: placed(guide, W, H, 0, 0) });
     const file = fresh(`${kind}-${SIZE_NAMES[size]}`);
-    writeFileSync(file, writeAseprite(W, H, layers, [{ name: 'summer', from: 0, to: 0 }]));
+    writeFileSync(file, writeAseprite(W, H, layers));
     console.log(file, `${W}x${H}`);
   }
 }
