@@ -94,8 +94,9 @@ describe('trees', () => {
         expect(Math.abs(p.z1 - p.z0) / (p.x1 - p.x0)).toBeLessThanOrEqual(most);
         if (p.kind === 'branch' && p.z1 !== p.z0) branches++;
       }
-    // (and plenty do slope)
-    expect(branches).toBeGreaterThan(TREES.length);
+    // (and plenty do slope, of those planned)
+    const planned = TREES.filter((t) => !t.painted).length;
+    if (planned) expect(branches).toBeGreaterThan(planned);
   });
 
   it('can be climbed all the way to the top, every kind of them', () => {
@@ -118,9 +119,11 @@ describe('trees', () => {
   }, 60000);
 
   it('can be climbed to its highest perch as its guide is drawn, every painted kind and size', () => {
+    // (one of each standing on its own: where crowns overlap, a cat jumping about may land on the next tree's branch instead)
+    const alone = (t: TreePlan) => !TREES.some((o) => o !== t && Math.abs(o.x - t.x) < (o.w + t.w) / 2 && Math.abs(o.y - t.y) < 16);
     const kinds = new Map<string, TreePlan>();
-    for (const t of TREES) {
-      const k = t.painted && `${t.shape} ${t.w}x${t.h}${t.painted.flip ? ', mirrored' : ''}`;
+    for (const t of [...TREES.filter(alone), ...TREES]) {
+      const k = t.painted && `${t.painted.kind} ${t.w}x${t.h}${t.painted.flip ? ', mirrored' : ''}`;
       if (k && !kinds.has(k)) kinds.set(k, t);
     }
     for (const [k, t] of kinds) {

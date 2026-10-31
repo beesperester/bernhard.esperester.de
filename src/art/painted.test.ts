@@ -47,7 +47,7 @@ describe('painted shading', () => {
 
   it('shades a tree on the GPU as the CPU does, in any light', () => {
     // (a template: the same tree whatever the garden's seed, and whether it's painted or not)
-    const tree = templatePlan('broadleaf', 2);
+    const tree = templatePlan('broadleaf', 1);
     const lights: ScreenLight[] = [{ x: -0.55, y: -0.85, k: 1 }, { x: 0.95, y: -0.3, k: 0.7 }, { x: 0, y: -1, k: 0.55 }];
     for (const L of lights) {
       const prop = planned(tree, SUMMER);

@@ -12,7 +12,7 @@ import { puff, PUFF_SHAPES, PUFF_SIZES } from './leaves.ts';
 import { C_RANGE, J_RANGE, Kind, N_RANGE, PLAIN, RIM_BIT, SPECK, ramps, toByte } from './painted.ts';
 import { TREES, limbAt, limbThick, templatePlan, type Blob, type Limb, type Perch, type TreePlan } from '../world/trees.ts';
 import { paintedTree } from './paintedTrees.ts';
-import type { TemplateShape } from '../world/templates.ts';
+import type { TreeKind } from '../world/templates.ts';
 import { treeSizeAt } from '../world/layout.ts';
 import { autoMaps } from './painted.ts';
 
@@ -1113,7 +1113,7 @@ function treehouse(t: TreePlan, season: Season): Prop {
 /** The picture of tree i (they're drawn as the camera comes near them: the park has far too many to draw them all at once). */
 export function buildProp(i: number, season: Season = SEASON): Prop {
   const t = TREES[i];
-  if (t.painted) return painted(t);
+  if (t.painted) return painted(t, season);
   return planned(t, season);
 }
 
@@ -1122,9 +1122,12 @@ export function planned(t: TreePlan, season: Season): Prop {
   return t.shape === 'pine' ? pine(t, season) : t.shape === 'treehouse' ? treehouse(t, season) : broadleaf(t, season);
 }
 
-/** A painted tree (art/paintedTrees.ts): its leaves at the back with its middle over them, and its leaves in front (mirrored if it is). */
-function painted(t: TreePlan): Prop {
-  const p = paintedTree(t.shape, treeSizeAt(t.tx, t.ty))!, flip = t.painted!.flip;
+/**
+ * A tree drawn as a file (art/paintedTrees.ts), in this season: its leaves at the back with its
+ * middle over them, and its leaves in front (mirrored if it is), and snow lying on top of it all.
+ */
+function painted(t: TreePlan, season: Season): Prop {
+  const p = paintedTree(t.painted!.kind, treeSizeAt(t.tx, t.ty), season)!, flip = t.painted!.flip;
   // (always a copy: the pictures are moved to the game's thread, and the painted ones are shared by every tree)
   const turned = (r: Raster) => {
     const o = new Raster(r.w, r.h);
@@ -1134,6 +1137,7 @@ function painted(t: TreePlan): Prop {
         const i = (y * r.w + x) * 4;
         if (r.data[i + 3]) o.set(r.w - 1 - x, y, [r.data[i], r.data[i + 1], r.data[i + 2]]);
       }
+    if (season.snow > 0) snowOn(o, t, season);
     return o;
   };
   const back = new Raster(p.w, p.h);
@@ -1142,9 +1146,29 @@ function painted(t: TreePlan): Prop {
   const front = turned(p.front), mid = turned(p.mid);
   return {
     raster: turned(back), front: front.data.some((v, i) => i % 4 === 3 && v > 0) ? { raster: front } : undefined, mid: { raster: mid },
-    x: t.x - p.w / 2, y: t.y - (p.h - 1) - t.elev, depthY: t.y, kind: t.shape === 'pine' ? 4 : 0, plan: t,
+    x: t.x - p.w / 2, y: t.y - (p.h - 1) - t.elev, depthY: t.y, kind: t.shape === 'pine' ? 4 : t.colour, plan: t,
   };
 }
+
+/**
+ * Snow lying along the tops of what's drawn, as much as is lying (the files have winter without
+ * it): on its outline, and on the tops of boughs, where a lit edge has shadow just above it.
+ */
+function snowOn(r: Raster, t: TreePlan, season: Season): void {
+  const lum = (x: number, y: number) => { const o = (y * r.w + x) * 4; return r.data[o] * 0.3 + r.data[o + 1] * 0.59 + r.data[o + 2] * 0.11; };
+  const much = season.snow * (t.shape === 'pine' ? 1.2 : 1);
+  for (let x = 0; x < r.w; x++)
+    for (let y = r.h - 5; y >= 1; y--) {
+      if (!r.isSet(x, y)) continue;
+      const edge = !r.isSet(x, y - 1), bough = !edge && lum(x, y - 1) < lum(x, y) - SNOW_STEP;
+      if (!edge && !bough) continue;
+      if (hash2(x, y, t.seed + 1304) >= much * (edge ? 1 : 0.8)) continue;
+      r.set(x, y, SNOW[3]);
+      if (r.isSet(x, y + 1) && hash2(x, y, t.seed + 1305) < 0.5) r.set(x, y + 1, SNOW[1]);
+    }
+}
+/** How much darker (luminance) what's just above a pixel must be for it to be the top of a bough. */
+const SNOW_STEP = 45;
 
 /**
  * The template of a kind and size of tree (world/templates.ts) as drawn from its plan, in its three
@@ -1152,8 +1176,8 @@ function painted(t: TreePlan): Prop {
  * leaf of what a cat up it sees solid round it), and the leaves in front. Each the plan's size,
  * the trunk's foot at the bottom middle.
  */
-export function templateLayers(shape: TemplateShape, size: number, season: Season = SEASON): { plan: TreePlan; back: Raster; mid: Raster; front: Raster } {
-  const plan = templatePlan(shape, size), prop = planned(plan, season), { w, h } = plan;
+export function templateLayers(kind: TreeKind, size: number, season: Season = SEASON): { plan: TreePlan; back: Raster; mid: Raster; front: Raster } {
+  const plan = templatePlan(kind, size), prop = planned(plan, season), { w, h } = plan;
   const back = new Raster(w, h), mid = new Raster(w, h), front = new Raster(w, h);
   back.blit(prop.raster, 0, 0);
   if (prop.front) front.blit(prop.front.raster, 0, 0);

@@ -14,7 +14,7 @@
 
 import { hash2, mulberry32 } from '../art/raster.ts';
 import { treeSizeAt } from './layout.ts';
-import { TEMPLATE_SEED, TEMPLATE_TRUNK, paintedShape, type TemplateShape } from './templates.ts';
+import { KIND_COLOUR, TEMPLATE_SEED, TEMPLATE_TRUNK, paintedKind, treeKindAt, type TreeKind } from './templates.ts';
 import { paintedPerches, paintedSize } from '../art/paintedTrees.ts';
 import { FEET, FORK_Z, LEVEL, TILE, heightUnder, levelAt, tileAt, treeTiles, trunkBase, trunkHalf, trunkTop } from './map.ts';
 
@@ -153,8 +153,8 @@ export interface TreePlan {
   trunk: number;
   /** A bird house hangs on the trunk (its roof is a perch). */
   birdhouse: boolean;
-  /** Painted by hand (art/paintedTrees.ts): planned as its template, and drawn as painted, maybe mirrored; null: drawn from its own plan. */
-  painted: { flip: boolean } | null;
+  /** Drawn as a file (art/paintedTrees.ts): planned as its kind's template, and drawn as in the file, maybe mirrored; null: drawn from its own plan. */
+  painted: { flip: boolean; kind: TreeKind } | null;
 }
 
 type Made = Pick<TreePlan, 'perches' | 'crown' | 'w' | 'h' | 'trunk' | 'limbs' | 'fork'>;
@@ -369,32 +369,32 @@ function frame(perches: Perch[], crown: Blob[], trunk: number, limbs: Limb[], fo
 function plan(tx: number, ty: number, i: number): TreePlan {
   const ch = tileAt(tx, ty);
   const shape: TreeShape = ch === 'P' ? 'pine' : ch === 'H' ? 'treehouse' : 'broadleaf';
-  const h = hash2(tx, ty, 55);
-  const colour = shape !== 'broadleaf' ? 0 : h < 0.22 ? 2 : h < 0.36 ? 3 : h < 0.6 ? 1 : 0;
+  const colour = shape !== 'broadleaf' ? 0 : KIND_COLOUR[treeKindAt(ch, tx, ty)!];
   const seed = i + 1;
   // bird houses on a few of the green trees and apple trees
   const birdhouse = shape === 'broadleaf' && colour !== 2 && hash2(tx, ty, 56) < 0.3;
   const [x, y] = trunkBase(tx, ty);
   const trunk = trunkHalf(tx, ty), size = treeSizeAt(tx, ty);
   const elev = levelAt(tx, ty) * LEVEL;
-  // a painted kind and size of tree: its template, as painted (every other one mirrored), stood on where its guide says
-  const painted = paintedShape(ch, size);
+  // a kind and size of tree drawn as a file: its template, as drawn (every other one mirrored), stood on where its guide says
+  const painted = paintedKind(ch, tx, ty, size);
   if (painted) {
     const flip = hash2(tx, ty, 1601) < 0.5, [w, h] = paintedSize(painted, size)!;
     const tp = templatePlan(painted, size), drawn = paintedPerches(painted, size);
     if (drawn) tp.perches = drawn.map((p) => ({ ...p }));
     const { perches, limbs, crown, fork } = flip ? mirrored(tp) : tp;
-    return { tx, ty, x, y, elev, shape, colour, seed, birdhouse: false, painted: { flip }, perches, limbs, crown, fork, trunk: tp.trunk, w, h };
+    return { tx, ty, x, y, elev, shape, colour, seed, birdhouse: false, painted: { flip, kind: painted }, perches, limbs, crown, fork, trunk: tp.trunk, w, h };
   }
   const made = shape === 'pine' ? pinePlan(seed, size, trunk) : shape === 'treehouse' ? treehousePlan(trunk) : broadleafPlan(seed, size, trunk, birdhouse);
   return { tx, ty, x, y, elev, shape, colour, seed, birdhouse: false, painted: null, ...made };
 }
 
 /** The template of a kind and size of tree (world/templates.ts), planned standing at the map's corner. */
-export function templatePlan(shape: TemplateShape, size: number): TreePlan {
-  const seed = TEMPLATE_SEED[shape][size], trunk = TEMPLATE_TRUNK[shape][size];
+export function templatePlan(kind: TreeKind, size: number): TreePlan {
+  const seed = TEMPLATE_SEED[kind][size], trunk = TEMPLATE_TRUNK[kind][size];
+  const shape = kind === 'pine' ? 'pine' : 'broadleaf';
   const made = shape === 'pine' ? pinePlan(seed, size, trunk) : broadleafPlan(seed, size, trunk, false);
-  return { tx: 0, ty: 0, x: 0, y: 0, elev: 0, shape, colour: 0, seed, birdhouse: false, painted: null, ...made };
+  return { tx: 0, ty: 0, x: 0, y: 0, elev: 0, shape, colour: KIND_COLOUR[kind], seed, birdhouse: false, painted: null, ...made };
 }
 
 /** Plan p the other way round (left for right). */

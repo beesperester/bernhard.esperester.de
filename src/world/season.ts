@@ -85,6 +85,32 @@ export function seasonAt(ms: number): Season {
   };
 }
 
+/** The four seasons art drawn as files has a frame for (tagged so), summer first. */
+export const SEASON_NAMES = ['summer', 'autumn', 'winter', 'spring'] as const;
+export type SeasonName = (typeof SEASON_NAMES)[number];
+
+/**
+ * Which season's frame a file's art shows on day d, and how far it has gone over
+ * to the next (dithered between them, 0..1). Each season holds for a while (as
+ * seasonAt has the leaves, their colour and the blossom), and goes over to the
+ * next as they change.
+ */
+export function seasonFrames(d: number): { from: SeasonName; to: SeasonName; t: number } {
+  // [from day, to day, season before, season after]: summer holds from 10 May, autumn from 15 October...
+  const turns: [number, number, SeasonName, SeasonName][] = [
+    [D(4, 5), D(4, 20), 'winter', 'spring'],
+    [D(4, 28), D(5, 10), 'spring', 'summer'],
+    [D(9, 20), D(10, 15), 'summer', 'autumn'],
+    [D(11, 1), D(11, 25), 'autumn', 'winter'],
+  ];
+  for (let i = 0; i < turns.length; i++) {
+    const [a, b, from, to] = turns[i];
+    if (d < a) return { from, to: from, t: 0 };
+    if (d < b) return { from, to, t: ramp(d, a, b) };
+  }
+  return { from: 'winter', to: 'winter', t: 0 };
+}
+
 /** The season as the page loaded: the garden's look is built from it. */
 export const SEASON = seasonAt(Date.now());
 

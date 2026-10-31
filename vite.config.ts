@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import { execSync } from 'node:child_process';
 import { existsSync, watch } from 'node:fs';
+import { art } from './tools/art-plugin.ts';
 
 const git = (cmd: string, fallback: string) => {
   try {
@@ -31,10 +32,10 @@ const rebuildOnCommit = (): Plugin => ({
 
 export default defineConfig({
   base: './',
-  plugins: [rebuildOnCommit()],
+  plugins: [rebuildOnCommit(), art()],
   build: { chunkSizeWarningLimit: 2000 },
   // (the painter's thread is started as a module, and waits for the painted trees as it loads)
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: () => [art()] },
   define: {
     __BUILD__: JSON.stringify(BUILD),
     __BUILD_YEAR__: JSON.stringify(new Date().getFullYear()),

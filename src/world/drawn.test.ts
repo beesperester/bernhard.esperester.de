@@ -7,12 +7,15 @@ import type { Perch } from './trees.ts';
 const line = (x0: number, zs: number[], kind: Perch['kind'] = 'branch'): Perch => ({ x0, x1: x0 + zs.length, z0: zs[0], z1: zs[zs.length - 1], kind, zs });
 const V = [...Array.from({ length: 20 }, (_, i) => 130 - 1.5 * i), ...Array(10).fill(101.5), ...Array.from({ length: 20 }, (_, i) => 101.5 + 0.5 * i)].map(Math.round);
 const STEPS = [...Array(20).fill(160), 161, 162, 163, ...Array(20).fill(163), 165, 167, 169, ...Array(20).fill(169)];
-vi.mock('../art/paintedTrees.data.ts', () => ({
-  PAINTED_SIZES: { 'broadleaf-1-back': [404, 283], 'broadleaf-1-mid': [404, 283], 'broadleaf-1-front': [404, 283] },
-  PAINTED_PERCHES: { 'broadleaf-1': [line(40, V), line(-60, STEPS), line(-3, [11, 11, 11, 11, 11, 11], 'stump')] },
-  PAINTED_PALETTE: '',
-  PAINTED_PIXELS: '',
-}));
+vi.mock('../art/paintedTrees.ts', async (original) => {
+  const one = (kind: string, size: number) => kind === 'broadleaf' && size === 1;
+  return {
+    ...(await original<typeof import('../art/paintedTrees.ts')>()),
+    isPainted: one,
+    paintedSize: (kind: string, size: number) => (one(kind, size) ? [404, 283] : null),
+    paintedPerches: (kind: string, size: number) => (one(kind, size) ? [line(40, V), line(-60, STEPS), line(-3, [11, 11, 11, 11, 11, 11], 'stump')] : null),
+  };
+});
 
 const { TREES, lineCrossed, standingOn, steepAt, surfaceAt, zAt } = await import('./trees.ts');
 const { blocked, slide, step } = await import('../game/movement.ts');

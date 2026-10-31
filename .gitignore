@@ -5,3 +5,4 @@ dist/
 preview/
 tools/berlin/cache/
 masters/
+art/**/*.new.aseprite
