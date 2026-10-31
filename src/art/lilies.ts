@@ -2,13 +2,15 @@
 // lying flat on the water (seen at a slant, so wider than deep), each with
 // the notch cut in to its middle, lit from the top left; and the flowers,
 // cups of pointed petals with a golden heart, white or pink. In autumn the
-// pads go yellow and brown at their edges.
+// pads go yellow and brown at their edges. Drawn as files (art/water/), those
+// instead.
 import { Raster, hash2, mix, type RGB } from './raster.ts';
 import { dab, ramp, tone } from './paint.ts';
 import { SEASON, type Season } from '../world/season.ts';
+import { seasonalArt } from './seasonal.ts';
 
-const PAD = ramp(6, '#163a36', '#245a3e', '#3a7a40', '#5e9a48', '#8cb85a', '#bcd47a');
-const PAD_TURNED = ramp(6, '#3a2a22', '#6a4a26', '#9a7430', '#c09a3c', '#dcbc5a', '#ecd890');
+export const PAD = ramp(6, '#163a36', '#245a3e', '#3a7a40', '#5e9a48', '#8cb85a', '#bcd47a');
+export const PAD_TURNED = ramp(6, '#3a2a22', '#6a4a26', '#9a7430', '#c09a3c', '#dcbc5a', '#ecd890');
 const WHITE = ramp(5, '#8a8aa8', '#c4c4d4', '#e6e2e6', '#fbf6ee', '#ffffff');
 const PINK = ramp(5, '#8a3a5a', '#c45c7c', '#e48aa0', '#f4b4c0', '#ffe0e4');
 const HEART: RGB[] = [[200, 140, 30], [244, 200, 70]];
@@ -20,6 +22,8 @@ export const FLOWER_W = 9, FLOWER_H = 8;
 
 /** Pad i: an ellipse with a notch cut in from its near side (turned a little each), lit from the top left. */
 export function buildPad(i: number, s: Season = SEASON): Raster {
+  const drawn = seasonalArt('water', `lily-pad-${i}`, s);
+  if (drawn) return drawn;
   const [w, h] = PAD_SIZES[i], r = new Raster(w, h), seed = 7201 + i * 17;
   const cx = (w - 1) / 2, cy = (h - 1) / 2, rx = w / 2 - 0.3, ry = h / 2 - 0.3;
   // (the notch: a wedge from the middle out towards this angle)
@@ -51,6 +55,8 @@ export function buildPad(i: number, s: Season = SEASON): Raster {
 
 /** Flower i: white (0, 1) or pink (2, 3), open wide (even) or a deeper cup (odd). */
 export function buildFlower(i: number): Raster {
+  const drawn = seasonalArt('water', `lily-flower-${i}`, SEASON);
+  if (drawn) return drawn;
   const r = new Raster(FLOWER_W, FLOWER_H), seed = 7301 + i * 13;
   const pal = i < 2 ? WHITE : PINK, open = i % 2 === 0;
   // the petals: pointed, fanning out from the heart, the back ones first (darker), then the front

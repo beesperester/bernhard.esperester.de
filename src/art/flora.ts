@@ -1,10 +1,13 @@
 // Swaying plants: each kind is drawn in 5 lean frames (-2..2) so the wind
-// (and passing cats) can bend them.
+// (and passing cats) can bend them. Drawn as a file (art/plants/<key>.aseprite,
+// upright), the frames are it bent; else drawn here.
 import { Raster, hex, hash2, type RGB } from './raster.ts';
 import { TILE, MAP_W, MAP_H, biomeAt, tileAt, furnished, inClearing, nearClearing } from '../world/map.ts';
 import { noise } from './paint.ts';
 import { UNDERGROWTH } from './undergrowth.ts';
 import { SEASON } from '../world/season.ts';
+import { artFile } from './files.ts';
+import { seasonalArt } from './seasonal.ts';
 import { drabFor } from './tiles.ts';
 import { groundOf, isPond } from '../world/legend.ts';
 import { trackside } from '../world/track.ts';
@@ -12,8 +15,8 @@ import { trackside } from '../world/track.ts';
 export const LEANS = 5;
 
 /** Blades: a deep teal root, olive along them, a warm lit tip (the tall grass in tiles.ts, standing up). */
-const G = { d: hex('#28483a'), m: hex('#46724a'), l: hex('#76a056'), t: hex('#b4ba68') };
-const CATTAIL = { h0: hex('#6a3c20'), h1: hex('#9a6034'), s: hex('#5a8a34') };
+export const G = { d: hex('#28483a'), m: hex('#46724a'), l: hex('#76a056'), t: hex('#b4ba68') };
+export const CATTAIL = { h0: hex('#6a3c20'), h1: hex('#9a6034'), s: hex('#5a8a34') };
 export const PETALS: RGB[] = [hex('#f04858'), hex('#f8d838'), hex('#f8f8f8'), hex('#c078f0'), hex('#58a0f8'), hex('#f890c8')];
 
 interface Blade { x: number; h: number; tilt: number }
@@ -99,8 +102,42 @@ export const undergrowthAt = (x: number, y: number): boolean => UNDER.has(Math.f
 /** Whether world point (x, y) is in a thicket of shrubs or brambles. */
 export const thicketAt = (x: number, y: number): boolean => THICKET.has(Math.floor(y / TILE) * MAP_W + Math.floor(x / TILE));
 
+/**
+ * How far each plant drawn as a file (art/plants/<key>.aseprite, upright) bends at its top for a lean
+ * of 1 (px): it bends more the higher up, as the square of the height (the shrubs and the bramble
+ * as a whole, evenly). Those not here: by how tall they are.
+ */
+const SWAY: Record<string, [number, boolean]> = {
+  tuft: [1.5, true], tall: [1.8, true], cattail: [2.4, true], fern: [1.3, true], bracken: [1.3, true],
+  shrub: [0.5, false], 'shrub-berries': [0.5, false], bramble: [0.8, false],
+};
+
+// (a plant drawn as a file is as big as its file)
+for (const k of FLORA) {
+  const f = artFile(`plants/${k.key}`);
+  if (f) Object.assign(k, { w: f.w, h: f.h });
+}
+
+/** The 5 lean frames of plant k drawn as a file, side by side: its picture in this season, bent. */
+function fileSheet(k: FloraKind): Raster | null {
+  const up = seasonalArt('plants', k.key, SEASON);
+  if (!up) return null;
+  const r = new Raster(k.w * LEANS, k.h), [most, curved] = SWAY[k.key] ?? [(k.h - 4) / 6, true];
+  for (let f = 0; f < LEANS; f++)
+    for (let y = 0; y < k.h; y++) {
+      const u = (k.h - 1 - y) / Math.max(1, k.h - 1), dx = Math.round((f - 2) * most * (curved ? u * u : u));
+      for (let x = 0; x < k.w; x++) {
+        const o = (y * k.w + x) * 4, X = x + dx;
+        if (up.data[o + 3] && X >= 0 && X < k.w) r.set(f * k.w + X, y, [up.data[o], up.data[o + 1], up.data[o + 2]]);
+      }
+    }
+  return r;
+}
+
 /** A sheet with the 5 lean frames side by side, the green gone straw-coloured in autumn and winter. */
 export function buildFloraSheet(k: FloraKind): Raster {
+  const drawn = fileSheet(k);
+  if (drawn) return drawn;
   const r = new Raster(k.w * LEANS, k.h);
   for (let f = 0; f < LEANS; f++) k.draw(r, f * k.w, f - 2);
   if (SEASON.hay > 0) {

@@ -9,37 +9,34 @@
 //   guide   where a cat can stand, and a mark at the trunk's foot
 //
 // and art/trees/seasons.aseprite, the colours the leaves turn in the other
-// seasons (art/treeSeasons.ts). The trunk's foot is the bottom middle of the
+// seasons (art/seasonal.ts). The trunk's foot is the bottom middle of the
 // canvas; there's room to paint out past the tree on either side and above.
 // A file that's already there is left alone (it may be painted): a fresh one
 // goes next to it as *.new.aseprite.
 //
 //   node tools/art-trees.ts [kinds e.g. cherry pine, or seasons]
 process.env.ART = 'off';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { plant } from '../src/world/seed.ts';
 import { placed, writeAseprite } from './aseprite.ts';
-import type { RGB } from '../src/art/raster.ts';
+import { fresh as freshIn, writeSeasons } from './art-common.ts';
 
 plant({ seed: 8919, born: 0 });
 const { Raster } = await import('../src/art/raster.ts');
 const { templateLayers, CANOPIES, AUTUMN, NEEDLES } = await import('../src/art/trees.ts');
 const { hex } = await import('../src/art/raster.ts');
 const { fileNormal, outlineNormal } = await import('../src/art/painted.ts');
-const { COLUMN, BLOCK, RAMPS, SW, swatchAt } = await import('../src/art/treeSeasons.ts');
-const { seasonAt, SEASON_NAMES } = await import('../src/world/season.ts');
+const { seasonAt } = await import('../src/world/season.ts');
 const { TREE_KINDS } = await import('../src/world/templates.ts');
 const { SIZE_NAMES } = await import('../src/art/paintedTrees.ts');
 const { GUIDE } = await import('../src/art/guide.ts');
 
-const OUT = 'art/trees';
-mkdirSync(OUT, { recursive: true });
 const only = process.argv.slice(2);
 
 /** Room to paint round the tree: either side and above (px). */
 const PAD = 24;
 const SUMMER = seasonAt(Date.UTC(2026, 6, 10, 10)), WINTER = { ...seasonAt(Date.UTC(2027, 0, 15, 10)), snow: 0 };
-const fresh = (name: string) => (existsSync(`${OUT}/${name}.aseprite`) ? `${OUT}/${name}.new.aseprite` : `${OUT}/${name}.aseprite`);
+const fresh = (name: string) => freshIn('trees', name);
 
 for (const kind of TREE_KINDS) {
   if (only.length && !only.includes(kind)) continue;
@@ -86,24 +83,11 @@ if (!only.length || only.includes('seasons')) {
   const ramp = (...c: string[]) => c.map(hex);
   const SPRING = ramp('#f2f8a8', '#bce07a', '#7cbc5e', '#46885e', '#383a5e'), SPRING_COOL = ramp('#e4f6b4', '#9ad47e', '#5aa26c', '#346c68', '#2e2c56');
   const A = AUTUMN;
-  /** [kind][season]: up to three ramps, and the dots. */
-  const looks: Record<string, Record<string, { ramps: RGB[][]; dots?: RGB[] }>> = {
+  await writeSeasons('trees', {
     broadleaf: { summer: { ramps: [CANOPIES[0].c] }, autumn: { ramps: [A[0], A[1], A[3]] }, spring: { ramps: [SPRING] } },
     beech: { summer: { ramps: [CANOPIES[1].c] }, autumn: { ramps: [A[1], A[2], A[0]] }, spring: { ramps: [SPRING_COOL] } },
     cherry: { summer: { ramps: [CANOPIES[0].c] }, autumn: { ramps: [A[2], A[1], A[3]] }, spring: { ramps: [CANOPIES[2].c], dots: CANOPIES[2].dots } },
     apple: { summer: { ramps: [CANOPIES[3].c] }, autumn: { ramps: [A[0], A[3], A[1]], dots: CANOPIES[3].dots }, spring: { ramps: [CANOPIES[3].c], dots: ramp('#ffffff', '#f8d8e8') } },
     pine: { summer: { ramps: [NEEDLES] } },
-  };
-  const W = COLUMN * SEASON_NAMES.length, H = BLOCK * TREE_KINDS.length, r = new Raster(W, H);
-  TREE_KINDS.forEach((kind, k) => SEASON_NAMES.forEach((season, s) => {
-    const l = looks[kind][season];
-    if (!l) return;
-    [...l.ramps, ...Array(RAMPS - l.ramps.length).fill([]), l.dots ?? []].forEach((cs: RGB[], row) => cs.forEach((c, i) => {
-      const [x0, y0] = swatchAt(s, k, row, i);
-      for (let y = 0; y < SW; y++) for (let x = 0; x < SW; x++) r.set(x0 + x, y0 + y, c);
-    }));
-  }));
-  const file = fresh('seasons');
-  writeFileSync(file, writeAseprite(W, H, [{ name: 'colours', visible: true, data: placed(r, W, H, 0, 0) }]));
-  console.log(file, `${W}x${H}`);
+  });
 }

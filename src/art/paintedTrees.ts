@@ -1,15 +1,15 @@
 // The trees drawn as files (art/trees/<kind>-<s|m>.aseprite, art/files.ts):
 // for a kind and size of tree, its leaves at the back, its middle (trunk and
 // branches) and its leaves in front, in summer (the other seasons worked out
-// from it, art/treeSeasons.ts, unless they're painted too). Where there's a file, every tree of that kind and
+// from it, art/seasonal.ts, unless they're painted too). Where there's a file, every tree of that kind and
 // size is that one (world/trees.ts plans it as its template, and a cat stands
 // where the guide layer's lines are drawn); the rest are drawn from their
 // plans as ever.
 import { Raster } from './raster.ts';
-import { artFile, hasArt, type ArtFile } from './files.ts';
+import { artFile, hasArt } from './files.ts';
 import { guideLines } from './guide.ts';
 import { SEASON, seasonFrames, type Season, type SeasonName } from '../world/season.ts';
-import { seasonLayer } from './treeSeasons.ts';
+import { blendSeasons, seasonal } from './seasonal.ts';
 import type { Perch } from '../world/trees.ts';
 
 /** A painted tree's layers, all the same size, its trunk's foot at the bottom middle. */
@@ -40,23 +40,6 @@ export function paintedSize(kind: string, size: number): [number, number] | null
   return [f.w + (f.w % 2), f.h];
 }
 
-/** 4 x 4 ordered dither: the share of pixels (0..1) under which each one goes over. */
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
-
-/** A layer in one season going over to the next: each pixel from one or the other, dithered. */
-function blended(f: ArtFile, kind: string, size: number, name: string, a: SeasonName, b: SeasonName, t: number, w: number): Raster {
-  const out = new Raster(w, f.h), path = treePath(kind, size);
-  const from = seasonLayer(f, path, kind, name, a), to = seasonLayer(f, path, kind, name, b);
-  for (let y = 0; y < f.h; y++)
-    for (let x = 0; x < f.w; x++) {
-      const src = b !== a && BAYER[(y & 3) * 4 + (x & 3)] < t ? to : from;
-      if (!src) continue;
-      const o = (y * f.w + x) * 4;
-      if (src.data[o + 3]) out.set(x, y, [src.data[o], src.data[o + 1], src.data[o + 2]]);
-    }
-  return out;
-}
-
 const trees = new Map<string, PaintedTree>();
 /** The tree of this kind and size drawn as a file, in this season, if there is one. */
 export function paintedTree(kind: string, size: number, season: Season = SEASON): PaintedTree | null {
@@ -65,7 +48,9 @@ export function paintedTree(kind: string, size: number, season: Season = SEASON)
   let p = trees.get(key);
   if (!p) {
     const f = artFile(treePath(kind, size))!, [w, h] = paintedSize(kind, size)!;
-    const [back, mid, front] = LAYERS.map((l) => blended(f, kind, size, l, from, to, t, w));
+    // (the leaves recoloured for the season, and gone in winter but for the pine's; the middle as it is)
+    const get = (l: string) => (s: SeasonName) => (s === 'winter' && kind !== 'pine' && l !== 'mid' && !f.tags.has('winter') ? null : seasonal(f, 'trees', `${kind}-${SIZE_NAMES[size]}`, l, s, l === 'mid' ? null : kind));
+    const [back, mid, front] = LAYERS.map((l) => blendSeasons(get(l), w, h, season));
     const bare = kind !== 'pine' && (from === 'winter' || to === 'winter') && !f.tags.has('winter');
     const n = bare ? null : f.layer('normal', f.tags.get('summer')?.[0] ?? 0), normal = n && new Raster(w, h);
     if (n && normal) normal.blit(n, 0, 0);

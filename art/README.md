@@ -12,8 +12,8 @@ are less than half covered are left out.
 ## Seasons
 
 A file can have a frame for each season, tagged `summer`, `autumn`, `winter`
-and `spring`. Trees need only summer: the other seasons are worked out from it
-(see `trees/seasons.aseprite` below), unless you paint that season's frame too,
+and `spring`. Only summer is needed: the other seasons are worked out from it
+(from the folder's `seasons.aseprite`, see below), unless you paint that season's frame too,
 in which case yours is shown. Keep the shape the same all year, because the
 game dithers from one season into the next as it turns:
 
@@ -63,23 +63,46 @@ The guide's rules (`npm test` checks them, at x,y as Aseprite shows them):
 
 ### trees/seasons.aseprite
 
-These are the colours the leaves (`back` and `front`) turn to in each season.
-There's a column per season (summer, autumn, winter, spring) and a block of
-rows per kind (broadleaf, beech, cherry, apple, pine, top to bottom). Each
-swatch is 8 px square.
+These are the colours the leaves (`back` and `front`) turn to in each season,
+laid out as every folder's `seasons.aseprite` is (below), with a layer per kind.
+In winter, every tree but the pine loses its leaves.
 
-In each block:
+`node tools/art-trees.ts [kinds | seasons]` draws the trees (in summer) and the
+seasons' colours fresh from code. A file that's already there is left alone,
+and the fresh one goes next to it as `*.new.aseprite`.
+
+## seasons.aseprite
+
+A folder's `seasons.aseprite` has a layer named after each file it recolours
+(in `trees/`, after each kind). There's a column per season (summer, autumn,
+winter, spring); each swatch is 8 px square.
 
 - **Rows 1 to 3** are ramps, light to dark.
   - In summer, row 1 is the leaves as painted. Each leaf pixel finds its tone
     there, by brightness, and takes the same tone from the season's ramp.
   - With more than one ramp, the leaves turn in soft clouds, mostly to the first ramp.
-- **Row 4** is dots: little blossoms or apples sprinkled over the leaves.
-- **An empty season** means the leaves look as they do in summer.
+- **Row 4** is dots: little blossoms, apples or berries sprinkled over it.
+- **An empty season** means it looks as it does in summer.
+- Only colours near row 1's summer ramp change; the rest (stems, flowers, outlines) stay as painted.
 
-In winter, every kind but the pine loses its leaves.
+## plants/
 
-`node tools/art-trees.ts [kinds | seasons]` draws the trees (in summer) and the
-seasons' colours fresh from code. A file
-that's already there is left alone, and the fresh one goes next to it as
-`*.new.aseprite`.
+`<kind>.aseprite`, one layer `art`: the meadow's grass (`tuft`, `tall`), the
+flowers (`flower0` to `flower5`), `cattail`, and the forest floor's `fern`,
+`bracken`, `shrub`, `shrub-berries` and `bramble`. Paint them standing upright;
+the game leans them in the wind itself (most at the top). Their size is the
+canvas's, and they stand on its bottom middle.
+
+## water/
+
+`lily-pad-<0..3>` and `lily-flower-<0..3>`, one layer `art`, centred on the
+canvas.
+
+## woodland/
+
+`log`, `stump`, `stone` and `boulder`, one layer `art`. They look the same all
+year (snow is laid on them in winter). Keep the canvas sizes: where they stand
+is anchored to them.
+
+`node tools/art-plants.ts [plants | water | woodland]` draws these fresh from
+code, in the same way as the trees.

@@ -20,8 +20,14 @@ describe('the trees drawn as files (art/trees/)', () => {
   it('turn colour in autumn and lose their leaves in winter, but for the pines', () => {
     const autumn = paintedTree('broadleaf', 1, { ...SEASON, day: 296 })!, winter = paintedTree('broadleaf', 1, { ...SEASON, day: 15 })!;
     const summer = paintedTree('broadleaf', 1, { ...SEASON, day: 190 })!;
-    const o = summer.back.data.findIndex((v, i) => i % 4 === 3 && v > 0) - 3;
-    expect([...autumn.back.data.subarray(o, o + 4)]).not.toEqual([...summer.back.data.subarray(o, o + 4)]);
+    // (most of the leaves turned: what's left is far from the summer ramps, the odd whimsy blossom)
+    let leaves = 0, turned = 0;
+    for (let o = 0; o < summer.back.data.length; o += 4) {
+      if (!summer.back.data[o + 3]) continue;
+      leaves++;
+      if (summer.back.data[o] !== autumn.back.data[o] || summer.back.data[o + 1] !== autumn.back.data[o + 1]) turned++;
+    }
+    expect(turned / leaves).toBeGreaterThan(0.9);
     expect(winter.back.data.some((v, i) => i % 4 === 3 && v > 0 && !summer.mid.data[i])).toBe(false);
     expect(paintedTree('pine', 1, { ...SEASON, day: 15 })!.back.data.some((v, i) => i % 4 === 3 && v > 0)).toBe(true);
   });
@@ -37,5 +43,33 @@ describe('the trees drawn as files (art/trees/)', () => {
       const { problems } = guidePerches(guide, w, h, kind === 'pine' ? 'pine' : 'broadleaf', solid);
       expect(problems, treePath(kind, size)).toEqual([]);
     }
+  });
+});
+
+describe('the small things drawn as files (art/plants/, art/water/, art/woodland/)', () => {
+  it('are there for every plant, and bend in the wind from upright', async () => {
+    const { FLORA, LEANS, buildFloraSheet } = await import('./flora.ts');
+    for (const k of FLORA) {
+      const f = artFile(`plants/${k.key}`);
+      expect(f, `plants/${k.key}`).not.toBeNull();
+      expect([k.w, k.h]).toEqual([f!.w, f!.h]);
+      const sheet = buildFloraSheet(k), frame = (n: number) => sheet.data.subarray(0, sheet.data.length).filter((_, i) => Math.floor((i / 4) % sheet.w / k.w) === n);
+      // (upright in the middle frame, as painted; bent either side)
+      expect(sheet.w).toBe(k.w * LEANS);
+      expect([...frame(0)]).not.toEqual([...frame(2)]);
+    }
+  });
+
+  it('have the lilies and what lies about in the woods', () => {
+    for (const p of ['water/lily-pad-0', 'water/lily-pad-3', 'water/lily-flower-0', 'water/lily-flower-3', 'woodland/log', 'woodland/stump', 'woodland/stone', 'woodland/boulder'])
+      expect(artFile(p), p).not.toBeNull();
+  });
+
+  it('turn colour with the seasons where they have their colours', async () => {
+    const { seasonalArt } = await import('./seasonal.ts');
+    const summer = seasonalArt('plants', 'fern', { ...SEASON, day: 190 })!, autumn = seasonalArt('plants', 'fern', { ...SEASON, day: 296 })!;
+    expect([...autumn.data]).not.toEqual([...summer.data]);
+    const log = seasonalArt('woodland', 'log', { ...SEASON, day: 296 })!;
+    expect([...log.data]).toEqual([...seasonalArt('woodland', 'log', { ...SEASON, day: 190 })!.data]);
   });
 });

@@ -10,14 +10,14 @@ import { puff } from './leaves.ts';
 import { SEASON } from '../world/season.ts';
 import type { FloraKind } from './flora.ts';
 
-const FERN = ramp(6, '#173a36', '#2a5a3c', '#467e3e', '#76a448', '#b4c460');
-const BRACKEN = ramp(6, '#2a4030', '#3e6a36', '#6a9440', '#9cb84c', '#d0cc6a');
-const RUST = ramp(6, '#3a2422', '#6a3424', '#9a5228', '#c4782e', '#e0a448');
-const SHRUB = ramp(7, '#152c2e', '#21443a', '#336040', '#4c7c44', '#6e9a4a', '#9cb85a', '#c8cc72');
-const SHRUB_TURNED = ramp(7, '#2a1e26', '#4a2a28', '#6e3a2a', '#9a5a2e', '#c07e34', '#dca048', '#ecc66c');
+export const FERN = ramp(6, '#173a36', '#2a5a3c', '#467e3e', '#76a448', '#b4c460');
+export const BRACKEN = ramp(6, '#2a4030', '#3e6a36', '#6a9440', '#9cb84c', '#d0cc6a');
+export const RUST = ramp(6, '#3a2422', '#6a3424', '#9a5228', '#c4782e', '#e0a448');
+export const SHRUB = ramp(7, '#152c2e', '#21443a', '#336040', '#4c7c44', '#6e9a4a', '#9cb85a', '#c8cc72');
+export const SHRUB_TURNED = ramp(7, '#2a1e26', '#4a2a28', '#6e3a2a', '#9a5a2e', '#c07e34', '#dca048', '#ecc66c');
 const CANE = ramp(4, '#2a1624', '#4a2232', '#6e3440', '#94504c');
-const BRAMBLE_LEAF = ramp(5, '#1a3230', '#2c4c38', '#466c3e', '#6c8c46', '#98aa58');
-const BERRY: RGB[] = [[34, 18, 40], [70, 34, 66], [150, 40, 60]];
+export const BRAMBLE_LEAF = ramp(5, '#1a3230', '#2c4c38', '#466c3e', '#6c8c46', '#98aa58');
+export const BERRY: RGB[] = [[34, 18, 40], [70, 34, 66], [150, 40, 60]];
 
 /** How far the fronds have gone rusty (autumn), and died back to brown (winter). */
 const rusty = () => Math.min(1, SEASON.turn * 0.9 + (1 - SEASON.leaves) * 0.6);
